@@ -1,0 +1,12 @@
+node_modules/
+.env
+sistema_ecri.db
+.DS_Store
+*.log
+npm-debug.log*
+.vscode/
+.idea/
+dist/
+build/
+*.swp
+*.swo

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema ECRI - Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card shadow-lg">
+                    <div class="card-body p-5">
+                        <img src="assets/logo-ecri.png" alt="ECRI" class="login-logo">
+                        <div class="ecri-stripe mb-4"></div>
+                        <h1 class="card-title text-center mb-4">Sistema ECRI</h1>
+                        <p class="text-center text-muted mb-4">Plataforma de Gestão de Equipes</p>
+
+                        <ul class="nav nav-tabs mb-4" role="tablist">
+                            <li class="nav-item">
+                                <a class="nav-link active" data-bs-toggle="tab" href="#login">Login</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" data-bs-toggle="tab" href="#registro">Registro</a>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content">
+                            <!-- Aba de Login -->
+                            <div id="login" class="tab-pane fade show active">
+                                <form id="formLogin">
+                                    <div class="mb-3">
+                                        <label for="cpfLogin" class="form-label">CPF</label>
+                                        <input type="text" class="form-control" id="cpfLogin" inputmode="numeric" maxlength="11" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="dataNascimentoLogin" class="form-label">Data de Nascimento</label>
+                                        <input type="password" class="form-control" id="dataNascimentoLogin" inputmode="numeric" maxlength="8" placeholder="DDMMAAAA" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100">Entrar</button>
+                                </form>
+                            </div>
+
+                            <!-- Aba de Registro -->
+                            <div id="registro" class="tab-pane fade">
+                                <form id="formRegistro">
+                                    <div class="mb-3">
+                                        <label for="cpfRegistro" class="form-label">CPF</label>
+                                        <input type="text" class="form-control" id="cpfRegistro" inputmode="numeric" maxlength="11" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="dataNascimentoRegistro" class="form-label">Data de Nascimento</label>
+                                        <input type="password" class="form-control" id="dataNascimentoRegistro" inputmode="numeric" maxlength="8" placeholder="DDMMAAAA" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="movimento" class="form-label">Movimento de Origem</label>
+                                        <div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="movimento" id="movimentoEC" value="EC" required>
+                                                <label class="form-check-label" for="movimentoEC">EC</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="movimento" id="movimentoEJC" value="EJC" required>
+                                                <label class="form-check-label" for="movimentoEJC">EJC</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="movimento" id="movimentoECC" value="ECC" required>
+                                                <label class="form-check-label" for="movimentoECC">ECC</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="movimento" id="movimentoJovensEjcCasados" value="JOVENS EJC CASADOS" required>
+                                                <label class="form-check-label" for="movimentoJovensEjcCasados">Jovens EJC casados</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="movimento" id="movimentoECRI" value="ECRI" required>
+                                                <label class="form-check-label" for="movimentoECRI">ECRI</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="anoEncontroRegistro" class="form-label">Qual o ano que voce fez o encontro?</label>
+                                        <input type="text" class="form-control" id="anoEncontroRegistro" inputmode="numeric" maxlength="4" required>
+                                    </div>
+                                    <input type="hidden" id="nomeCompleto">
+                                    <div id="dadosIndividualRegistro" style="display:none;">
+                                        <div class="mb-3">
+                                            <label for="nomeCompletoIndividual" class="form-label">Nome Completo</label>
+                                            <input type="text" class="form-control" id="nomeCompletoIndividual">
+                                        </div>
+                                    </div>
+                                    <div id="dadosCasalRegistro" style="display:none;">
+                                        <div class="mb-3">
+                                            <label for="nomeMarido" class="form-label">Nome do Marido</label>
+                                            <input type="text" class="form-control" id="nomeMarido">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="nomeEsposa" class="form-label">Nome da Esposa</label>
+                                            <input type="text" class="form-control" id="nomeEsposa">
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="nomeCracha" class="form-label">Nome para o Crachá</label>
+                                        <input type="text" class="form-control" id="nomeCracha" readonly required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="fotoPerfilRegistro" class="form-label">Foto de Perfil</label>
+                                        <input type="file" class="form-control" id="fotoPerfilRegistro" accept="image/*" required>
+                                        <small class="text-muted">Formatos: JPG, PNG (max 15MB)</small>
+                                    </div>
+                                    <div id="previewFotoRegistro" class="mb-3">
+                                        <img id="fotoPreviewRegistro" src="" alt="Preview" style="max-width:150px; display:none;">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="telefone" class="form-label">Telefone (WhatsApp)</label>
+                                        <input type="tel" class="form-control" id="telefone" placeholder="(11) 99999-9999" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">Voce toca algum instrumento?</label>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="tocaInstrumento" id="tocaInstrumentoSim" value="sim" required>
+                                            <label class="form-check-label" for="tocaInstrumentoSim">Sim</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="tocaInstrumento" id="tocaInstrumentoNao" value="nao" required>
+                                            <label class="form-check-label" for="tocaInstrumentoNao">Nao</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3" id="campoInstrumentosRegistro" style="display:none;">
+                                        <label for="instrumentosRegistro" class="form-label">Qual instrumentos?</label>
+                                        <input type="text" class="form-control" id="instrumentosRegistro">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">Voce canta?</label>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="canta" id="cantaSim" value="sim" required>
+                                            <label class="form-check-label" for="cantaSim">Sim</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="canta" id="cantaNao" value="nao" required>
+                                            <label class="form-check-label" for="cantaNao">Nao</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">Quais dessas equipes voce ja serviu?</label>
+                                        <div class="row g-2">
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaApresentadores" value="APRESENTADORES"><label class="form-check-label" for="equipeServidaApresentadores">Apressentadores</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCirculos" value="CIRCULOS/ ARCOS / GRUPOS"><label class="form-check-label" for="equipeServidaCirculos">Circulos/ Arcos / Grupos</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaEcrishop" value="ECRISHOP/ MINI BOX / BODEGA"><label class="form-check-label" for="equipeServidaEcrishop">ECRISHOP/ Mini box / bodega</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaBandinha" value="BANDINHA"><label class="form-check-label" for="equipeServidaBandinha">Bandinha</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaBoaAcao" value="BOA ACAO / BOA VONTADE / BEM ESTAR"><label class="form-check-label" for="equipeServidaBoaAcao">Boa Acao / Boa Vontade / Bem estar</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaLiturgia" value="LIRTUGIA"><label class="form-check-label" for="equipeServidaLiturgia">Lirtugia</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaSecretaria" value="SECRETARIA / PAPELARIA / ESCRITA"><label class="form-check-label" for="equipeServidaSecretaria">Secretaria / papelaria / Escrita</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaTeatro" value="TRANSITO E SOCIODRAMA / TEATRO/ TEATRINHO"><label class="form-check-label" for="equipeServidaTeatro">Transito e Sociodrama / Teatro/ Teatrinho</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaAlegria" value="ANJOS DA ALEGRIA"><label class="form-check-label" for="equipeServidaAlegria">Anjos da Alegria</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaGuarda" value="ANJOS DA GUARDA"><label class="form-check-label" for="equipeServidaGuarda">Anjos da Guarda</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaOrdem" value="ORDEM / VASSOURINHA"><label class="form-check-label" for="equipeServidaOrdem">Ordem / vassourinha</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaLanchinho" value="LANCHINHO/ PAPA LANCHE"><label class="form-check-label" for="equipeServidaLanchinho">Lanchinho/ Papa Lanche</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCozinha" value="COZINHA / RANGUINHO"><label class="form-check-label" for="equipeServidaCozinha">Cozinha / Ranguinho</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaSom" value="SOM E ILUMINACAO"><label class="form-check-label" for="equipeServidaSom">Som e Iluminacao</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCompras" value="COMPRAS"><label class="form-check-label" for="equipeServidaCompras">Compras</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaRecepcao" value="RECPCAO AOS PALESTRANTES"><label class="form-check-label" for="equipeServidaRecepcao">Recpcao Aos palestrantes</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaVisitacao" value="VISITACAO E EXTERNA/ COMUNICACAO E INFORMACAO"><label class="form-check-label" for="equipeServidaVisitacao">Visitacao e Externa/ Comunicacao e Informacao</label></div></div>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-success w-100">Criar Conta</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div id="alertaLogin" class="alert alert-danger mt-3" role="alert" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/auth.js"></script>
+</body>
+</html>

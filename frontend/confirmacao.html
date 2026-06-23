@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmar Participacao - ECRI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container py-4" style="max-width: 760px;">
+        <div class="text-center mb-3">
+            <img src="assets/logo-ecri.png" alt="ECRI" class="login-logo">
+            <div class="ecri-stripe"></div>
+        </div>
+        <h2>Confirmar Participacao</h2>
+        <div id="alertaConfirmacao" class="alert mt-3" style="display:none;"></div>
+
+        <form id="formConfirmacao" class="card p-4 shadow-sm mt-3" style="display:none;">
+            <div class="text-center mb-3" id="fotoConfirmacao"></div>
+
+            <div class="mb-3">
+                <label class="form-label">Foto de perfil</label>
+                <input type="file" class="form-control" id="confirmacaoFoto" accept="image/*" required>
+                <small class="text-muted">Formatos: JPG, PNG (max 15MB)</small>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Nome completo</label>
+                <input type="text" class="form-control" id="confirmacaoNome" required>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Telefone WhatsApp</label>
+                <input type="tel" class="form-control" id="confirmacaoTelefone" required>
+            </div>
+
+            <div id="dadosLoginSemCadastro" style="display:none;">
+                <div class="mb-3">
+                    <label class="form-label">CPF</label>
+                    <input type="text" class="form-control" id="confirmacaoCpf" inputmode="numeric" pattern="[0-9]*" maxlength="11">
+                    <small class="text-muted">Somente numeros</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Data de nascimento</label>
+                    <input type="text" class="form-control" id="confirmacaoDataNascimento" inputmode="numeric" pattern="[0-9]*" maxlength="8">
+                    <small class="text-muted">Somente numeros. Exemplo: 25061995</small>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Movimento de origem</label>
+                <select class="form-select" id="confirmacaoMovimento" required>
+                    <option value="">Selecione...</option>
+                    <option value="EC">EC</option>
+                    <option value="EJC">EJC</option>
+                    <option value="ECC">ECC</option>
+                    <option value="JOVENS EJC CASADOS">Jovens EJC casados</option>
+                    <option value="ECRI">ECRI</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Qual o ano que voce fez o encontro?</label>
+                <input type="text" class="form-control" id="confirmacaoAnoEncontro" inputmode="numeric" pattern="[0-9]*" maxlength="4" required>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Restricao medica</label>
+                <input type="text" class="form-control" id="confirmacaoRestricaoMedica">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Restricao alimentar</label>
+                <input type="text" class="form-control" id="confirmacaoRestricaoAlimentar">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Restricao de medicacao</label>
+                <input type="text" class="form-control" id="confirmacaoRestricaoMedicacao">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Participacao</label>
+                <select class="form-select" id="confirmacaoStatus" required>
+                    <option value="confirmado">Confirmo minha participacao</option>
+                    <option value="negou">Nao poderei participar</option>
+                    <option value="desistiu">Desisti da participacao</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Enviar confirmacao</button>
+        </form>
+    </div>
+
+    <script src="js/confirmacao.js"></script>
+</body>
+</html>
