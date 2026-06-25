@@ -1,15 +1,15 @@
-const express = require('express');
+﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const database = require('../config/database');
-const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
+const { normalizarMovimentoOrigem, movimentoOrigemValido, movimentoOrigemCasal } = require('../utils/movimentoOrigem');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
 
 const router = express.Router();
-const TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024;
+const TAMANHO_MAXIMO_FOTO_BYTES = 1 * 1024 * 1024;
 
 function lerToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
@@ -19,13 +19,31 @@ function linkJaUtilizado(status) {
   return ['confirmado', 'negou', 'desistiu'].includes(status);
 }
 
+async function tokenConfirmacaoJaUtilizado(dadosToken) {
+  if (!dadosToken.jti) return false;
+  const token = await database.get(
+    'SELECT jti FROM tokens_confirmacao_utilizados WHERE jti = ?',
+    [dadosToken.jti]
+  );
+  return Boolean(token);
+}
+
+async function marcarTokenConfirmacaoUtilizado(dadosToken) {
+  if (!dadosToken.jti) return;
+  await database.run(
+    `INSERT OR IGNORE INTO tokens_confirmacao_utilizados (jti, tipo_cadastro, participante_id)
+     VALUES (?, ?, ?)`,
+    [dadosToken.jti, dadosToken.tipo, dadosToken.id]
+  );
+}
+
 router.get('/:token', async (req, res) => {
   try {
     const dadosToken = lerToken(req.params.token);
     const tabela = dadosToken.tipo === 'externo' ? 'pessoas_externas' : 'usuarios';
 
     if (!['externo', 'usuario'].includes(dadosToken.tipo)) {
-      return res.status(400).json({ erro: 'Link invalido' });
+      return res.status(400).json({ erro: 'Link inválido' });
     }
 
     const camposExternos = dadosToken.tipo === 'externo' ? ', cpf, data_nascimento' : '';
@@ -39,16 +57,20 @@ router.get('/:token', async (req, res) => {
     );
 
     if (!participante) {
-      return res.status(404).json({ erro: 'Participante nao encontrado' });
+      return res.status(404).json({ erro: 'Participante não encontrado' });
     }
 
-    if (linkJaUtilizado(participante.status)) {
-      return res.status(403).json({ erro: 'Este link de confirmacao ja foi utilizado' });
+    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
+      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
+    }
+
+    if (!dadosToken.jti && linkJaUtilizado(participante.status)) {
+      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
     }
 
     res.json({ ...participante, tipo_cadastro: dadosToken.tipo });
   } catch (err) {
-    res.status(401).json({ erro: 'Link invalido ou expirado' });
+    res.status(401).json({ erro: 'Link inválido ou expirado' });
   }
 });
 
@@ -60,11 +82,11 @@ router.put('/:token', async (req, res) => {
     const statusPermitidos = ['confirmado', 'negou', 'desistiu'];
 
     if (!['externo', 'usuario'].includes(dadosToken.tipo)) {
-      return res.status(400).json({ erro: 'Link invalido' });
+      return res.status(400).json({ erro: 'Link inválido' });
     }
 
     if (!nome_completo || !telefone || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Preencha nome, telefone, movimento, ano do encontro e status validos' });
+      return res.status(400).json({ erro: 'Preencha nome, telefone, movimento, ano do encontro e status válidos' });
     }
 
     const nomeCompleto = String(nome_completo).trim().toUpperCase();
@@ -78,17 +100,25 @@ router.put('/:token', async (req, res) => {
     }
 
     if (dadosToken.tipo === 'externo' && !cpfValido(cpfNumeros)) {
-      return res.status(400).json({ erro: 'CPF invalido' });
+      return res.status(400).json({ erro: 'CPF inválido' });
+    }
+
+    if (movimentoOrigemCasal(movimentoOrigem) && !nomeCompleto.includes(' E ')) {
+      return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa' });
     }
 
     const participanteAtual = await database.get(`SELECT status, equipe FROM ${tabela} WHERE id = ?`, [dadosToken.id]);
 
     if (!participanteAtual) {
-      return res.status(404).json({ erro: 'Participante nao encontrado' });
+      return res.status(404).json({ erro: 'Participante não encontrado' });
     }
 
-    if (linkJaUtilizado(participanteAtual.status)) {
-      return res.status(403).json({ erro: 'Este link de confirmacao ja foi utilizado' });
+    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
+      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
+    }
+
+    if (!dadosToken.jti && linkJaUtilizado(participanteAtual.status)) {
+      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
     }
 
     const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
@@ -110,13 +140,13 @@ router.put('/:token', async (req, res) => {
     const fotoBase64 = fotoPerfil.split(',')[1] || '';
     const tamanhoFotoBytes = Math.ceil((fotoBase64.length * 3) / 4);
     if (tamanhoFotoBytes > TAMANHO_MAXIMO_FOTO_BYTES) {
-      return res.status(400).json({ erro: 'A foto deve ter no maximo 15MB' });
+      return res.status(400).json({ erro: 'A foto deve ter no máximo 1MB' });
     }
 
     if (dadosToken.tipo === 'externo') {
       const cpfExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpfNumeros]);
       if (cpfExistente) {
-        return res.status(400).json({ erro: 'CPF ja cadastrado' });
+        return res.status(400).json({ erro: 'CPF já cadastrado' });
       }
 
       const senhaHash = await bcrypt.hash(nascimentoNumeros, 10);
@@ -179,9 +209,11 @@ router.put('/:token', async (req, res) => {
       });
     }
 
-    res.json({ mensagem: 'Confirmacao enviada com sucesso' });
+    await marcarTokenConfirmacaoUtilizado(dadosToken);
+
+    res.json({ mensagem: 'Confirmação enviada com sucesso' });
   } catch (err) {
-    res.status(401).json({ erro: 'Link invalido ou expirado' });
+    res.status(401).json({ erro: 'Link inválido ou expirado' });
   }
 });
 

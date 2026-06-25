@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const database = require('../config/database');
@@ -7,9 +7,10 @@ const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
+const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 
 const router = express.Router();
-const TAMANHO_MAXIMO_FOTO_BYTES = 15 * 1024 * 1024;
+const TAMANHO_MAXIMO_FOTO_BYTES = 1 * 1024 * 1024;
 
 // Registro de novo usuario (Equipista)
 router.post('/registro', async (req, res) => {
@@ -20,6 +21,7 @@ router.post('/registro', async (req, res) => {
       nome_completo,
       nome_cracha,
       telefone,
+      paroquia,
       movimento_origem,
       ano_encontro,
       foto_perfil,
@@ -31,32 +33,33 @@ router.post('/registro', async (req, res) => {
     const cpfNumeros = apenasNumeros(cpf);
     const dataNascimento = apenasNumeros(data_nascimento);
 
-    if (!cpfNumeros || !dataNascimento || !nome_completo || !nome_cracha || !telefone || !movimento_origem || !ano_encontro || !foto_perfil || !toca_instrumento || !canta) {
-      return res.status(400).json({ erro: 'Todos os campos sao obrigatorios' });
+    if (!cpfNumeros || !dataNascimento || !nome_completo || !nome_cracha || !telefone || !paroquia || !movimento_origem || !ano_encontro || !foto_perfil || !toca_instrumento || !canta) {
+      return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
     }
 
     if (!['sim', 'nao'].includes(toca_instrumento) || !['sim', 'nao'].includes(canta)) {
-      return res.status(400).json({ erro: 'Informe sim ou nao para instrumento e canto' });
+      return res.status(400).json({ erro: 'Informe sim ou não para instrumento e canto' });
     }
 
     if (!cpfValido(cpfNumeros)) {
-      return res.status(400).json({ erro: 'CPF invalido' });
+      return res.status(400).json({ erro: 'CPF inválido' });
     }
 
     if (dataNascimento.length !== 8) {
-      return res.status(400).json({ erro: 'Data de nascimento deve conter 8 numeros' });
+      return res.status(400).json({ erro: 'Data de nascimento deve conter 8 números' });
     }
 
     if (!movimentoOrigemValido(movimento_origem)) {
-      return res.status(400).json({ erro: 'Movimento de origem invalido' });
+      return res.status(400).json({ erro: 'Movimento de origem inválido' });
     }
 
     if (!anoEncontroValido(ano_encontro)) {
-      return res.status(400).json({ erro: 'Ano do encontro invalido' });
+      return res.status(400).json({ erro: 'Ano do encontro inválido' });
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
+    const paroquiaNormalizada = normalizarParoquia(paroquia);
     const nomeCompleto = String(nome_completo).trim().toUpperCase();
     const nomeCracha = String(nome_cracha).trim().toUpperCase();
     const instrumentosNormalizados = toca_instrumento === 'sim'
@@ -67,7 +70,11 @@ router.post('/registro', async (req, res) => {
       : [];
 
     if (toca_instrumento === 'sim' && !instrumentosNormalizados) {
-      return res.status(400).json({ erro: 'Informe quais instrumentos voce toca' });
+      return res.status(400).json({ erro: 'Informe quais instrumentos você toca' });
+    }
+
+    if (!paroquiaValida(paroquiaNormalizada)) {
+      return res.status(400).json({ erro: 'Paróquia inválida' });
     }
 
     if (movimentoOrigemCasal(movimentoOrigem) && (!nomeCompleto.includes(' E ') || nomeCracha !== nomeCompleto)) {
@@ -84,18 +91,18 @@ router.post('/registro', async (req, res) => {
       : null;
 
     if (!fotoPerfil) {
-      return res.status(400).json({ erro: 'Foto de perfil invalida' });
+      return res.status(400).json({ erro: 'Foto de perfil inválida' });
     }
 
     const fotoBase64 = fotoPerfil.split(',')[1] || '';
     const tamanhoFotoBytes = Math.ceil((fotoBase64.length * 3) / 4);
     if (tamanhoFotoBytes > TAMANHO_MAXIMO_FOTO_BYTES) {
-      return res.status(400).json({ erro: 'A foto deve ter no maximo 15MB' });
+      return res.status(400).json({ erro: 'A foto deve ter no máximo 1MB' });
     }
 
     const usuarioExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpfNumeros]);
     if (usuarioExistente) {
-      return res.status(400).json({ erro: 'CPF ja cadastrado' });
+      return res.status(400).json({ erro: 'CPF já cadastrado' });
     }
 
     const emailInterno = `${cpfNumeros}@cpf.ecri.local`;
@@ -103,16 +110,17 @@ router.post('/registro', async (req, res) => {
 
     const resultado = await database.run(
       `INSERT INTO usuarios (
-        email, senha, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
+        email, senha, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
         foto_perfil, perfil, cpf, data_nascimento, toca_instrumento,
         instrumentos, canta, equipes_servidas
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emailInterno,
         senhaHash,
         nomeCompleto,
         nomeCracha,
         telefone,
+        paroquiaNormalizada,
         movimentoOrigem,
         anoEncontro,
         fotoPerfil,
@@ -131,12 +139,12 @@ router.post('/registro', async (req, res) => {
     });
 
     res.status(201).json({
-      mensagem: 'Usuario cadastrado com sucesso',
+      mensagem: 'Usuário cadastrado com sucesso',
       usuario_id: resultado.lastID
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ erro: 'Erro ao registrar usuario' });
+    res.status(500).json({ erro: 'Erro ao registrar usuário' });
   }
 });
 
@@ -153,7 +161,7 @@ router.post('/login', async (req, res) => {
     }
 
     if (!identificador.includes('@') && !cpfValido(cpfNumeros)) {
-      return res.status(400).json({ erro: 'CPF invalido' });
+      return res.status(400).json({ erro: 'CPF inválido' });
     }
 
     const usuario = identificador.includes('@')
@@ -182,7 +190,8 @@ router.post('/login', async (req, res) => {
         id: usuario.id,
         email: usuario.email,
         nome_completo: usuario.nome_completo,
-        perfil: usuario.perfil
+        perfil: usuario.perfil,
+        equipe: usuario.equipe || ''
       }
     });
   } catch (err) {

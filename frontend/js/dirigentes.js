@@ -1,11 +1,15 @@
-const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 15;
+﻿const API_URL = 'http://localhost:5000/api';
+const TAMANHO_MAXIMO_FOTO_MB = 1;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
+const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
+const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
+const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes'];
 let chartPerfis = null;
 let chartStatus = null;
 let usuariosCache = [];
 let pessoasExternasCache = [];
 let eventosCache = [];
+let perfilDirigenteId = null;
 const EQUIPES_FIXAS = [
     'SEM EQUIPE',
     'Animadores',
@@ -13,15 +17,15 @@ const EQUIPES_FIXAS = [
     'Anjos da Guarda',
     'Arco Iris',
     'Bandinha',
-    'Boa Acao',
-    'Coordenacao Geral',
+    'Boa Ação',
+    'Coordenação Geral',
     'ECRI SHOP',
     'Escrita',
-    'Missa e Oracao',
+    'Missa e Oração',
     'Papa Lanche',
     'Pombo Correio',
     'Ranguinho',
-    'Som e Iluminacao',
+    'Som e Iluminação',
     'Teatrinho',
     'Vassourinha'
 ];
@@ -31,21 +35,66 @@ if (!getToken()) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    perfilDirigenteId = obterUsuárioLogadoId();
     renderizarCamposExperiencia('camposExperienciaDirigente', 'dirigente');
-    renderizarCamposExperiencia('camposExperienciaEditarUsuario', 'editarUsuario');
+    renderizarCamposExperiencia('camposExperienciaEditarUsuário', 'editarUsuário');
+    configurarCampoParoquia('paroquiaDirigente', 'campoOutraParoquiaDirigente');
+    configurarCampoParoquia('editarParoquia', 'campoOutraParoquiaEditar');
+    configurarConfiguraçõesDirigente();
     document.getElementById('anoEncontroDirigente')?.addEventListener('input', limitarCampoNumerico);
-    document.getElementById('pessoaExternaAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
     document.getElementById('editarAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
     configurarFiltrosCarografo();
     carregarOpcoesEquipe();
     carregarPerfilDirigente();
     carregarRelatorio();
-    carregarUsuarios();
+    carregarUsuários();
     carregarPessoasExternas();
     carregarEventos();
     carregarSituacao();
     carregarReunioes();
+    configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
+    aplicarAbaInicialDirigente();
 });
+
+function configurarConfiguraçõesDirigente() {
+    const selectAbaInicial = document.getElementById('abaInicialDirigente');
+    const formConfigurações = document.getElementById('formConfiguraçõesDirigente');
+
+    if (selectAbaInicial) {
+        selectAbaInicial.value = obterAbaInicialDirigente();
+    }
+
+    formConfigurações?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const abaInicial = selectAbaInicial?.value || 'relatorio';
+        if (!ABAS_DIRIGENTE.includes(abaInicial)) return;
+
+        localStorage.setItem(ABA_INICIAL_DIRIGENTE_KEY, abaInicial);
+        abrirAbaDirigente(abaInicial);
+        mostrarAlerta('alertaDirigentes', 'Configurações salvas com sucesso!', 'success');
+    });
+}
+
+function obterAbaInicialDirigente() {
+    const abaInicial = localStorage.getItem(ABA_INICIAL_DIRIGENTE_KEY);
+    return ABAS_DIRIGENTE.includes(abaInicial) ? abaInicial : 'relatorio';
+}
+
+function aplicarAbaInicialDirigente() {
+    abrirAbaPersistida(ABA_ATUAL_DIRIGENTE_KEY, obterAbaInicialDirigente());
+}
+
+function abrirAbaDirigente(idAba) {
+    const linkAba = document.querySelector(`[data-bs-toggle="tab"][href="#${idAba}"]`);
+    if (!linkAba) return;
+
+    if (window.bootstrap?.Tab) {
+        bootstrap.Tab.getOrCreateInstance(linkAba).show();
+        return;
+    }
+
+    linkAba.click();
+}
 
 // Carregar perfil do dirigente
 async function carregarPerfilDirigente() {
@@ -55,16 +104,19 @@ async function carregarPerfilDirigente() {
         });
         
         const usuario = await response.json();
+        perfilDirigenteId = usuario.id || perfilDirigenteId;
+        const paroquiaPerfil = usuario.paroquia || obterParoquiaPerfilDirigenteLocal(usuario.id);
         
         document.getElementById('emailDirigente').value = usuario.email;
         document.getElementById('nomeCompletoDirigente').value = usuario.nome_completo;
         document.getElementById('nomeCrachaDirigente').value = usuario.nome_cracha || '';
         document.getElementById('telefoneDirigente').value = usuario.telefone;
+        preencherParoquia('paroquiaDirigente', 'outraParoquiaDirigente', 'campoOutraParoquiaDirigente', paroquiaPerfil);
+        if (usuario.paroquia) {
+            salvarParoquiaPerfilDirigenteLocal(usuario.paroquia, usuario.id);
+        }
         marcarMovimentoOrigem('movimentoDirigente', usuario.movimento_origem);
         document.getElementById('anoEncontroDirigente').value = usuario.ano_encontro || '';
-        document.getElementById('restricaoMedicaDir').value = usuario.restricao_medica || '';
-        document.getElementById('restricaoAlimentarDir').value = usuario.restricao_alimentar || '';
-        document.getElementById('restricaoMedicacaoDir').value = usuario.restricao_medicacao || '';
         carregarExperienciaPerfil('dirigente', usuario);
         
         if (usuario.foto_perfil) {
@@ -81,17 +133,23 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
     e.preventDefault();
     
     const nomeCracha = document.getElementById('nomeCrachaDirigente').value;
+    const paroquia = obterParoquia('paroquiaDirigente', 'outraParoquiaDirigente');
     const movimento = obterMovimentoOrigem('movimentoDirigente');
     const anoEncontro = somenteNumeros(document.getElementById('anoEncontroDirigente').value);
-    const restricaoMedica = document.getElementById('restricaoMedicaDir').value;
-    const restricaoAlimentar = document.getElementById('restricaoAlimentarDir').value;
-    const restricaoMedicacao = document.getElementById('restricaoMedicacaoDir').value;
+    const restricaoMedica = '';
+    const restricaoAlimentar = '';
+    const restricaoMedicacao = '';
     const fotoPerfil = document.getElementById('fotoPerfilDirigente').files[0];
     
     let fotoBase64 = obterFotoPerfilPreview('fotoPreviewDirigente');
 
     if (!anoEncontroValido(anoEncontro)) {
-        mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro valido', 'warning');
+        mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro válido', 'warning');
+        return;
+    }
+
+    if (!paroquiaValida(paroquia)) {
+        mostrarAlerta('alertaDirigentes', 'Informe a paróquia à qual você pertence', 'warning');
         return;
     }
     
@@ -112,6 +170,7 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
             headers: getHeaders(),
             body: JSON.stringify({
                 nome_cracha: nomeCracha,
+                paroquia,
                 movimento_origem: movimento,
                 ano_encontro: anoEncontro,
                 restricao_medica: restricaoMedica,
@@ -123,9 +182,13 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
         });
         
         if (response.ok) {
+            const data = await response.json();
+            const paroquiaSalva = data.paroquia || paroquia;
+            salvarParoquiaPerfilDirigenteLocal(paroquiaSalva);
+            preencherParoquia('paroquiaDirigente', 'outraParoquiaDirigente', 'campoOutraParoquiaDirigente', paroquiaSalva);
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
-            carregarUsuarios();
-            carregarConfirmacoes();
+            await carregarPerfilDirigente();
+            await carregarUsuários();
             carregarRelatorio();
         } else {
             const mensagem = await lerErroResposta(response, 'Erro ao atualizar perfil');
@@ -137,12 +200,67 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
     }
 });
 
-// Atualizar restrições (dispara o formulário de perfil)
-document.getElementById('formRestricoesDir')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    document.getElementById('formPerfilDirigente').dispatchEvent(new Event('submit'));
-});
+function chaveParóquiaPerfilDirigente(usuarioId = perfilDirigenteId) {
+    return `dirigentesParóquiaPerfil:${usuarioId || 'atual'}`;
+}
 
+function salvarParoquiaPerfilDirigenteLocal(paroquia, usuarioId = perfilDirigenteId) {
+    const valor = paraCaixaAlta(paroquia || '');
+    if (valor) {
+        localStorage.setItem(chaveParóquiaPerfilDirigente(usuarioId), valor);
+    }
+}
+
+function obterParoquiaPerfilDirigenteLocal(usuarioId = perfilDirigenteId) {
+    return localStorage.getItem(chaveParóquiaPerfilDirigente(usuarioId)) || '';
+}
+
+function chaveParóquiaUsuário(usuarioId) {
+    return `dirigentesParóquiaUsuário:${usuarioId}`;
+}
+
+function salvarParoquiaUsuarioLocal(usuarioId, paroquia) {
+    const valor = paraCaixaAlta(paroquia || '');
+    if (usuarioId && valor) {
+        localStorage.setItem(chaveParóquiaUsuário(usuarioId), valor);
+    }
+}
+
+function obterParoquiaUsuarioLocal(usuarioId) {
+    return usuarioId ? localStorage.getItem(chaveParóquiaUsuário(usuarioId)) || '' : '';
+}
+
+function obterUsuárioLogadoId() {
+    try {
+        const usuario = JSON.parse(localStorage.getItem('usuario') || '{}');
+        return usuario.id || usuario.usuario_id || null;
+    } catch (err) {
+        return null;
+    }
+}
+
+function aplicarFallbackParóquiaPessoa(pessoa) {
+    if (!pessoa || pessoa.paroquia) {
+        return pessoa;
+    }
+
+    const paroquiaLocal = obterParoquiaUsuarioLocal(pessoa.id)
+        || (Number(pessoa.id) === Number(perfilDirigenteId) ? obterParoquiaPerfilDirigenteLocal(pessoa.id) : '');
+    return paroquiaLocal ? { ...pessoa, paroquia: paroquiaLocal } : pessoa;
+}
+
+function obterParoquiaPessoa(pessoa) {
+    if (!pessoa) return '';
+    if (pessoa.paroquia) return pessoa.paroquia;
+    const paroquiaUsuario = obterParoquiaUsuarioLocal(pessoa.id);
+    if (paroquiaUsuario) return paroquiaUsuario;
+    if (Number(pessoa.id) === Number(perfilDirigenteId)) {
+        return obterParoquiaPerfilDirigenteLocal(pessoa.id);
+    }
+    return '';
+}
+
+// Atualizar restrições (dispara o formulário de perfil)
 // Carregar relatório geral
 async function carregarRelatorio() {
     try {
@@ -152,7 +270,7 @@ async function carregarRelatorio() {
         
         const data = await response.json();
         
-        document.getElementById('totalUsuarios').textContent = data.stats.totalUsuarios;
+        document.getElementById('totalUsuários').textContent = data.stats.totalUsuários;
         document.getElementById('confirmados').textContent = data.stats.confirmados;
         document.getElementById('pendentes').textContent = data.stats.pendentes;
         document.getElementById('coordenadores').textContent = data.stats.coordenadores;
@@ -210,18 +328,38 @@ function renderizarResumoEquipes(equipesResumo) {
         return;
     }
 
-    const linhas = equipesResumo.map(item => `
-        <tr>
-            <td><strong>${escapeHtml(item.equipe)}</strong></td>
-            <td>${Number(item.quantidadePessoas || 0)}</td>
-            <td>${Number(item.ejc || 0)}</td>
-            <td>${Number(item.ec || 0)}</td>
-            <td>${Number(item.ecc || 0)}</td>
-            <td>${Number(item.jovensEjcCasados || 0)}</td>
-            <td>${Number(item.ecri || 0)}</td>
-            <td><strong>${Number(item.totalPonderado || 0)}</strong></td>
-        </tr>
-    `).join('');
+    const totais = equipesResumo.reduce((acc, item) => {
+        const casais = Number(item.ecc || 0) + Number(item.jovensEjcCasados || 0);
+        acc.quantidadePessoas += Number(item.quantidadePessoas || 0);
+        acc.ejc += Number(item.ejc || 0);
+        acc.ec += Number(item.ec || 0);
+        acc.casais += casais;
+        acc.ecri += Number(item.ecri || 0);
+        acc.totalPonderado += Number(item.totalPonderado || 0);
+        return acc;
+    }, {
+        quantidadePessoas: 0,
+        ejc: 0,
+        ec: 0,
+        casais: 0,
+        ecri: 0,
+        totalPonderado: 0
+    });
+
+    const linhas = equipesResumo.map(item => {
+        const casais = Number(item.ecc || 0) + Number(item.jovensEjcCasados || 0);
+        return `
+            <tr>
+                <td><strong>${escapeHtml(item.equipe)}</strong></td>
+                <td>${Number(item.quantidadePessoas || 0)}</td>
+                <td>${Number(item.ecri || 0)}</td>
+                <td>${Number(item.ejc || 0)}</td>
+                <td>${Number(item.ec || 0)}</td>
+                <td>${casais}</td>
+                <td><strong>${Number(item.totalPonderado || 0)}</strong></td>
+            </tr>
+        `;
+    }).join('');
 
     container.innerHTML = `
         <table class="table table-sm table-hover align-middle">
@@ -229,31 +367,41 @@ function renderizarResumoEquipes(equipesResumo) {
                 <tr>
                     <th>Equipe</th>
                     <th>Pessoas escaladas</th>
+                    <th>ECRI</th>
                     <th>EJC</th>
                     <th>EC</th>
-                    <th>ECC</th>
-                    <th>Jovens EJC casados</th>
-                    <th>ECRI</th>
+                    <th>Casais</th>
                     <th>Total ponderado</th>
                 </tr>
             </thead>
             <tbody>${linhas}</tbody>
+            <tfoot>
+                <tr class="table-secondary">
+                    <th>Total</th>
+                    <th>${totais.quantidadePessoas}</th>
+                    <th>${totais.ecri}</th>
+                    <th>${totais.ejc}</th>
+                    <th>${totais.ec}</th>
+                    <th>${totais.casais}</th>
+                    <th>${totais.totalPonderado}</th>
+                </tr>
+            </tfoot>
         </table>
     `;
 }
 
-async function carregarUsuarios() {
+async function carregarUsuários() {
     try {
         const response = await fetch(`${API_URL}/dirigentes/usuarios`, {
             headers: getHeaders()
         });
         
         const usuarios = await response.json();
-        usuariosCache = usuarios;
+        usuariosCache = usuarios.map(aplicarFallbackParóquiaPessoa);
         
         let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Nome</th><th>Email</th><th>Perfil</th><th>Equipe</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
         
-        usuarios.forEach(u => {
+        usuariosCache.forEach(u => {
             const fotoHtml = u.foto_perfil 
                 ? `<img src="${u.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
                 : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
@@ -276,14 +424,14 @@ async function carregarUsuarios() {
                 <td>${u.equipe || '-'}</td>
                 <td>${statusBadge}</td>
                 <td>
-                    <button class="btn btn-sm btn-secondary" onclick="abrirModalEditarUsuario(${u.id})">Editar</button>
+                    <button class="btn btn-sm btn-secondary" onclick="abrirModalEditarUsuário(${u.id})">Editar</button>
                     <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${u.id})">Escalar</button>
                 </td>
             </tr>`;
         });
         
         html += '</tbody></table>';
-        document.getElementById('tabelaUsuarios').innerHTML = html;
+        document.getElementById('tabelaUsuários').innerHTML = html;
         aplicarFiltrosCarografo();
         renderizarEventos();
     } catch (err) {
@@ -291,8 +439,8 @@ async function carregarUsuarios() {
     }
 }
 
-async function excluirUsuario(usuarioId, nomeUsuario) {
-    const confirmado = confirm(`Tem certeza que deseja excluir o usuario ${nomeUsuario}? Essa acao nao pode ser desfeita.`);
+async function excluirUsuário(usuarioId, nomeUsuário) {
+    const confirmado = confirm(`Tem certeza que deseja excluir o usuario ${nomeUsuário}? Essa acao não pode ser desfeita.`);
     if (!confirmado) return;
 
     try {
@@ -302,8 +450,8 @@ async function excluirUsuario(usuarioId, nomeUsuario) {
         });
 
         if (response.ok) {
-            mostrarAlerta('alertaDirigentes', 'Usuario excluido com sucesso!', 'success');
-            carregarUsuarios();
+            mostrarAlerta('alertaDirigentes', 'Usuário excluido com sucesso!', 'success');
+            carregarUsuários();
             carregarEventos();
             carregarRelatorio();
             carregarSituacao();
@@ -318,14 +466,15 @@ async function excluirUsuario(usuarioId, nomeUsuario) {
     }
 }
 
-function abrirModalEditarUsuario(usuarioId) {
+function abrirModalEditarUsuário(usuarioId) {
     const usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
     if (!usuario) return;
 
-    document.getElementById('editarUsuarioId').value = usuario.id;
+    document.getElementById('editarUsuárioId').value = usuario.id;
     document.getElementById('editarNomeCompleto').value = usuario.nome_completo || '';
     document.getElementById('editarNomeCracha').value = usuario.nome_cracha || '';
     document.getElementById('editarTelefone').value = usuario.telefone || '';
+    preencherParoquia('editarParoquia', 'outraParoquiaEditar', 'campoOutraParoquiaEditar', usuario.paroquia);
     document.getElementById('editarMovimento').value = usuario.movimento_origem || '';
     document.getElementById('editarAnoEncontro').value = usuario.ano_encontro || '';
     document.getElementById('editarEquipe').value = usuario.equipe || '';
@@ -333,25 +482,32 @@ function abrirModalEditarUsuario(usuarioId) {
     document.getElementById('editarRestricaoMedica').value = usuario.restricao_medica || '';
     document.getElementById('editarRestricaoAlimentar').value = usuario.restricao_alimentar || '';
     document.getElementById('editarRestricaoMedicacao').value = usuario.restricao_medicacao || '';
-    carregarExperienciaPerfil('editarUsuario', usuario);
+    carregarExperienciaPerfil('editarUsuário', usuario);
 
-    new bootstrap.Modal(document.getElementById('modalEditarUsuario')).show();
+    new bootstrap.Modal(document.getElementById('modalEditarUsuário')).show();
 }
 
-document.getElementById('formEditarUsuario')?.addEventListener('submit', async (e) => {
+document.getElementById('formEditarUsuário')?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const usuarioId = document.getElementById('editarUsuarioId').value;
+    const usuarioId = document.getElementById('editarUsuárioId').value;
     const anoEncontro = somenteNumeros(document.getElementById('editarAnoEncontro').value);
+    const paroquia = obterParoquia('editarParoquia', 'outraParoquiaEditar');
 
     if (!anoEncontroValido(anoEncontro)) {
-        mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro valido', 'warning');
+        mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro válido', 'warning');
+        return;
+    }
+
+    if (!paroquiaValida(paroquia)) {
+        mostrarAlerta('alertaDirigentes', 'Informe a paróquia à qual o usuário pertence', 'warning');
         return;
     }
 
     const body = {
         nome_cracha: document.getElementById('editarNomeCracha').value,
         telefone: document.getElementById('editarTelefone').value,
+        paroquia,
         movimento_origem: document.getElementById('editarMovimento').value,
         ano_encontro: anoEncontro,
         equipe: document.getElementById('editarEquipe').value,
@@ -359,7 +515,7 @@ document.getElementById('formEditarUsuario')?.addEventListener('submit', async (
         restricao_medica: document.getElementById('editarRestricaoMedica').value,
         restricao_alimentar: document.getElementById('editarRestricaoAlimentar').value,
         restricao_medicacao: document.getElementById('editarRestricaoMedicacao').value,
-        ...obterExperienciaPerfil('editarUsuario')
+        ...obterExperienciaPerfil('editarUsuário')
     };
 
     try {
@@ -370,10 +526,16 @@ document.getElementById('formEditarUsuario')?.addEventListener('submit', async (
         });
 
         if (response.ok) {
+            const data = await response.json();
+            const paroquiaSalva = data.paroquia || paroquia;
+            salvarParoquiaUsuarioLocal(usuarioId, paroquiaSalva);
+            usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, paroquia: paroquiaSalva }
+                : usuario);
+            aplicarFiltrosCarografo();
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('modalEditarUsuario')).hide();
-            carregarUsuarios();
-            carregarConfirmacoes();
+            bootstrap.Modal.getInstance(document.getElementById('modalEditarUsuário')).hide();
+            await carregarUsuários();
             carregarRelatorio();
         } else {
             const erro = await response.json();
@@ -426,7 +588,10 @@ function renderizarPessoasExternas() {
                 <td>${escapeHtml(pessoa.telefone || '')}</td>
                 <td>${escapeHtml(pessoa.movimento_origem || '-')}</td>
                 <td>${escapeHtml(pessoa.equipe || '-')}</td>
-                <td><button class="btn btn-sm btn-danger" onclick="excluirPessoaExterna(${pessoa.id}, '${escapeHtml(pessoa.nome_completo || '')}')">Excluir</button></td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${Number(pessoa.id)}, false, 'externo')">Escalar</button>
+                    <button class="btn btn-sm btn-danger" onclick="excluirPessoaExterna(${pessoa.id}, '${escapeHtml(pessoa.nome_completo || '')}')">Excluir</button>
+                </td>
             </tr>
         `;
     }).join('');
@@ -448,14 +613,8 @@ document.getElementById('formPessoaExterna')?.addEventListener('submit', async (
         nome_completo: document.getElementById('pessoaExternaNome').value,
         telefone: document.getElementById('pessoaExternaTelefone').value,
         movimento_origem: document.getElementById('pessoaExternaMovimento').value,
-        ano_encontro: somenteNumeros(document.getElementById('pessoaExternaAnoEncontro').value),
         equipe: document.getElementById('pessoaExternaEquipe').value
     };
-
-    if (!anoEncontroValido(body.ano_encontro)) {
-        mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro valido', 'warning');
-        return;
-    }
 
     try {
         const response = await fetch(`${API_URL}/dirigentes/pessoas-externas`, {
@@ -621,7 +780,7 @@ function renderizarEventos() {
                     </div>
                     <div class="table-responsive mt-3">
                         <table class="table table-sm align-middle">
-                            <thead><tr><th>Escalar</th><th>Usuario</th><th>Perfil atual</th><th>Perfil no evento</th></tr></thead>
+                            <thead><tr><th>Escalar</th><th>Usuário</th><th>Perfil atual</th><th>Perfil no evento</th></tr></thead>
                             <tbody>${usuariosHtml}</tbody>
                         </table>
                     </div>
@@ -694,11 +853,14 @@ function renderizarCarografo(usuarios) {
         return;
     }
 
-    painel.innerHTML = usuarios.map(u => {
+    const usuariosOrdenados = [...usuarios].sort(ordenarPessoaCarografo);
+
+    painel.innerHTML = usuariosOrdenados.map(u => {
         const nome = escapeHtml(u.nome_completo || '');
         const movimentoOrigem = escapeHtml(u.movimento_origem || '-');
         const anoEncontro = escapeHtml(u.ano_encontro || '-');
         const telefone = escapeHtml(u.telefone || '-');
+        const paroquiaValor = obterParoquiaPessoa(u);
         const equipeAtual = escapeHtml(u.equipe || 'SEM EQUIPE');
         const statusBadge = obterStatusBadge(u.status);
         const icones = [
@@ -711,12 +873,25 @@ function renderizarCarografo(usuarios) {
         ].join('');
         const destaqueMusical = u.toca_instrumento === 'sim' || u.canta === 'sim';
         const fotoHtml = u.foto_perfil
-            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalResumoUsuario(${Number(u.id)})">`
-            : `<div class="carografo-foto carografo-foto-placeholder" onclick="abrirModalResumoUsuario(${Number(u.id)})">-</div>`;
+            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalResumoUsuário(${Number(u.id)})">`
+            : `<div class="carografo-foto carografo-foto-placeholder" onclick="abrirModalResumoUsuário(${Number(u.id)})">-</div>`;
+        const logoParoquia = obterLogoParoquia(paroquiaValor);
+        const logoParoquiaHtml = logoParoquia
+            ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
+            : '';
+        const removidoDoEncontro = pessoaRemovidaDoEncontro(u);
+        const classesCard = [
+            'carografo-item',
+            destaqueMusical ? 'carografo-item-musical' : '',
+            removidoDoEncontro ? 'carografo-item-removido' : ''
+        ].filter(Boolean).join(' ');
 
         return `
-            <div class="carografo-item ${destaqueMusical ? 'carografo-item-musical' : ''}">
-                ${fotoHtml}
+            <div class="${classesCard}">
+                <div class="carografo-foto-coluna">
+                    ${fotoHtml}
+                    ${logoParoquiaHtml}
+                </div>
                 <div class="carografo-info">
                     <div class="carografo-topo">
                         <strong>${nome}</strong>
@@ -732,6 +907,12 @@ function renderizarCarografo(usuarios) {
     }).join('');
 }
 
+function ordenarPessoaCarografo(a, b) {
+    const nomeA = a.nome_completo || a.nome_cracha || '';
+    const nomeB = b.nome_completo || b.nome_cracha || '';
+    return nomeA.localeCompare(nomeB, 'pt-BR', { sensitivity: 'base' });
+}
+
 function obterPessoasCarografo() {
     return [
         ...usuariosCache,
@@ -743,12 +924,23 @@ function obterPessoasCarografo() {
     ];
 }
 
+function pessoaSemEquipe(pessoa) {
+    return normalizarTextoFiltro(pessoa?.equipe || '') === 'SEM EQUIPE';
+}
+
+function pessoaRemovidaDoEncontro(pessoa) {
+    return pessoaSemEquipe(pessoa) && ['negou', 'desistiu'].includes(pessoa?.status);
+}
+
 function configurarFiltrosCarografo() {
-    ['filtroCarografoEquipe', 'filtroCarografoMovimento', 'filtroCarografoMusical'].forEach((id) => {
+    ['filtroCarografoEquipe', 'filtroCarografoMovimento', 'filtroCarografoMusical', 'filtroCarografoParoquia'].forEach((id) => {
         document.getElementById(id)?.addEventListener('change', aplicarFiltrosCarografo);
     });
+    document.getElementById('filtroCarografoNome')?.addEventListener('input', aplicarFiltrosCarografo);
 
     document.getElementById('limparFiltrosCarografo')?.addEventListener('click', () => {
+        document.getElementById('filtroCarografoNome').value = '';
+        document.getElementById('filtroCarografoParoquia').value = '';
         document.getElementById('filtroCarografoEquipe').value = '';
         document.getElementById('filtroCarografoMovimento').value = '';
         document.getElementById('filtroCarografoMusical').value = '';
@@ -759,13 +951,20 @@ function configurarFiltrosCarografo() {
 }
 
 function aplicarFiltrosCarografo() {
+    const termoBusca = normalizarTextoFiltro(document.getElementById('filtroCarografoNome')?.value || '');
+    const telefoneBusca = normalizarTelefoneFiltro(document.getElementById('filtroCarografoNome')?.value || '');
+    const paroquia = document.getElementById('filtroCarografoParoquia')?.value || '';
     const equipe = document.getElementById('filtroCarografoEquipe')?.value || '';
     const movimento = document.getElementById('filtroCarografoMovimento')?.value || '';
     const musical = document.getElementById('filtroCarografoMusical')?.value || '';
     const pessoas = obterPessoasCarografo().filter((pessoa) => {
         const toca = pessoa.toca_instrumento === 'sim';
         const canta = pessoa.canta === 'sim';
+        const nomePessoa = normalizarTextoFiltro(`${pessoa.nome_completo || ''} ${pessoa.nome_cracha || ''}`);
+        const telefonePessoa = normalizarTelefoneFiltro(pessoa.telefone || '');
 
+        if (termoBusca && !nomePessoa.includes(termoBusca) && !(telefoneBusca && telefonePessoa.includes(telefoneBusca))) return false;
+        if (paroquia && !pessoaPertenceParoquiaFiltro(pessoa, paroquia)) return false;
         if (equipe && (pessoa.equipe || 'SEM EQUIPE') !== equipe) return false;
         if (movimento && pessoa.movimento_origem !== movimento) return false;
         if (musical === 'canta' && !canta) return false;
@@ -779,15 +978,65 @@ function aplicarFiltrosCarografo() {
     renderizarCarografo(pessoas);
 }
 
+function pessoaPertenceParoquiaFiltro(pessoa, filtro) {
+    const paroquia = normalizarTextoFiltro(obterParoquiaPessoa(pessoa));
+    const filtroNormalizado = normalizarTextoFiltro(filtro);
+    const paroquiasPadraoNormalizadas = PAROQUIAS_PADRAO.map(normalizarTextoFiltro);
+
+    if (filtroNormalizado === 'OUTRAS') {
+        return paroquia && !paroquiasPadraoNormalizadas.includes(paroquia);
+    }
+
+    return paroquia === filtroNormalizado;
+}
+
+function pertenceNossaSenhoraDaGuia(paroquia) {
+    return normalizarTextoFiltro(paroquia) === normalizarTextoFiltro('NOSSA SENHORA DA GUIA');
+}
+
+function pertenceSaoPedroESaoPaulo(paroquia) {
+    return normalizarTextoFiltro(paroquia) === normalizarTextoFiltro('SAO PEDRO E SAO PAULO');
+}
+
+function obterLogoParoquia(paroquia) {
+    if (pertenceNossaSenhoraDaGuia(paroquia)) {
+        return {
+            src: 'assets/logo-nossa-senhora-guia.png',
+            alt: 'Paróquia de Nossa Senhora da Guia'
+        };
+    }
+
+    if (pertenceSaoPedroESaoPaulo(paroquia)) {
+        return {
+            src: 'assets/logo-sao-pedro-sao-paulo.png',
+            alt: 'Paróquia São Pedro e São Paulo'
+        };
+    }
+
+    return null;
+}
+
+function normalizarTextoFiltro(valor) {
+    return String(valor || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .trim();
+}
+
+function normalizarTelefoneFiltro(valor) {
+    return String(valor || '').replace(/\D/g, '');
+}
+
 function baixarRelatorioCarografoExcel() {
     if (typeof XLSX === 'undefined') {
-        mostrarAlerta('alertaDirigentes', 'Biblioteca de Excel nao carregada. Verifique a internet e tente novamente.', 'warning');
+        mostrarAlerta('alertaDirigentes', 'Biblioteca de Excel não carregada. Verifique a internet e tente novamente.', 'warning');
         return;
     }
 
-    const pessoas = obterPessoasCarografo().filter(pessoa => pessoa.status === 'confirmado');
+    const pessoas = obterPessoasCarografo().filter(pessoa => pessoa.status === 'confirmado' && !pessoaSemEquipe(pessoa));
     if (!pessoas.length) {
-        mostrarAlerta('alertaDirigentes', 'Nenhum usuario confirmado para exportar.', 'warning');
+        mostrarAlerta('alertaDirigentes', 'Nenhum usuário confirmado para exportar.', 'warning');
         return;
     }
 
@@ -805,7 +1054,7 @@ function baixarRelatorioCarografoExcel() {
             .sort(ordenarPorPerfilRelatorio)
             .map(pessoa => ({
                 'Nome completo': pessoa.nome_completo || '',
-                'Nome do cracha': pessoa.nome_cracha || '',
+                'Nome do crachá': pessoa.nome_cracha || '',
                 'Movimento de origem': pessoa.movimento_origem || '',
                 'Telefone para contato': pessoa.telefone || '',
                 'Perfil de acesso': formatarPerfilAcesso(pessoa.perfil)
@@ -814,7 +1063,7 @@ function baixarRelatorioCarografoExcel() {
         const worksheet = XLSX.utils.json_to_sheet(linhas, {
             header: [
                 'Nome completo',
-                'Nome do cracha',
+                'Nome do crachá',
                 'Movimento de origem',
                 'Telefone para contato',
                 'Perfil de acesso'
@@ -886,7 +1135,7 @@ function escapeHtml(valor) {
         .replace(/'/g, '&#039;');
 }
 
-function abrirModalResumoUsuario(usuarioId) {
+function abrirModalResumoUsuário(usuarioId) {
     const usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
     if (!usuario) return;
 
@@ -901,7 +1150,7 @@ function abrirModalResumoUsuario(usuarioId) {
         ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrande('${usuario.foto_perfil}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
 
-    titulo.textContent = 'Resumo do Usuario';
+    titulo.textContent = 'Resumo do Usuário';
     corpo.className = 'modal-body';
     corpo.innerHTML = `
         <div class="text-center">
@@ -912,13 +1161,14 @@ function abrirModalResumoUsuario(usuarioId) {
         <table class="table table-sm">
             <tbody>
                 <tr><th>Telefone</th><td>${escapeHtml(usuario.telefone || '-')}</td></tr>
+                <tr><th>Paróquia</th><td>${escapeHtml(obterParoquiaPessoa(usuario) || '-')}</td></tr>
                 <tr><th>Movimento</th><td>${escapeHtml(usuario.movimento_origem || '-')}</td></tr>
                 <tr><th>Ano do encontro</th><td>${escapeHtml(usuario.ano_encontro || '-')}</td></tr>
                 <tr><th>Equipe atual</th><td>${escapeHtml(usuario.equipe || '-')}</td></tr>
                 <tr><th>Toca instrumento?</th><td>${formatarSimNao(usuario.toca_instrumento)}</td></tr>
                 <tr><th>Instrumentos</th><td>${escapeHtml(usuario.instrumentos || '-')}</td></tr>
                 <tr><th>Canta?</th><td>${formatarSimNao(usuario.canta)}</td></tr>
-                <tr><th>Equipes que ja serviu</th><td>${equipesHtml}</td></tr>
+                <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
             </tbody>
         </table>
         <div class="text-end">
@@ -952,7 +1202,7 @@ function normalizarEquipesServidas(valor) {
 
 function formatarSimNao(valor) {
     if (valor === 'sim') return 'Sim';
-    if (valor === 'nao') return 'Nao';
+    if (valor === 'nao') return 'Não';
     return '-';
 }
 
@@ -1049,8 +1299,8 @@ async function carregarSituacao() {
     }
 }
 
-// Abrir modal para escalar usuário
-function abrirModalEscalar(usuarioId, fecharResumo = false) {
+// Abrir modal para escalar usuário ou pessoa sem cadastro
+function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
     if (fecharResumo) {
         const modalResumo = bootstrap.Modal.getInstance(document.getElementById('modalFoto'));
         if (modalResumo) {
@@ -1061,10 +1311,19 @@ function abrirModalEscalar(usuarioId, fecharResumo = false) {
     // Resetar o formulário
     document.getElementById('formEscalar').reset();
     document.getElementById('usuarioIdEscalar').value = usuarioId;
+    document.getElementById('tipoCadastroEscalar').value = tipoCadastro;
     document.getElementById('nomeEquipe').value = '';
-    document.getElementById('acaoEscalarDiv').style.display = fecharResumo ? 'none' : 'block';
-    document.getElementById('acaoEscalar').value = fecharResumo ? 'equipe' : '';
-    document.getElementById('equipeDiv').style.display = fecharResumo ? 'block' : 'none';
+    document.getElementById('nomeEquipe').required = false;
+    document.getElementById('acaoEscalarDiv').style.display = 'block';
+    document.getElementById('acaoEscalar').value = '';
+    document.getElementById('equipeDiv').style.display = 'none';
+
+    if (tipoCadastro === 'externo') {
+        document.getElementById('acaoEscalarDiv').style.display = 'none';
+        document.getElementById('acaoEscalar').value = 'equipe';
+        document.getElementById('equipeDiv').style.display = 'block';
+        document.getElementById('nomeEquipe').required = true;
+    }
     
     setTimeout(() => {
         const modal = new bootstrap.Modal(document.getElementById('modalEscalar'));
@@ -1077,7 +1336,8 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
     e.preventDefault();
     
     const usuarioId = document.getElementById('usuarioIdEscalar').value;
-    const acao = document.getElementById('acaoEscalar').value;
+    const tipoCadastro = document.getElementById('tipoCadastroEscalar')?.value || 'usuario';
+    const acao = tipoCadastro === 'externo' ? 'equipe' : document.getElementById('acaoEscalar').value;
     
     if (!acao) {
         mostrarAlerta('alertaDirigentes', 'Selecione uma ação', 'warning');
@@ -1099,7 +1359,9 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
                 mostrarAlerta('alertaDirigentes', 'Informe o nome da equipe', 'warning');
                 return;
             }
-            url = `${API_URL}/dirigentes/escalar-equipe/${usuarioId}`;
+            url = tipoCadastro === 'externo'
+                ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/equipe`
+                : `${API_URL}/dirigentes/escalar-equipe/${usuarioId}`;
             body = { equipe: nomeEquipe };
         }
         
@@ -1110,9 +1372,13 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
         });
         
         if (response.ok) {
-            mostrarAlerta('alertaDirigentes', 'Usuário escalado com sucesso!', 'success');
+            mostrarAlerta('alertaDirigentes', tipoCadastro === 'externo' ? 'Pessoa sem cadastro escalada com sucesso!' : 'Usuário escalado com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEscalar')).hide();
-            carregarUsuarios();
+            await carregarUsuários();
+            await carregarPessoasExternas();
+            carregarRelatorio();
+            carregarSituacao();
+            carregarReunioes();
         } else {
             const erro = await response.json();
             mostrarAlerta('alertaDirigentes', erro.erro || 'Erro ao escalar usuário', 'danger');
@@ -1123,10 +1389,73 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
     }
 });
 
+document.getElementById('btnEnviarLinkConfirmacaoEscalar')?.addEventListener('click', enviarLinkConfirmacaoModalEscalar);
+
+async function enviarLinkConfirmacaoModalEscalar() {
+    const participanteId = Number(document.getElementById('usuarioIdEscalar').value);
+    const tipoCadastro = document.getElementById('tipoCadastroEscalar')?.value || 'usuario';
+    const participante = obterParticipanteEscalar(participanteId, tipoCadastro);
+
+    if (!participante) {
+        mostrarAlerta('alertaDirigentes', 'Participante não encontrado para envio do link.', 'warning');
+        return;
+    }
+
+    const telefone = limparTelefoneWhatsAppDirigente(participante.telefone || '');
+    if (!telefone) {
+        mostrarAlerta('alertaDirigentes', 'Telefone WhatsApp inválido para este participante.', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${participanteId}/token-confirmacao`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.token_confirmacao) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
+            return;
+        }
+
+        const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+        const linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
+        const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
+Ficamos muito felizes pelo seu sim!
+Precisamos que você atualize seus dados em nosso sistema.
+Por favor, confirme seus dados no seguinte link:
+
+${linkConfirmacao}`;
+
+        window.open(`https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao gerar link de confirmação.', 'danger');
+        console.error(err);
+    }
+}
+
+function obterParticipanteEscalar(participanteId, tipoCadastro) {
+    const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+    return lista.find(item => Number(item.id) === Number(participanteId));
+}
+
+function limparTelefoneWhatsAppDirigente(telefone) {
+    const grupos = String(telefone || '').match(/\d{10,13}/g) || [];
+    const numero = grupos[0] || String(telefone || '').replace(/\D/g, '');
+    return numero.replace(/^55/, '');
+}
+
 // Mostrar campo de equipe quando necessário
 document.getElementById('acaoEscalar')?.addEventListener('change', (e) => {
     const equipeDiv = document.getElementById('equipeDiv');
-    equipeDiv.style.display = e.target.value === 'equipe' ? 'block' : 'none';
+    const nomeEquipe = document.getElementById('nomeEquipe');
+    const mostrarEquipe = e.target.value === 'equipe';
+    equipeDiv.style.display = mostrarEquipe ? 'block' : 'none';
+    nomeEquipe.required = mostrarEquipe;
+    if (!mostrarEquipe) {
+        nomeEquipe.value = '';
+    }
 });
 
 // Carregar reuniões dos próximos 15 dias
@@ -1200,7 +1529,7 @@ function mostrarAlerta(elementId, mensagem, tipo) {
 
 function abrirModalFoto(fotoSrc) {
     const modalEl = document.getElementById('modalFoto');
-    modalEl.querySelector('.modal-title').textContent = 'Foto do Usuario';
+    modalEl.querySelector('.modal-title').textContent = 'Foto do Usuário';
     const corpo = modalEl.querySelector('.modal-body');
     corpo.className = 'modal-body text-center';
     corpo.innerHTML = `<img id="fotoModalImagem" src="${fotoSrc}" alt="Foto" style="max-width: 100%; max-height: 500px; border-radius: 10px;">`;

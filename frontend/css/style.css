@@ -109,6 +109,11 @@ body {
     border-color: #f0d66b;
 }
 
+.carografo-item-removido {
+    background: #ffe1e1;
+    border-color: #dc3545;
+}
+
 .carografo-foto {
     width: 82px;
     height: 82px;
@@ -116,6 +121,23 @@ body {
     border-radius: 50%;
     object-fit: cover;
     cursor: pointer;
+}
+
+.carografo-foto-coluna {
+    width: 82px;
+    flex: 0 0 82px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.carografo-paroquia-logo {
+    width: 38px;
+    max-height: 50px;
+    height: auto;
+    display: block;
+    object-fit: contain;
 }
 
 .carografo-foto-placeholder {
@@ -242,6 +264,41 @@ body {
 .badge {
     padding: 0.5em 0.75em;
     border-radius: 12px;
+}
+
+.resumo-blusas-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    color: #495057;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    font-size: 0.92rem;
+}
+
+.resumo-blusas-total strong {
+    color: #212529;
+    font-size: 1rem;
+}
+
+.resumo-blusas-tabela {
+    max-width: 420px;
+    color: #495057;
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+}
+
+.resumo-blusas-tabela .table {
+    font-size: 0.86rem;
+}
+
+.resumo-blusas-tabela th,
+.resumo-blusas-tabela td {
+    padding: 0.35rem 0.5rem;
 }
 
 .form-control, .form-select {

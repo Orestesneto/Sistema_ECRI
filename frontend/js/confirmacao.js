@@ -1,5 +1,5 @@
-const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 15;
+﻿const API_URL = 'http://localhost:5000/api';
+const TAMANHO_MAXIMO_FOTO_MB = 1;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 const params = new URLSearchParams(window.location.search);
@@ -7,6 +7,10 @@ const token = params.get('token');
 let tipoCadastro = '';
 
 document.addEventListener('DOMContentLoaded', carregarConfirmacao);
+document.getElementById('confirmacaoMovimento')?.addEventListener('change', atualizarModoConfirmacao);
+document.getElementById('confirmacaoNomeIndividual')?.addEventListener('input', atualizarNomeConfirmacao);
+document.getElementById('confirmacaoNomeMarido')?.addEventListener('input', atualizarNomeConfirmacao);
+document.getElementById('confirmacaoNomeEsposa')?.addEventListener('input', atualizarNomeConfirmacao);
 
 ['confirmacaoCpf', 'confirmacaoDataNascimento', 'confirmacaoAnoEncontro'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', (e) => {
@@ -19,7 +23,7 @@ document.getElementById('confirmacaoFoto')?.addEventListener('change', async (e)
     if (!arquivo) return;
 
     if (arquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ter no maximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+        mostrarAlerta(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         e.target.value = '';
         return;
     }
@@ -31,7 +35,7 @@ document.getElementById('confirmacaoFoto')?.addEventListener('change', async (e)
 
 async function carregarConfirmacao() {
     if (!token) {
-        mostrarAlerta('Link de confirmacao invalido.', 'danger');
+        mostrarAlerta('Link de confirmação inválido.', 'danger');
         return;
     }
 
@@ -41,13 +45,13 @@ async function carregarConfirmacao() {
 
         if (!response.ok) {
             const tipo = response.status === 403 ? 'warning' : 'danger';
-            mostrarAlerta(participante.erro || 'Erro ao carregar confirmacao.', tipo);
+            mostrarAlerta(participante.erro || 'Erro ao carregar confirmação.', tipo);
             return;
         }
 
-        document.getElementById('confirmacaoNome').value = participante.nome_completo || '';
-        document.getElementById('confirmacaoTelefone').value = participante.telefone || '';
         document.getElementById('confirmacaoMovimento').value = participante.movimento_origem || '';
+        preencherNomeConfirmacao(participante.nome_completo || '', participante.movimento_origem || '');
+        preencherTelefoneConfirmacao(participante.telefone || '', participante.movimento_origem || '');
         document.getElementById('confirmacaoAnoEncontro').value = somenteNumeros(participante.ano_encontro || '');
         document.getElementById('confirmacaoRestricaoMedica').value = participante.restricao_medica || '';
         document.getElementById('confirmacaoRestricaoAlimentar').value = participante.restricao_alimentar || '';
@@ -67,8 +71,9 @@ async function carregarConfirmacao() {
             : '<div class="mx-auto" style="width:120px; height:120px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
 
         document.getElementById('formConfirmacao').style.display = 'block';
+        atualizarModoConfirmacao();
     } catch (err) {
-        mostrarAlerta('Erro ao carregar confirmacao.', 'danger');
+        mostrarAlerta('Erro ao carregar confirmação.', 'danger');
         console.error(err);
     }
 }
@@ -78,12 +83,12 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
 
     const fotoArquivo = document.getElementById('confirmacaoFoto').files[0];
     if (!fotoArquivo) {
-        mostrarAlerta('Envie uma foto de perfil para confirmar sua participacao.', 'warning');
+        mostrarAlerta('Envie uma foto de perfil para confirmar sua participação.', 'warning');
         return;
     }
 
     if (fotoArquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ter no maximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+        mostrarAlerta(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         return;
     }
 
@@ -91,28 +96,53 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
     const cpf = somenteNumeros(document.getElementById('confirmacaoCpf')?.value || '');
     const dataNascimento = somenteNumeros(document.getElementById('confirmacaoDataNascimento')?.value || '');
     const anoEncontro = somenteNumeros(document.getElementById('confirmacaoAnoEncontro')?.value || '');
+    const movimentoOrigem = document.getElementById('confirmacaoMovimento').value;
+    const isCasal = movimentoOrigemCasal(movimentoOrigem);
+    const telefoneEsposa = document.getElementById('confirmacaoTelefoneEsposa')?.value.trim() || '';
+    const telefoneMarido = document.getElementById('confirmacaoTelefoneMarido')?.value.trim() || '';
+    atualizarNomeConfirmacao();
+
+    const nomeCompleto = document.getElementById('confirmacaoNome').value.trim();
+    const telefone = isCasal
+        ? `Esposa: ${telefoneEsposa} | Marido: ${telefoneMarido}`
+        : document.getElementById('confirmacaoTelefone').value.trim();
 
     if (tipoCadastro === 'externo' && (cpf.length !== 11 || dataNascimento.length !== 8)) {
-        mostrarAlerta('CPF deve ter 11 numeros e data de nascimento deve ter 8 numeros.', 'warning');
+        mostrarAlerta('CPF deve ter 11 números e data de nascimento deve ter 8 números.', 'warning');
         return;
     }
 
     if (tipoCadastro === 'externo' && !cpfValido(cpf)) {
-        mostrarAlerta('Informe um CPF valido.', 'warning');
+        mostrarAlerta('Informe um CPF válido.', 'warning');
         return;
     }
 
     if (!anoEncontroValido(anoEncontro)) {
-        mostrarAlerta('Informe um ano do encontro valido.', 'warning');
+        mostrarAlerta('Informe um ano do encontro válido.', 'warning');
+        return;
+    }
+
+    if (!nomeCompleto) {
+        mostrarAlerta(isCasal ? 'Informe como o marido e a esposa gostam de ser chamados.' : 'Informe o nome completo.', 'warning');
+        return;
+    }
+
+    if (isCasal && (!telefoneEsposa || !telefoneMarido)) {
+        mostrarAlerta('Informe o WhatsApp da esposa e o WhatsApp do marido.', 'warning');
+        return;
+    }
+
+    if (!isCasal && !telefone) {
+        mostrarAlerta('Informe o telefone WhatsApp.', 'warning');
         return;
     }
 
     const body = {
-        nome_completo: document.getElementById('confirmacaoNome').value,
-        telefone: document.getElementById('confirmacaoTelefone').value,
+        nome_completo: nomeCompleto,
+        telefone,
         cpf,
         data_nascimento: dataNascimento,
-        movimento_origem: document.getElementById('confirmacaoMovimento').value,
+        movimento_origem: movimentoOrigem,
         ano_encontro: anoEncontro,
         restricao_medica: document.getElementById('confirmacaoRestricaoMedica').value,
         restricao_alimentar: document.getElementById('confirmacaoRestricaoAlimentar').value,
@@ -131,17 +161,97 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         const data = await response.json();
 
         if (response.ok) {
-            mostrarAlerta('Confirmacao enviada com sucesso!', 'success');
+            mostrarAlerta('Confirmação enviada com sucesso!', 'success');
             document.getElementById('formConfirmacao').style.display = 'none';
         } else {
             const tipo = response.status === 403 ? 'warning' : 'danger';
-            mostrarAlerta(data.erro || 'Erro ao enviar confirmacao.', tipo);
+            mostrarAlerta(data.erro || 'Erro ao enviar confirmação.', tipo);
         }
     } catch (err) {
-        mostrarAlerta('Erro ao enviar confirmacao.', 'danger');
+        mostrarAlerta('Erro ao enviar confirmação.', 'danger');
         console.error(err);
     }
 });
+
+function atualizarModoConfirmacao() {
+    const movimento = document.getElementById('confirmacaoMovimento')?.value || '';
+    const isCasal = movimentoOrigemCasal(movimento);
+    const dadosIndividual = document.getElementById('confirmacaoDadosIndividual');
+    const dadosCasal = document.getElementById('confirmacaoDadosCasal');
+    const telefoneIndividual = document.getElementById('confirmacaoTelefoneIndividual');
+    const nomeIndividual = document.getElementById('confirmacaoNomeIndividual');
+    const nomeMarido = document.getElementById('confirmacaoNomeMarido');
+    const nomeEsposa = document.getElementById('confirmacaoNomeEsposa');
+    const telefone = document.getElementById('confirmacaoTelefone');
+    const telefoneEsposa = document.getElementById('confirmacaoTelefoneEsposa');
+    const telefoneMarido = document.getElementById('confirmacaoTelefoneMarido');
+
+    dadosIndividual.style.display = isCasal ? 'none' : 'block';
+    telefoneIndividual.style.display = isCasal ? 'none' : 'block';
+    dadosCasal.style.display = isCasal ? 'block' : 'none';
+
+    nomeIndividual.required = !isCasal;
+    telefone.required = !isCasal;
+    nomeMarido.required = isCasal;
+    nomeEsposa.required = isCasal;
+    telefoneEsposa.required = isCasal;
+    telefoneMarido.required = isCasal;
+
+    atualizarNomeConfirmacao();
+}
+
+function atualizarNomeConfirmacao() {
+    const movimento = document.getElementById('confirmacaoMovimento')?.value || '';
+    const isCasal = movimentoOrigemCasal(movimento);
+
+    if (isCasal) {
+        const nomeMarido = paraCaixaAlta(document.getElementById('confirmacaoNomeMarido')?.value || '');
+        const nomeEsposa = paraCaixaAlta(document.getElementById('confirmacaoNomeEsposa')?.value || '');
+        document.getElementById('confirmacaoNomeMarido').value = nomeMarido;
+        document.getElementById('confirmacaoNomeEsposa').value = nomeEsposa;
+        document.getElementById('confirmacaoNome').value = nomeMarido && nomeEsposa ? `${nomeMarido} E ${nomeEsposa}` : '';
+        return;
+    }
+
+    const nomeIndividual = paraCaixaAlta(document.getElementById('confirmacaoNomeIndividual')?.value || '');
+    document.getElementById('confirmacaoNomeIndividual').value = nomeIndividual;
+    document.getElementById('confirmacaoNome').value = nomeIndividual;
+}
+
+function preencherNomeConfirmacao(nome, movimento) {
+    const nomeNormalizado = paraCaixaAlta(nome || '');
+
+    if (movimentoOrigemCasal(movimento) && nomeNormalizado.includes(' E ')) {
+        const partes = nomeNormalizado.split(' E ');
+        document.getElementById('confirmacaoNomeMarido').value = partes.shift() || '';
+        document.getElementById('confirmacaoNomeEsposa').value = partes.join(' E ') || '';
+    } else {
+        document.getElementById('confirmacaoNomeIndividual').value = nomeNormalizado;
+    }
+
+    document.getElementById('confirmacaoNome').value = nomeNormalizado;
+}
+
+function preencherTelefoneConfirmacao(telefone, movimento) {
+    const telefoneTexto = String(telefone || '');
+
+    if (movimentoOrigemCasal(movimento)) {
+        const telefoneEsposa = telefoneTexto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim() || '';
+        const telefoneMarido = telefoneTexto.match(/Marido:\s*(.+)$/i)?.[1]?.trim() || '';
+        document.getElementById('confirmacaoTelefoneEsposa').value = telefoneEsposa;
+        document.getElementById('confirmacaoTelefoneMarido').value = telefoneMarido;
+    } else {
+        document.getElementById('confirmacaoTelefone').value = telefoneTexto;
+    }
+}
+
+function movimentoOrigemCasal(movimento) {
+    return movimento === 'ECC' || movimento === 'JOVENS EJC CASADOS';
+}
+
+function paraCaixaAlta(valor) {
+    return String(valor || '').toLocaleUpperCase('pt-BR');
+}
 
 function mostrarAlerta(mensagem, tipo) {
     const alerta = document.getElementById('alertaConfirmacao');

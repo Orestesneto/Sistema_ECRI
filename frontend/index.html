@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -47,14 +47,6 @@
                             <div id="registro" class="tab-pane fade">
                                 <form id="formRegistro">
                                     <div class="mb-3">
-                                        <label for="cpfRegistro" class="form-label">CPF</label>
-                                        <input type="text" class="form-control" id="cpfRegistro" inputmode="numeric" maxlength="11" required>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="dataNascimentoRegistro" class="form-label">Data de Nascimento</label>
-                                        <input type="password" class="form-control" id="dataNascimentoRegistro" inputmode="numeric" maxlength="8" placeholder="DDMMAAAA" required>
-                                    </div>
-                                    <div class="mb-3">
                                         <label for="movimento" class="form-label">Movimento de Origem</label>
                                         <div>
                                             <div class="form-check form-check-inline">
@@ -80,7 +72,15 @@
                                         </div>
                                     </div>
                                     <div class="mb-3">
-                                        <label for="anoEncontroRegistro" class="form-label">Qual o ano que voce fez o encontro?</label>
+                                        <label for="cpfRegistro" class="form-label">CPF</label>
+                                        <input type="text" class="form-control" id="cpfRegistro" inputmode="numeric" maxlength="11" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="dataNascimentoRegistro" class="form-label">Data de Nascimento</label>
+                                        <input type="password" class="form-control" id="dataNascimentoRegistro" inputmode="numeric" maxlength="8" placeholder="DDMMAAAA" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="anoEncontroRegistro" class="form-label">Qual o ano que você fez o encontro?</label>
                                         <input type="text" class="form-control" id="anoEncontroRegistro" inputmode="numeric" maxlength="4" required>
                                     </div>
                                     <input type="hidden" id="nomeCompleto">
@@ -92,12 +92,20 @@
                                     </div>
                                     <div id="dadosCasalRegistro" style="display:none;">
                                         <div class="mb-3">
-                                            <label for="nomeMarido" class="form-label">Nome do Marido</label>
+                                            <label for="nomeMarido" class="form-label">Como o marido gosta de ser chamado</label>
                                             <input type="text" class="form-control" id="nomeMarido">
                                         </div>
                                         <div class="mb-3">
-                                            <label for="nomeEsposa" class="form-label">Nome da Esposa</label>
+                                            <label for="nomeEsposa" class="form-label">Como a esposa gosta de ser chamada</label>
                                             <input type="text" class="form-control" id="nomeEsposa">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="telefoneEsposa" class="form-label">Contato WhatsApp Esposa</label>
+                                            <input type="tel" class="form-control" id="telefoneEsposa" placeholder="(11) 99999-9999">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="telefoneMarido" class="form-label">Contato WhatsApp Marido</label>
+                                            <input type="tel" class="form-control" id="telefoneMarido" placeholder="(11) 99999-9999">
                                         </div>
                                     </div>
                                     <div class="mb-3">
@@ -107,24 +115,43 @@
                                     <div class="mb-3">
                                         <label for="fotoPerfilRegistro" class="form-label">Foto de Perfil</label>
                                         <input type="file" class="form-control" id="fotoPerfilRegistro" accept="image/*" required>
-                                        <small class="text-muted">Formatos: JPG, PNG (max 15MB)</small>
+                                        <small class="text-muted">Formatos: JPG, PNG (max 1MB)</small>
                                     </div>
                                     <div id="previewFotoRegistro" class="mb-3">
                                         <img id="fotoPreviewRegistro" src="" alt="Preview" style="max-width:150px; display:none;">
                                     </div>
-                                    <div class="mb-3">
+                                    <div class="mb-3" id="telefoneIndividualRegistro">
                                         <label for="telefone" class="form-label">Telefone (WhatsApp)</label>
                                         <input type="tel" class="form-control" id="telefone" placeholder="(11) 99999-9999" required>
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label d-block">Voce toca algum instrumento?</label>
+                                        <label class="form-label d-block">A qual paróquia você pertence?</label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="paroquiaRegistro" id="paroquiaRegistroGuia" value="NOSSA SENHORA DA GUIA" required>
+                                            <label class="form-check-label" for="paroquiaRegistroGuia">Nossa Senhora da Guia</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="paroquiaRegistro" id="paroquiaRegistroPedroPaulo" value="SAO PEDRO E SAO PAULO" required>
+                                            <label class="form-check-label" for="paroquiaRegistroPedroPaulo">São Pedro e São Paulo</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="paroquiaRegistro" id="paroquiaRegistroOutras" value="OUTRAS" required>
+                                            <label class="form-check-label" for="paroquiaRegistroOutras">Outras. Qual?</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3" id="campoOutraParoquiaRegistro" style="display:none;">
+                                        <label for="outraParoquiaRegistro" class="form-label">Nome da paróquia</label>
+                                        <input type="text" class="form-control" id="outraParoquiaRegistro">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">Você toca algum instrumento?</label>
                                         <div class="form-check form-check-inline">
                                             <input class="form-check-input" type="radio" name="tocaInstrumento" id="tocaInstrumentoSim" value="sim" required>
                                             <label class="form-check-label" for="tocaInstrumentoSim">Sim</label>
                                         </div>
                                         <div class="form-check form-check-inline">
-                                            <input class="form-check-input" type="radio" name="tocaInstrumento" id="tocaInstrumentoNao" value="nao" required>
-                                            <label class="form-check-label" for="tocaInstrumentoNao">Nao</label>
+                                            <input class="form-check-input" type="radio" name="tocaInstrumento" id="tocaInstrumentoNão" value="nao" required>
+                                            <label class="form-check-label" for="tocaInstrumentoNão">Não</label>
                                         </div>
                                     </div>
                                     <div class="mb-3" id="campoInstrumentosRegistro" style="display:none;">
@@ -132,25 +159,25 @@
                                         <input type="text" class="form-control" id="instrumentosRegistro">
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label d-block">Voce canta?</label>
+                                        <label class="form-label d-block">Você canta?</label>
                                         <div class="form-check form-check-inline">
                                             <input class="form-check-input" type="radio" name="canta" id="cantaSim" value="sim" required>
                                             <label class="form-check-label" for="cantaSim">Sim</label>
                                         </div>
                                         <div class="form-check form-check-inline">
-                                            <input class="form-check-input" type="radio" name="canta" id="cantaNao" value="nao" required>
-                                            <label class="form-check-label" for="cantaNao">Nao</label>
+                                            <input class="form-check-input" type="radio" name="canta" id="cantaNão" value="nao" required>
+                                            <label class="form-check-label" for="cantaNão">Não</label>
                                         </div>
                                     </div>
                                     <div class="mb-3">
-                                        <label class="form-label d-block">Quais dessas equipes voce ja serviu?</label>
+                                        <label class="form-label d-block">Quais dessas equipes você já serviu?</label>
                                         <div class="row g-2">
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaApresentadores" value="APRESENTADORES"><label class="form-check-label" for="equipeServidaApresentadores">Apressentadores</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaApresentadores" value="APRESENTADORES"><label class="form-check-label" for="equipeServidaApresentadores">Apresentadores</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCirculos" value="CIRCULOS/ ARCOS / GRUPOS"><label class="form-check-label" for="equipeServidaCirculos">Circulos/ Arcos / Grupos</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaEcrishop" value="ECRISHOP/ MINI BOX / BODEGA"><label class="form-check-label" for="equipeServidaEcrishop">ECRISHOP/ Mini box / bodega</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaBandinha" value="BANDINHA"><label class="form-check-label" for="equipeServidaBandinha">Bandinha</label></div></div>
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaBoaAcao" value="BOA ACAO / BOA VONTADE / BEM ESTAR"><label class="form-check-label" for="equipeServidaBoaAcao">Boa Acao / Boa Vontade / Bem estar</label></div></div>
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaLiturgia" value="LIRTUGIA"><label class="form-check-label" for="equipeServidaLiturgia">Lirtugia</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaBoaAcao" value="BOA ACAO / BOA VONTADE / BEM ESTAR"><label class="form-check-label" for="equipeServidaBoaAcao">Boa Ação / Boa Vontade / Bem estar</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaLiturgia" value="LIRTUGIA"><label class="form-check-label" for="equipeServidaLiturgia">Liturgia</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaSecretaria" value="SECRETARIA / PAPELARIA / ESCRITA"><label class="form-check-label" for="equipeServidaSecretaria">Secretaria / papelaria / Escrita</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaTeatro" value="TRANSITO E SOCIODRAMA / TEATRO/ TEATRINHO"><label class="form-check-label" for="equipeServidaTeatro">Transito e Sociodrama / Teatro/ Teatrinho</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaAlegria" value="ANJOS DA ALEGRIA"><label class="form-check-label" for="equipeServidaAlegria">Anjos da Alegria</label></div></div>
@@ -158,11 +185,14 @@
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaOrdem" value="ORDEM / VASSOURINHA"><label class="form-check-label" for="equipeServidaOrdem">Ordem / vassourinha</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaLanchinho" value="LANCHINHO/ PAPA LANCHE"><label class="form-check-label" for="equipeServidaLanchinho">Lanchinho/ Papa Lanche</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCozinha" value="COZINHA / RANGUINHO"><label class="form-check-label" for="equipeServidaCozinha">Cozinha / Ranguinho</label></div></div>
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaSom" value="SOM E ILUMINACAO"><label class="form-check-label" for="equipeServidaSom">Som e Iluminacao</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaSom" value="SOM E ILUMINACAO"><label class="form-check-label" for="equipeServidaSom">Som e Iluminação</label></div></div>
                                             <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaCompras" value="COMPRAS"><label class="form-check-label" for="equipeServidaCompras">Compras</label></div></div>
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaRecepcao" value="RECPCAO AOS PALESTRANTES"><label class="form-check-label" for="equipeServidaRecepcao">Recpcao Aos palestrantes</label></div></div>
-                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaVisitacao" value="VISITACAO E EXTERNA/ COMUNICACAO E INFORMACAO"><label class="form-check-label" for="equipeServidaVisitacao">Visitacao e Externa/ Comunicacao e Informacao</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaRecepcao" value="RECPCAO AOS PALESTRANTES"><label class="form-check-label" for="equipeServidaRecepcao">Recepção aos palestrantes</label></div></div>
+                                            <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="equipesServidas" id="equipeServidaVisitacao" value="VISITACAO E EXTERNA/ COMUNICACAO E INFORMACAO"><label class="form-check-label" for="equipeServidaVisitacao">Visitação e Externa/ Comunicação e Informação</label></div></div>
                                         </div>
+                                    </div>
+                                    <div class="alert alert-info" role="alert">
+                                        O preenchimento deste formulário não garante a sua participação no encontro. Porém, é uma maneira de você ser lembrado durante o processo de montagem do encontro. Ao clicar em Criar Conta, você declara que está ciente dos termos.
                                     </div>
                                     <button type="submit" class="btn btn-success w-100">Criar Conta</button>
                                 </form>
@@ -177,6 +207,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="js/paroquia.js"></script>
     <script src="js/auth.js"></script>
 </body>
 </html>

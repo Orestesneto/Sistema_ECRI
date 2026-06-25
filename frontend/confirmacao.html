@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -20,36 +20,6 @@
             <div class="text-center mb-3" id="fotoConfirmacao"></div>
 
             <div class="mb-3">
-                <label class="form-label">Foto de perfil</label>
-                <input type="file" class="form-control" id="confirmacaoFoto" accept="image/*" required>
-                <small class="text-muted">Formatos: JPG, PNG (max 15MB)</small>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Nome completo</label>
-                <input type="text" class="form-control" id="confirmacaoNome" required>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Telefone WhatsApp</label>
-                <input type="tel" class="form-control" id="confirmacaoTelefone" required>
-            </div>
-
-            <div id="dadosLoginSemCadastro" style="display:none;">
-                <div class="mb-3">
-                    <label class="form-label">CPF</label>
-                    <input type="text" class="form-control" id="confirmacaoCpf" inputmode="numeric" pattern="[0-9]*" maxlength="11">
-                    <small class="text-muted">Somente numeros</small>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label">Data de nascimento</label>
-                    <input type="text" class="form-control" id="confirmacaoDataNascimento" inputmode="numeric" pattern="[0-9]*" maxlength="8">
-                    <small class="text-muted">Somente numeros. Exemplo: 25061995</small>
-                </div>
-            </div>
-
-            <div class="mb-3">
                 <label class="form-label">Movimento de origem</label>
                 <select class="form-select" id="confirmacaoMovimento" required>
                     <option value="">Selecione...</option>
@@ -62,35 +32,86 @@
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Qual o ano que voce fez o encontro?</label>
+                <label class="form-label">Foto de perfil</label>
+                <input type="file" class="form-control" id="confirmacaoFoto" accept="image/*" required>
+                <small class="text-muted">Formatos: JPG, PNG (max 1MB)</small>
+            </div>
+
+            <input type="hidden" id="confirmacaoNome">
+
+            <div class="mb-3" id="confirmacaoDadosIndividual">
+                <label class="form-label">Nome completo</label>
+                <input type="text" class="form-control" id="confirmacaoNomeIndividual">
+            </div>
+
+            <div id="confirmacaoDadosCasal" style="display:none;">
+                <div class="mb-3">
+                    <label class="form-label">Como o marido gosta de ser chamado</label>
+                    <input type="text" class="form-control" id="confirmacaoNomeMarido">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Como a esposa gosta de ser chamada</label>
+                    <input type="text" class="form-control" id="confirmacaoNomeEsposa">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Contato WhatsApp Esposa</label>
+                    <input type="tel" class="form-control" id="confirmacaoTelefoneEsposa" placeholder="(11) 99999-9999">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Contato WhatsApp Marido</label>
+                    <input type="tel" class="form-control" id="confirmacaoTelefoneMarido" placeholder="(11) 99999-9999">
+                </div>
+            </div>
+
+            <div class="mb-3" id="confirmacaoTelefoneIndividual">
+                <label class="form-label">Telefone WhatsApp</label>
+                <input type="tel" class="form-control" id="confirmacaoTelefone" required>
+            </div>
+
+            <div id="dadosLoginSemCadastro" style="display:none;">
+                <div class="mb-3">
+                    <label class="form-label">CPF</label>
+                    <input type="text" class="form-control" id="confirmacaoCpf" inputmode="numeric" pattern="[0-9]*" maxlength="11">
+                    <small class="text-muted">Somente números</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Data de nascimento</label>
+                    <input type="text" class="form-control" id="confirmacaoDataNascimento" inputmode="numeric" pattern="[0-9]*" maxlength="8">
+                    <small class="text-muted">Somente números. Exemplo: 25061995</small>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Qual o ano que você fez o encontro?</label>
                 <input type="text" class="form-control" id="confirmacaoAnoEncontro" inputmode="numeric" pattern="[0-9]*" maxlength="4" required>
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restricao medica</label>
+                <label class="form-label">Restrição médica</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoMedica">
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restricao alimentar</label>
+                <label class="form-label">Restrição alimentar</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoAlimentar">
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restricao de medicacao</label>
+                <label class="form-label">Restrição à medicação</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoMedicacao">
             </div>
 
             <div class="mb-3">
                 <label class="form-label">Participacao</label>
                 <select class="form-select" id="confirmacaoStatus" required>
-                    <option value="confirmado">Confirmo minha participacao</option>
-                    <option value="negou">Nao poderei participar</option>
-                    <option value="desistiu">Desisti da participacao</option>
+                    <option value="confirmado">Confirmo minha participação</option>
+                    <option value="negou">Não poderei participar</option>
+                    <option value="desistiu">Desisti da participação</option>
                 </select>
             </div>
 
-            <button type="submit" class="btn btn-primary">Enviar confirmacao</button>
+            <button type="submit" class="btn btn-primary">Enviar confirmação</button>
         </form>
     </div>
 

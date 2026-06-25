@@ -1,20 +1,62 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const database = require('../config/database');
 const { verificarToken, verificarPerfil } = require('../middleware/auth');
 const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
 const { normalizarExperienciaPerfil } = require('../utils/experienciaPerfil');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
+const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
+const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('../utils/equipes');
+const { pedidosBlusaBloqueados } = require('../utils/configuracoes');
+const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
 
 const router = express.Router();
+const TAXAS_POR_MOVIMENTO = {
+  EC: 25,
+  EJC: 25,
+  ECC: 35,
+  'JOVENS EJC CASADOS': 35,
+  ECRI: 15
+};
+
+function gerarTokenConfirmacao(participante) {
+  return jwt.sign(
+    {
+      id: participante.id,
+      tipo: participante.tipo_cadastro,
+      jti: crypto.randomUUID()
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+}
+const TAMANHOS_BLUSA = [
+  '8 Anos',
+  '10 Anos',
+  '12 Anos',
+  '14 Anos (PP Babylook)',
+  'P Babylook',
+  'M Babylook',
+  'G Babylook',
+  'GG Babylook',
+  'EXGG Babylook',
+  'PP Unisex',
+  'P Unisex',
+  'M Unisex',
+  'G Unisex',
+  'GG Unisex',
+  'EXGG Unisex',
+  'XL Unisex'
+];
 
 // Obter dados do próprio perfil
 router.get('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
     const usuario = await database.get(
       `SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
-              restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil,
+              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil,
               perfil, status, equipe, toca_instrumento, instrumentos, canta, equipes_servidas
        FROM usuarios WHERE id = ?`,
       [req.usuario.id]
@@ -30,20 +72,25 @@ router.get('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
 // Atualizar próprio perfil
 router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const { nome_cracha, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, movimento_origem, ano_encontro } = req.body;
+    const { nome_cracha, paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, movimento_origem, ano_encontro } = req.body;
     const usuario_id = req.usuario.id;
     const experiencia = normalizarExperienciaPerfil(req.body);
 
     if (!movimentoOrigemValido(movimento_origem)) {
-      return res.status(400).json({ erro: 'Movimento de origem invalido' });
+      return res.status(400).json({ erro: 'Movimento de origem inválido' });
     }
 
     if (!anoEncontroValido(ano_encontro)) {
-      return res.status(400).json({ erro: 'Ano do encontro invalido' });
+      return res.status(400).json({ erro: 'Ano do encontro inválido' });
+    }
+
+    if (!paroquiaValida(paroquia)) {
+      return res.status(400).json({ erro: 'Paróquia inválida' });
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
+    const paroquiaNormalizada = normalizarParoquia(paroquia);
 
     const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
       ? foto_perfil
@@ -52,7 +99,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
     await database.run(
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
-           foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, toca_instrumento = ?,
+           foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
            instrumentos = ?, canta = ?, equipes_servidas = ?
        WHERE id = ?`,
       [
@@ -63,6 +110,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
         fotoPerfil,
         movimentoOrigem,
         anoEncontro,
+        paroquiaNormalizada,
         experiencia.tocaInstrumento,
         experiencia.instrumentos,
         experiencia.canta,
@@ -79,17 +127,64 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
   }
 });
 
+router.get('/restricoes-alimentares', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+
+    if (normalizarEquipe(coordenador?.equipe || '') !== 'Ranguinho') {
+      return res.status(403).json({ erro: 'Acesso permitido apenas ao coordenador do Ranguinho' });
+    }
+
+    const usuarios = await database.all(`
+      SELECT id, nome_completo, nome_cracha, foto_perfil, restricao_alimentar
+      FROM usuarios
+      WHERE status = 'confirmado'
+        AND equipe IS NOT NULL
+        AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+      ORDER BY nome_cracha COLLATE NOCASE ASC, nome_completo COLLATE NOCASE ASC
+    `);
+
+    res.json(usuarios);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar restrições alimentares' });
+  }
+});
+
 // Confirmar pagamento de taxa
 router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
     const pagamento_id = req.params.id;
     const usuario_id = req.usuario.id;
+    const { forma_pagamento } = req.body;
+
+    if (!['pix', 'dinheiro'].includes(forma_pagamento)) {
+      return res.status(400).json({ erro: 'Informe se recebeu via PIX ou em dinheiro' });
+    }
+
+    const pagamento = await database.get(`
+      SELECT p.id, u.equipe
+      FROM pagamentos p
+      JOIN usuarios u ON p.usuario_id = u.id
+      WHERE p.id = ?
+    `, [pagamento_id]);
+
+    if (!pagamento || !pagamento.equipe || equipeSemEquipe(pagamento.equipe)) {
+      return res.status(400).json({ erro: 'Usuário sem equipe não possui cobrança' });
+    }
+
+    const coordenador = await database.get('SELECT perfil, equipe FROM usuarios WHERE id = ?', [usuario_id]);
+    if (coordenador?.perfil !== 'coordenador' || !coordenador.equipe || coordenador.equipe !== pagamento.equipe) {
+      return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode confirmar este pagamento' });
+    }
 
     await database.run(
-      `UPDATE pagamentos SET status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, confirmado_por = ? WHERE id = ?`,
-      [usuario_id, pagamento_id]
+      `UPDATE pagamentos
+       SET status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, confirmado_por = ?, forma_pagamento = ?
+       WHERE id = ?`,
+      [usuario_id, forma_pagamento, pagamento_id]
     );
-    await registrarHistorico(usuario_id, 'pagamento_confirmado', { pagamento_id });
+    await registrarHistorico(usuario_id, 'pagamento_confirmado', { pagamento_id, forma_pagamento });
 
     res.json({ mensagem: 'Pagamento confirmado com sucesso' });
   } catch (err) {
@@ -102,6 +197,12 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
 router.put('/confirmar-servico/:usuario_id', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
     const usuario_id = req.params.usuario_id;
+    const usuario = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [usuario_id]);
+
+    if (!usuario?.equipe || equipeSemEquipe(usuario.equipe)) {
+      await database.run(`UPDATE usuarios SET status = 'pendente', equipe = 'SEM EQUIPE' WHERE id = ?`, [usuario_id]);
+      return res.status(400).json({ erro: 'Usuário sem equipe deve permanecer pendente' });
+    }
 
     await database.run(
       `UPDATE usuarios SET status = 'confirmado' WHERE id = ?`,
@@ -122,7 +223,7 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
     const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
 
-    if (filtrarPorEquipe && !coordenador?.equipe) {
+    if (filtrarPorEquipe && (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe))) {
       return res.json([]);
     }
 
@@ -132,6 +233,9 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
     const usuarios = await database.all(`
       SELECT id, nome_completo, nome_cracha, email, telefone, movimento_origem, foto_perfil,
              restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'presente'), 0) AS total_presencas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta'), 0) AS total_faltas,
              'usuario' AS tipo_cadastro
       FROM usuarios
       ${filtroEquipeSql}
@@ -141,6 +245,9 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
     const externos = await database.all(`
       SELECT id, nome_completo, nome_cracha, '' AS email, telefone, movimento_origem, foto_perfil,
              restricao_medica, restricao_alimentar, restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe,
+             0 AS total_presencas,
+             0 AS total_faltas_justificadas,
+             0 AS total_faltas,
              'externo' AS tipo_cadastro
       FROM pessoas_externas
       ${filtroEquipeSql}
@@ -151,17 +258,71 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
       .sort((a, b) => String(a.nome_completo || '').localeCompare(String(b.nome_completo || '')))
       .map(participante => ({
         ...participante,
-        token_confirmacao: jwt.sign(
-          { id: participante.id, tipo: participante.tipo_cadastro },
-          process.env.JWT_SECRET,
-          { expiresIn: '30d' }
-        )
+        token_confirmacao: gerarTokenConfirmacao(participante)
       }));
 
     res.json(participantes);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter participantes da equipe' });
+  }
+});
+
+router.post('/participantes-equipe/:tipo/:id/token-confirmacao', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
+  try {
+    const tipo = req.params.tipo;
+    const id = Number(req.params.id);
+
+    if (!['usuario', 'externo'].includes(tipo) || !id) {
+      return res.status(400).json({ erro: 'Participante inválido' });
+    }
+
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
+    const tabela = tipo === 'externo' ? 'pessoas_externas' : 'usuarios';
+    const participante = await database.get(
+      `SELECT id, nome_completo, telefone, equipe, '${tipo}' AS tipo_cadastro FROM ${tabela} WHERE id = ?`,
+      [id]
+    );
+
+    if (!participante) {
+      return res.status(404).json({ erro: 'Participante não encontrado' });
+    }
+
+    if (filtrarPorEquipe && participante.equipe !== coordenador?.equipe) {
+      return res.status(403).json({ erro: 'Participante não pertence à sua equipe' });
+    }
+
+    res.json({ token_confirmacao: gerarTokenConfirmacao(participante) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao gerar link de confirmação' });
+  }
+});
+
+router.get('/carografo-escrita', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+
+    if (!coordenador?.equipe || normalizarEquipe(coordenador.equipe) !== 'Escrita') {
+      return res.status(403).json({ erro: 'Acesso permitido apenas ao coordenador da equipe Escrita' });
+    }
+
+    const usuarios = await database.all(`
+      SELECT id, email, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
+             restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             toca_instrumento, instrumentos, canta, equipes_servidas
+      FROM usuarios
+      WHERE status = 'confirmado'
+        AND equipe IS NOT NULL
+        AND UPPER(equipe) <> 'SEM EQUIPE'
+      ORDER BY nome_completo ASC
+    `);
+
+    res.json(usuarios);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar carógrafo' });
   }
 });
 
@@ -172,28 +333,33 @@ router.put('/participantes/:usuario_id/status', verificarToken, verificarPerfil(
     const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
 
     if (!usuario_id || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Status invalido' });
+      return res.status(400).json({ erro: 'Status inválido' });
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
     const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
 
-    if (filtrarPorEquipe && !coordenador?.equipe) {
+    if (filtrarPorEquipe && (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe))) {
       return res.status(400).json({ erro: 'Coordenador sem equipe escalada' });
     }
 
     const tabela = tipo_cadastro === 'externo' ? 'pessoas_externas' : 'usuarios';
 
     const participante = await database.get(
-      `SELECT id FROM ${tabela} WHERE id = ? ${filtrarPorEquipe ? 'AND equipe = ?' : ''}`,
+      `SELECT id, equipe FROM ${tabela} WHERE id = ? ${filtrarPorEquipe ? 'AND equipe = ?' : ''}`,
       filtrarPorEquipe ? [usuario_id, coordenador.equipe] : [usuario_id]
     );
 
     if (!participante) {
-      return res.status(403).json({ erro: 'Usuario nao pertence a equipe do coordenador' });
+      return res.status(403).json({ erro: 'Usuário não pertence à equipe do coordenador' });
     }
 
-    await database.run(`UPDATE ${tabela} SET status = ? WHERE id = ?`, [status, usuario_id]);
+    const regraEquipeStatus = aplicarRegraSemEquipe(participante.equipe, status);
+
+    await database.run(
+      `UPDATE ${tabela} SET status = ?, equipe = ? WHERE id = ?`,
+      [regraEquipeStatus.status, regraEquipeStatus.equipe, usuario_id]
+    );
 
     res.json({ mensagem: 'Status atualizado com sucesso' });
   } catch (err) {
@@ -204,34 +370,228 @@ router.put('/participantes/:usuario_id/status', verificarToken, verificarPerfil(
 
 router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const solicitacoes = await database.all(`
-      SELECT sb.id, sb.tamanho, sb.status, sb.data_solicitacao,
-             u.id as usuario_id, u.nome_completo, u.email, u.nome_cracha, u.foto_perfil
-      FROM solicitacoes_blusa sb
-      JOIN usuarios u ON sb.usuario_id = u.id
-      ORDER BY sb.data_solicitacao DESC
-    `);
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
 
-    res.json(solicitacoes);
+    if (filtrarPorEquipe && (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe))) {
+      return res.json([]);
+    }
+
+    const filtroEquipeSql = filtrarPorEquipe ? 'AND u.equipe = ?' : '';
+    const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
+
+    const solicitacoes = await database.all(`
+      SELECT u.id as usuario_id, u.nome_completo, u.email, u.nome_cracha, u.foto_perfil, u.equipe,
+             sb.id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao, sb.data_confirmacao, sb.forma_pagamento
+      FROM usuarios u
+      LEFT JOIN solicitacoes_blusa sb ON sb.usuario_id = u.id
+      WHERE u.equipe IS NOT NULL
+        AND UPPER(u.equipe) <> 'SEM EQUIPE'
+        AND u.status = 'confirmado'
+        ${filtroEquipeSql}
+      ORDER BY u.nome_completo ASC, sb.data_solicitacao DESC
+    `, filtroEquipeParams);
+
+    res.json(solicitacoes.map(item => ({
+      ...item,
+      status: item.id ? item.status : 'sem_solicitacao'
+    })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter solicitações' });
   }
 });
 
+router.get('/configuracoes-blusa', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
+  try {
+    res.json({
+      pedidos_bloqueados: await pedidosBlusaBloqueados(database)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar configurações de blusa' });
+  }
+});
+
+router.post('/solicitacoes-blusa/:usuario_id', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const usuario_id = Number(req.params.usuario_id);
+    const { tamanho } = req.body;
+
+    if (await pedidosBlusaBloqueados(database)) {
+      return res.status(403).json({ erro: 'Pedidos de blusa estão encerrados' });
+    }
+
+    if (!usuario_id || !TAMANHOS_BLUSA.includes(tamanho)) {
+      return res.status(400).json({ erro: 'Tamanho de blusa inválido' });
+    }
+
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const usuario = await database.get(
+      `SELECT id, equipe, status FROM usuarios WHERE id = ?`,
+      [usuario_id]
+    );
+
+    if (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe) || !usuario || usuario.equipe !== coordenador.equipe || usuario.status !== 'confirmado') {
+      return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode adicionar camisa para usuários confirmados' });
+    }
+
+    const resultado = await database.run(
+      `INSERT INTO solicitacoes_blusa (usuario_id, tamanho, valor) VALUES (?, ?, ?)`,
+      [usuario_id, tamanho, VALOR_BLUSA_UNICA]
+    );
+    const preco = await recalcularValoresBlusasUsuario(database, usuario_id);
+    await registrarHistorico(usuario_id, 'blusa_solicitada_pelo_coordenador', {
+      tamanho,
+      solicitacao_id: resultado.lastID,
+      valor: preco.valor,
+      quantidade_blusas: preco.quantidade,
+      coordenador_id: req.usuario.id
+    });
+
+    res.status(201).json({ mensagem: 'Solicitação de camisa adicionada', id: resultado.lastID });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao adicionar solicitação de camisa' });
+  }
+});
+
+router.delete('/solicitacoes-blusa/:id', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const solicitacao_id = Number(req.params.id);
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const solicitacao = await database.get(`
+      SELECT sb.id, sb.usuario_id, u.equipe
+      FROM solicitacoes_blusa sb
+      JOIN usuarios u ON u.id = sb.usuario_id
+      WHERE sb.id = ?
+    `, [solicitacao_id]);
+
+    if (!solicitacao || !coordenador?.equipe || solicitacao.equipe !== coordenador.equipe) {
+      return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode excluir esta solicitação' });
+    }
+
+    await database.run('DELETE FROM solicitacoes_blusa WHERE id = ?', [solicitacao_id]);
+    await recalcularValoresBlusasUsuario(database, solicitacao.usuario_id);
+    await registrarHistorico(solicitacao.usuario_id, 'blusa_excluida_pelo_coordenador', {
+      solicitacao_id,
+      coordenador_id: req.usuario.id
+    });
+
+    res.json({ mensagem: 'Solicitação de camisa excluída' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir solicitação de camisa' });
+  }
+});
+
+router.put('/confirmar-blusa/:id', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const solicitacao_id = Number(req.params.id);
+    const { forma_pagamento } = req.body;
+
+    if (!['pix', 'dinheiro'].includes(forma_pagamento)) {
+      return res.status(400).json({ erro: 'Informe se recebeu via PIX ou em dinheiro' });
+    }
+
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const solicitacao = await database.get(`
+      SELECT sb.id, sb.usuario_id, u.equipe
+      FROM solicitacoes_blusa sb
+      JOIN usuarios u ON u.id = sb.usuario_id
+      WHERE sb.id = ?
+    `, [solicitacao_id]);
+
+    if (!solicitacao || !coordenador?.equipe || solicitacao.equipe !== coordenador.equipe) {
+      return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode confirmar este pagamento' });
+    }
+
+    await database.run(
+      `UPDATE solicitacoes_blusa
+       SET status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, confirmado_por = ?, forma_pagamento = ?
+       WHERE id = ?`,
+      [req.usuario.id, forma_pagamento, solicitacao_id]
+    );
+    await registrarHistorico(solicitacao.usuario_id, 'pagamento_blusa_confirmado', {
+      solicitacao_id,
+      forma_pagamento,
+      coordenador_id: req.usuario.id
+    });
+
+    res.json({ mensagem: 'Pagamento da camisa confirmado' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao confirmar pagamento da camisa' });
+  }
+});
+
 // Obter lista de pagamentos pendentes
 router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const pagamentos = await database.all(`
-      SELECT p.id, p.tipo, p.valor, p.status, p.data_solicitacao,
-             u.id as usuario_id, u.nome_completo, u.email, u.foto_perfil
-      FROM pagamentos p
-      JOIN usuarios u ON p.usuario_id = u.id
-      WHERE p.status = 'pendente'
-      ORDER BY p.data_solicitacao DESC
-    `);
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
 
-    res.json(pagamentos);
+    if (filtrarPorEquipe && (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe))) {
+      return res.json({ resumo: { valorRecebido: 0, valorFaltaReceber: 0 }, pagamentos: [] });
+    }
+
+    const filtroEquipeSql = filtrarPorEquipe ? 'AND u.equipe = ?' : '';
+    const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
+
+    const usuarios = await database.all(`
+      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.foto_perfil, u.movimento_origem, u.equipe,
+             p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento
+      FROM usuarios u
+      LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo = 'taxa'
+      WHERE u.equipe IS NOT NULL
+        AND UPPER(u.equipe) <> 'SEM EQUIPE'
+        AND u.status = 'confirmado'
+        ${filtroEquipeSql}
+      ORDER BY u.nome_completo ASC
+    `, filtroEquipeParams);
+
+    const pagamentos = [];
+    for (const usuario of usuarios) {
+      const movimento = normalizarMovimentoOrigem(usuario.movimento_origem);
+      const valorTaxa = TAXAS_POR_MOVIMENTO[movimento] || 0;
+      let pagamento = usuario;
+
+      if (!usuario.id && valorTaxa > 0) {
+        const resultado = await database.run(
+          `INSERT INTO pagamentos (usuario_id, tipo, valor) VALUES (?, 'taxa', ?)`,
+          [usuario.usuario_id, valorTaxa]
+        );
+        pagamento = {
+          ...usuario,
+          id: resultado.lastID,
+          tipo: 'taxa',
+          valor: valorTaxa,
+          status: 'pendente',
+          data_solicitacao: new Date().toISOString(),
+          data_confirmacao: null,
+          forma_pagamento: null
+        };
+      }
+
+      pagamentos.push({
+        ...pagamento,
+        tipo: pagamento.tipo || 'taxa',
+        valor: Number(pagamento.valor || valorTaxa || 0),
+        status: pagamento.status || 'pendente'
+      });
+    }
+
+    const valorRecebido = pagamentos
+      .filter(p => p.status === 'confirmado')
+      .reduce((total, p) => total + Number(p.valor || 0), 0);
+    const valorFaltaReceber = pagamentos
+      .filter(p => p.status !== 'confirmado')
+      .reduce((total, p) => total + Number(p.valor || 0), 0);
+
+    res.json({
+      resumo: { valorRecebido, valorFaltaReceber },
+      pagamentos
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter pagamentos' });
@@ -294,12 +654,12 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     }
 
     if (req.usuario.perfil !== 'equipe_dirigente' && Number(reuniao.criada_por) !== Number(usuario_id)) {
-      return res.status(403).json({ erro: 'Voce nao tem permissao para acessar esta chamada' });
+      return res.status(403).json({ erro: 'Você não tem permissão para acessar esta chamada' });
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
 
-    if (!coordenador?.equipe) {
+    if (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe)) {
       return res.json([]);
     }
 
@@ -335,7 +695,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     }
 
     if (req.usuario.perfil !== 'equipe_dirigente' && Number(reuniao.criada_por) !== Number(usuario_id)) {
-      return res.status(403).json({ erro: 'Voce nao tem permissao para salvar esta chamada' });
+      return res.status(403).json({ erro: 'Você não tem permissão para salvar esta chamada' });
     }
 
     if (!Array.isArray(presencas)) {
@@ -343,7 +703,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
-    if (!coordenador?.equipe) {
+    if (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe)) {
       return res.status(400).json({ erro: 'Coordenador sem equipe escalada' });
     }
 
@@ -364,7 +724,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       );
 
       if (!usuarioEscalado) {
-        return res.status(400).json({ erro: 'Usuario nao pertence a equipe escalada desta chamada' });
+        return res.status(400).json({ erro: 'Usuário não pertence à equipe escalada desta chamada' });
       }
 
       await database.run(

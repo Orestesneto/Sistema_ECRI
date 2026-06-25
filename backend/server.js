@@ -33,6 +33,24 @@ app.use('/api/dirigentes', dirigentesRoutes);
 app.use('/api/confirmacao', confirmacaoRoutes);
 app.use('/api/desenvolvimento', desenvolvimentoRoutes);
 
+app.get('/c/:codigo', async (req, res) => {
+  try {
+    const link = await database.get(
+      'SELECT destino FROM links_encurtados WHERE codigo = ?',
+      [req.params.codigo]
+    );
+
+    if (!link) {
+      return res.status(404).send('Link não encontrado');
+    }
+
+    res.redirect(link.destino);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Erro ao abrir link');
+  }
+});
+
 // Rota de teste
 app.get('/api/health', (req, res) => {
   res.json({ message: 'Sistema ECRI está funcionando!' });

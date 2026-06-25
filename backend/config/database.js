@@ -22,6 +22,7 @@ const initDb = () => {
         nome_completo TEXT NOT NULL,
         nome_cracha TEXT NOT NULL,
         telefone TEXT NOT NULL,
+        paroquia TEXT,
         cpf TEXT,
         data_nascimento TEXT,
         ano_encontro TEXT,
@@ -48,6 +49,39 @@ const initDb = () => {
     db.run(`ALTER TABLE usuarios ADD COLUMN instrumentos TEXT`, () => {});
     db.run(`ALTER TABLE usuarios ADD COLUMN canta TEXT`, () => {});
     db.run(`ALTER TABLE usuarios ADD COLUMN equipes_servidas TEXT`, () => {});
+    db.run(`ALTER TABLE usuarios ADD COLUMN paroquia TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN forma_pagamento TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_preference_id TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_init_point TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_sandbox_init_point TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN referencia_externa TEXT`, () => {});
+    db.run(`ALTER TABLE solicitacoes_blusa ADD COLUMN forma_pagamento TEXT`, () => {});
+    db.run(`ALTER TABLE solicitacoes_blusa ADD COLUMN valor REAL`, () => {});
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS configuracoes (
+        chave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL,
+        data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tokens_confirmacao_utilizados (
+        jti TEXT PRIMARY KEY,
+        tipo_cadastro TEXT NOT NULL,
+        participante_id INTEGER NOT NULL,
+        data_utilizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS links_encurtados (
+        codigo TEXT PRIMARY KEY,
+        destino TEXT NOT NULL,
+        data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     // Tabela de Pagamentos
     db.run(`
@@ -59,10 +93,19 @@ const initDb = () => {
         status TEXT DEFAULT 'pendente',
         data_solicitacao DATETIME DEFAULT CURRENT_TIMESTAMP,
         data_confirmacao DATETIME,
+        forma_pagamento TEXT,
+        mercado_pago_preference_id TEXT,
+        mercado_pago_init_point TEXT,
+        mercado_pago_sandbox_init_point TEXT,
+        referencia_externa TEXT,
         confirmado_por INTEGER,
         FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
       )
     `);
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_preference_id TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_init_point TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN mercado_pago_sandbox_init_point TEXT`, () => {});
+    db.run(`ALTER TABLE pagamentos ADD COLUMN referencia_externa TEXT`, () => {});
 
     // Tabela de Solicitações de Blusa
     db.run(`
@@ -70,9 +113,11 @@ const initDb = () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         usuario_id INTEGER NOT NULL,
         tamanho TEXT NOT NULL,
+        valor REAL,
         status TEXT DEFAULT 'pendente',
         data_solicitacao DATETIME DEFAULT CURRENT_TIMESTAMP,
         data_confirmacao DATETIME,
+        forma_pagamento TEXT,
         confirmado_por INTEGER,
         FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
       )
@@ -150,6 +195,7 @@ const initDb = () => {
         nome_completo TEXT NOT NULL,
         nome_cracha TEXT NOT NULL,
         telefone TEXT NOT NULL,
+        paroquia TEXT,
         cpf TEXT,
         data_nascimento TEXT,
         ano_encontro TEXT,
@@ -172,6 +218,7 @@ const initDb = () => {
     db.run(`ALTER TABLE pessoas_externas ADD COLUMN cpf TEXT`, () => {});
     db.run(`ALTER TABLE pessoas_externas ADD COLUMN data_nascimento TEXT`, () => {});
     db.run(`ALTER TABLE pessoas_externas ADD COLUMN ano_encontro TEXT`, () => {});
+    db.run(`ALTER TABLE pessoas_externas ADD COLUMN paroquia TEXT`, () => {});
 
     db.run(`
       CREATE TABLE IF NOT EXISTS presencas_reuniao (

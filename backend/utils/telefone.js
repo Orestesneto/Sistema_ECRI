@@ -1,4 +1,4 @@
-const { apenasNumeros } = require('./cpf');
+﻿const { apenasNumeros } = require('./cpf');
 const { normalizarMovimentoOrigem } = require('./movimentoOrigem');
 
 function duplicidadePermitidaPorMovimento(movimentoA, movimentoB) {
@@ -11,7 +11,7 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
   const movimentoNovo = normalizarMovimentoOrigem(movimentoOrigem);
 
   if (!telefoneNumeros) {
-    return { valido: false, erro: 'Telefone invalido' };
+    return { valido: false, erro: 'Telefone inválido' };
   }
 
   const usuarios = await database.all(`
@@ -46,7 +46,7 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
   if (conflitoBloqueado) {
     return {
       valido: false,
-      erro: `Telefone ja cadastrado para ${conflitoBloqueado.nome_completo || 'outro usuario'}`
+      erro: `Telefone já cadastrado para ${conflitoBloqueado.nome_completo || 'outro usuario'}`
     };
   }
 

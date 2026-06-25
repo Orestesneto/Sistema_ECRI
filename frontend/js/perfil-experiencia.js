@@ -1,4 +1,4 @@
-const EQUIPES_SERVIDAS_OPCOES = [
+﻿const EQUIPES_SERVIDAS_OPCOES = [
     'APRESENTADORES',
     'CIRCULOS/ ARCOS / GRUPOS',
     'ECRISHOP/ MINI BOX / BODEGA',
@@ -38,14 +38,14 @@ function renderizarCamposExperiencia(containerId, prefixo) {
         <hr>
         <h5>Experiencia nas equipes</h5>
         <div class="mb-3">
-            <label class="form-label d-block">Voce toca algum instrumento?</label>
+            <label class="form-label d-block">Você toca algum instrumento?</label>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="${prefixo}TocaInstrumento" id="${prefixo}TocaInstrumentoSim" value="sim">
                 <label class="form-check-label" for="${prefixo}TocaInstrumentoSim">Sim</label>
             </div>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="${prefixo}TocaInstrumento" id="${prefixo}TocaInstrumentoNao" value="nao">
-                <label class="form-check-label" for="${prefixo}TocaInstrumentoNao">Nao</label>
+                <label class="form-check-label" for="${prefixo}TocaInstrumentoNao">Não</label>
             </div>
         </div>
         <div class="mb-3" id="${prefixo}CampoInstrumentos" style="display:none;">
@@ -53,18 +53,18 @@ function renderizarCamposExperiencia(containerId, prefixo) {
             <input type="text" class="form-control" id="${prefixo}Instrumentos">
         </div>
         <div class="mb-3">
-            <label class="form-label d-block">Voce canta?</label>
+            <label class="form-label d-block">Você canta?</label>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="${prefixo}Canta" id="${prefixo}CantaSim" value="sim">
                 <label class="form-check-label" for="${prefixo}CantaSim">Sim</label>
             </div>
             <div class="form-check form-check-inline">
                 <input class="form-check-input" type="radio" name="${prefixo}Canta" id="${prefixo}CantaNao" value="nao">
-                <label class="form-check-label" for="${prefixo}CantaNao">Nao</label>
+                <label class="form-check-label" for="${prefixo}CantaNao">Não</label>
             </div>
         </div>
         <div class="mb-3">
-            <label class="form-label d-block">Quais dessas equipes voce ja serviu?</label>
+            <label class="form-label d-block">Quais dessas equipes você já serviu?</label>
             <div class="row g-2">${checkboxes}</div>
         </div>
     `;

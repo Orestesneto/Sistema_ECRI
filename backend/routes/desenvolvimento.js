@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const database = require('../config/database');
 const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
@@ -7,6 +7,15 @@ const { normalizarExperienciaPerfil } = require('../utils/experienciaPerfil');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
+const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
+const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
+const {
+  VALOR_BLUSA_UNICA,
+  VALOR_BLUSA_MULTIPLA,
+  normalizarValorBlusa,
+  obterValoresBlusa,
+  recalcularValoresBlusasTodosUsuarios
+} = require('../utils/precoBlusa');
 
 const router = express.Router();
 
@@ -87,7 +96,7 @@ router.get('/usuarios/:usuario_id/logs', verificarTokenDesenvolvimento, async (r
     const usuario_id = Number(req.params.usuario_id);
 
     if (!usuario_id) {
-      return res.status(400).json({ erro: 'Usuario invalido' });
+      return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
     const logs = await database.all(`
@@ -118,7 +127,7 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   try {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
-             restricao_medica, restricao_alimentar, restricao_medicacao,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
              perfil, status, equipe, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       ORDER BY nome_completo ASC
@@ -131,6 +140,65 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   }
 });
 
+router.get('/blusas', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const blusas = await database.all(`
+      SELECT sb.id, sb.usuario_id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao,
+             sb.data_confirmacao, sb.forma_pagamento,
+             u.nome_completo, u.nome_cracha, u.email, u.telefone, u.equipe, u.foto_perfil
+      FROM solicitacoes_blusa sb
+      JOIN usuarios u ON u.id = sb.usuario_id
+      ORDER BY sb.data_solicitacao DESC, sb.id DESC
+    `);
+
+    res.json(blusas);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar blusas' });
+  }
+});
+
+router.get('/configuracoes', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const valoresBlusa = await obterValoresBlusa(database);
+    res.json({
+      parar_pedidos_blusa: (await obterConfiguracao(database, 'parar_pedidos_blusa', 'false')) === 'true',
+      valor_blusa_unica: valoresBlusa.unica,
+      valor_blusa_multipla: valoresBlusa.multipla
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar configurações' });
+  }
+});
+
+router.put('/configuracoes', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const pararPedidosBlusa = Boolean(req.body.parar_pedidos_blusa);
+    const valorBlusaUnica = normalizarValorBlusa(req.body.valor_blusa_unica, VALOR_BLUSA_UNICA);
+    const valorBlusaMultipla = normalizarValorBlusa(req.body.valor_blusa_multipla, VALOR_BLUSA_MULTIPLA);
+
+    await salvarConfiguracao(database, 'parar_pedidos_blusa', pararPedidosBlusa ? 'true' : 'false');
+    await salvarConfiguracao(database, 'valor_blusa_unica', String(valorBlusaUnica));
+    await salvarConfiguracao(database, 'valor_blusa_multipla', String(valorBlusaMultipla));
+    await recalcularValoresBlusasTodosUsuarios(database);
+
+    res.json({
+      mensagem: 'Configurações salvas com sucesso',
+      parar_pedidos_blusa: pararPedidosBlusa,
+      valor_blusa_unica: valorBlusaUnica,
+      valor_blusa_multipla: valorBlusaMultipla
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao salvar configurações' });
+  }
+});
+
+router.put('/blusas/:id/valor', verificarTokenDesenvolvimento, async (req, res) => {
+  res.status(403).json({ erro: 'O valor da blusa é calculado automaticamente' });
+});
+
 router.get('/equipes', verificarTokenDesenvolvimento, (req, res) => {
   res.json(EQUIPES);
 });
@@ -141,6 +209,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     const {
       nome_cracha,
       telefone,
+      paroquia,
       movimento_origem,
       ano_encontro,
       restricao_medica,
@@ -153,24 +222,28 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     const experiencia = normalizarExperienciaPerfil(req.body);
 
     if (!usuario_id) {
-      return res.status(400).json({ erro: 'Usuario invalido' });
+      return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
-    if (!nome_cracha || !telefone || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Preencha cracha, telefone, movimento, ano e status validos' });
+    if (!nome_cracha || !telefone || !paroquia || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
+      return res.status(400).json({ erro: 'Preencha crachá, telefone, paróquia, movimento, ano e status válidos' });
     }
 
     const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
-      return res.status(404).json({ erro: 'Usuario nao encontrado' });
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
     const equipeNormalizada = equipe ? normalizarEquipe(equipe) : null;
     if (equipeNormalizada && !equipeValida(equipeNormalizada)) {
-      return res.status(400).json({ erro: 'Equipe invalida' });
+      return res.status(400).json({ erro: 'Equipe inválida' });
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
+    const paroquiaNormalizada = normalizarParoquia(paroquia);
+    if (!paroquiaValida(paroquiaNormalizada)) {
+      return res.status(400).json({ erro: 'Paróquia inválida' });
+    }
     const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
       ignorarUsuarioId: usuario_id
     });
@@ -180,13 +253,14 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
 
     await database.run(
       `UPDATE usuarios
-       SET nome_cracha = ?, telefone = ?, movimento_origem = ?, ano_encontro = ?,
+       SET nome_cracha = ?, telefone = ?, paroquia = ?, movimento_origem = ?, ano_encontro = ?,
            restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            status = ?, equipe = ?, toca_instrumento = ?, instrumentos = ?, canta = ?, equipes_servidas = ?
        WHERE id = ?`,
       [
         String(nome_cracha).trim().toUpperCase(),
         telefone,
+        paroquiaNormalizada,
         movimentoOrigem,
         normalizarAnoEncontro(ano_encontro),
         restricao_medica || '',
@@ -203,6 +277,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     );
     await registrarHistorico(usuario_id, 'perfil_editado_pela_area_exclusiva', {
       editado_por: req.dev.usuario,
+      paroquia: paroquiaNormalizada,
       equipe: equipeNormalizada,
       status
     });
@@ -210,7 +285,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     res.json({ mensagem: 'Perfil atualizado com sucesso' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ erro: 'Erro ao atualizar perfil do usuario' });
+    res.status(500).json({ erro: 'Erro ao atualizar perfil do usuário' });
   }
 });
 
@@ -219,12 +294,12 @@ router.delete('/usuarios/:usuario_id', verificarTokenDesenvolvimento, async (req
     const usuario_id = Number(req.params.usuario_id);
 
     if (!usuario_id) {
-      return res.status(400).json({ erro: 'Usuario invalido' });
+      return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
     const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
-      return res.status(404).json({ erro: 'Usuario nao encontrado' });
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
     await database.run('UPDATE pagamentos SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
@@ -238,10 +313,10 @@ router.delete('/usuarios/:usuario_id', verificarTokenDesenvolvimento, async (req
     await registrarHistorico(usuario_id, 'usuario_excluido_pela_area_exclusiva', { excluido_por: req.dev.usuario });
     await database.run('DELETE FROM usuarios WHERE id = ?', [usuario_id]);
 
-    res.json({ mensagem: 'Usuario excluido com sucesso' });
+    res.json({ mensagem: 'Usuário excluído com sucesso' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ erro: 'Erro ao excluir usuario' });
+    res.status(500).json({ erro: 'Erro ao excluir usuário' });
   }
 });
 
@@ -252,21 +327,21 @@ router.put('/escalar/:usuario_id', verificarTokenDesenvolvimento, async (req, re
     const perfisPermitidos = ['equipista', 'coordenador', 'equipe_dirigente'];
 
     if (!usuario_id) {
-      return res.status(400).json({ erro: 'Usuario invalido' });
+      return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
     if (perfil && !perfisPermitidos.includes(perfil)) {
-      return res.status(400).json({ erro: 'Perfil invalido' });
+      return res.status(400).json({ erro: 'Perfil inválido' });
     }
 
     const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
-      return res.status(404).json({ erro: 'Usuario nao encontrado' });
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
     const equipeNormalizada = equipe ? normalizarEquipe(equipe) : null;
     if (equipeNormalizada && !equipeValida(equipeNormalizada)) {
-      return res.status(400).json({ erro: 'Equipe invalida' });
+      return res.status(400).json({ erro: 'Equipe inválida' });
     }
 
     if (perfil && equipeNormalizada) {

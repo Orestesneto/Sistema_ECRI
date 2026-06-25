@@ -1,5 +1,5 @@
-const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 15;
+﻿const API_URL = 'http://localhost:5000/api';
+const TAMANHO_MAXIMO_FOTO_MB = 1;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 // Login
@@ -11,12 +11,12 @@ document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
     const data_nascimento = somenteNumeros(document.getElementById('dataNascimentoLogin').value);
 
     if (!identificador.includes('@') && !cpfValido(cpf)) {
-        mostrarAlerta('alertaLogin', 'Informe um CPF valido', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe um CPF válido', 'warning');
         return;
     }
 
     if (data_nascimento.length !== 8) {
-        mostrarAlerta('alertaLogin', 'Informe a data de nascimento com 8 numeros', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe a data de nascimento com 8 números', 'warning');
         return;
     }
     
@@ -62,9 +62,15 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     const nome_completo = document.getElementById('nomeCompleto').value;
     const nome_cracha = document.getElementById('nomeCracha').value;
     const fotoPerfil = document.getElementById('fotoPerfilRegistro').files[0];
-    const telefone = document.getElementById('telefone').value;
+    const paroquia = obterParoquia('paroquiaRegistro', 'outraParoquiaRegistro');
     const movimentoSelecionado = document.querySelector('input[name="movimento"]:checked');
     const movimento_origem = movimentoSelecionado ? movimentoSelecionado.value : '';
+    const isCasal = movimentoOrigemCasal(movimento_origem);
+    const telefoneEsposa = document.getElementById('telefoneEsposa')?.value.trim() || '';
+    const telefoneMarido = document.getElementById('telefoneMarido')?.value.trim() || '';
+    const telefone = isCasal
+        ? `Esposa: ${telefoneEsposa} | Marido: ${telefoneMarido}`
+        : document.getElementById('telefone').value.trim();
     const ano_encontro = somenteNumeros(document.getElementById('anoEncontroRegistro').value);
     const toca_instrumento = document.querySelector('input[name="tocaInstrumento"]:checked')?.value || '';
     const instrumentos = toca_instrumento === 'sim'
@@ -75,49 +81,64 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
         .map((checkbox) => checkbox.value);
 
     if (!cpfValido(cpf)) {
-        mostrarAlerta('alertaLogin', 'Informe um CPF valido', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe um CPF válido', 'warning');
         return;
     }
 
     if (data_nascimento.length !== 8) {
-        mostrarAlerta('alertaLogin', 'Informe a data de nascimento com 8 numeros', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe a data de nascimento com 8 números', 'warning');
         return;
     }
 
     if (!nome_completo || !nome_cracha) {
         mostrarAlerta('alertaLogin', movimentoOrigemCasal(movimento_origem)
             ? 'Informe o nome do marido e o nome da esposa'
-            : 'Informe o nome completo e o nome para o cracha', 'warning');
+            : 'Informe o nome completo e o nome para o crachá', 'warning');
+        return;
+    }
+
+    if (isCasal && (!telefoneEsposa || !telefoneMarido)) {
+        mostrarAlerta('alertaLogin', 'Informe o WhatsApp da esposa e o WhatsApp do marido', 'warning');
+        return;
+    }
+
+    if (!isCasal && !telefone) {
+        mostrarAlerta('alertaLogin', 'Informe o telefone WhatsApp', 'warning');
         return;
     }
 
     if (!anoEncontroValido(ano_encontro)) {
-        mostrarAlerta('alertaLogin', 'Informe um ano do encontro valido', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe um ano do encontro válido', 'warning');
+        return;
+    }
+
+    if (!paroquiaValida(paroquia)) {
+        mostrarAlerta('alertaLogin', 'Informe a paróquia à qual você pertence', 'warning');
         return;
     }
 
     if (!toca_instrumento) {
-        mostrarAlerta('alertaLogin', 'Informe se voce toca algum instrumento', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe se você toca algum instrumento', 'warning');
         return;
     }
 
     if (toca_instrumento === 'sim' && !instrumentos) {
-        mostrarAlerta('alertaLogin', 'Informe quais instrumentos voce toca', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe quais instrumentos você toca', 'warning');
         return;
     }
 
     if (!canta) {
-        mostrarAlerta('alertaLogin', 'Informe se voce canta', 'warning');
+        mostrarAlerta('alertaLogin', 'Informe se você canta', 'warning');
         return;
     }
 
     if (!fotoPerfil) {
-        mostrarAlerta('alertaLogin', 'A foto de perfil e obrigatoria', 'warning');
+        mostrarAlerta('alertaLogin', 'A foto de perfil é obrigatória', 'warning');
         return;
     }
 
     if (!fotoDentroDoLimite(fotoPerfil)) {
-        mostrarAlerta('alertaLogin', `A foto deve ter no maximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+        mostrarAlerta('alertaLogin', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
         return;
     }
 
@@ -133,6 +154,7 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
                 nome_completo,
                 nome_cracha,
                 telefone,
+                paroquia,
                 movimento_origem,
                 ano_encontro,
                 foto_perfil,
@@ -150,9 +172,15 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
             document.getElementById('formRegistro').reset();
             document.getElementById('dadosCasalRegistro').style.display = 'none';
             document.getElementById('dadosIndividualRegistro').style.display = 'none';
+            document.getElementById('telefoneIndividualRegistro').style.display = 'block';
+            document.getElementById('telefone').required = true;
+            document.getElementById('telefoneEsposa').required = false;
+            document.getElementById('telefoneMarido').required = false;
             document.getElementById('nomeCracha').readOnly = true;
             document.getElementById('campoInstrumentosRegistro').style.display = 'none';
             document.getElementById('instrumentosRegistro').required = false;
+            document.getElementById('campoOutraParoquiaRegistro').style.display = 'none';
+            document.getElementById('outraParoquiaRegistro').required = false;
             document.getElementById('fotoPreviewRegistro').src = '';
             document.getElementById('fotoPreviewRegistro').style.display = 'none';
             
@@ -184,6 +212,7 @@ document.getElementById('dataNascimentoLogin')?.addEventListener('input', limita
 document.getElementById('cpfRegistro')?.addEventListener('input', limitarCampoNumerico);
 document.getElementById('dataNascimentoRegistro')?.addEventListener('input', limitarCampoNumerico);
 document.getElementById('anoEncontroRegistro')?.addEventListener('input', limitarCampoNumerico);
+configurarCampoParoquia('paroquiaRegistro', 'campoOutraParoquiaRegistro');
 document.getElementById('instrumentosRegistro')?.addEventListener('input', (e) => {
     e.target.value = paraCaixaAlta(e.target.value);
 });
@@ -194,16 +223,27 @@ document.querySelectorAll('input[name="tocaInstrumento"]').forEach((radio) => {
 function atualizarModoRegistro() {
     const movimento = document.querySelector('input[name="movimento"]:checked')?.value || '';
     const isCasal = movimentoOrigemCasal(movimento);
+    const telefoneIndividual = document.getElementById('telefoneIndividualRegistro');
+    const telefone = document.getElementById('telefone');
+    const telefoneEsposa = document.getElementById('telefoneEsposa');
+    const telefoneMarido = document.getElementById('telefoneMarido');
 
     document.getElementById('dadosIndividualRegistro').style.display = movimento && !isCasal ? 'block' : 'none';
     document.getElementById('dadosCasalRegistro').style.display = isCasal ? 'block' : 'none';
     document.getElementById('nomeCracha').readOnly = isCasal;
+    telefoneIndividual.style.display = isCasal ? 'none' : 'block';
+    telefone.required = !isCasal;
+    telefoneEsposa.required = isCasal;
+    telefoneMarido.required = isCasal;
 
     if (isCasal) {
         document.getElementById('nomeCompletoIndividual').value = '';
+        telefone.value = '';
     } else if (movimento) {
         document.getElementById('nomeMarido').value = '';
         document.getElementById('nomeEsposa').value = '';
+        telefoneEsposa.value = '';
+        telefoneMarido.value = '';
         document.getElementById('nomeCracha').value = '';
     }
 
@@ -308,7 +348,7 @@ document.getElementById('fotoPerfilRegistro')?.addEventListener('change', async 
     }
 
     if (!fotoDentroDoLimite(fotoPerfil)) {
-        mostrarAlerta('alertaLogin', `A foto deve ter no maximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+        mostrarAlerta('alertaLogin', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
         e.target.value = '';
         preview.src = '';
         preview.style.display = 'none';

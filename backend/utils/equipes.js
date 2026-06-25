@@ -32,8 +32,41 @@ function equipeValida(equipe) {
   return EQUIPES.includes(equipeNormalizada);
 }
 
+function equipeSemEquipe(equipe) {
+  return normalizarEquipe(equipe) === 'SEM EQUIPE';
+}
+
+function statusRemoveDoEncontro(status) {
+  return ['negou', 'desistiu'].includes(status);
+}
+
+function aplicarRegraSemEquipe(equipe, status) {
+  if (statusRemoveDoEncontro(status)) {
+    return {
+      equipe: 'SEM EQUIPE',
+      status
+    };
+  }
+
+  const equipeNormalizada = equipe ? normalizarEquipe(equipe) : '';
+  if (!equipeNormalizada || equipeSemEquipe(equipeNormalizada)) {
+    return {
+      equipe: 'SEM EQUIPE',
+      status: 'pendente'
+    };
+  }
+
+  return {
+    equipe: equipeNormalizada,
+    status
+  };
+}
+
 module.exports = {
   EQUIPES,
   normalizarEquipe,
-  equipeValida
+  equipeValida,
+  equipeSemEquipe,
+  statusRemoveDoEncontro,
+  aplicarRegraSemEquipe
 };

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -19,7 +19,7 @@
                 <h1 class="h4 mb-3">Area Exclusiva</h1>
                 <form id="formLoginDev">
                     <div class="mb-3">
-                        <label class="form-label" for="usuarioDev">Usuario</label>
+                        <label class="form-label" for="usuarioDev">Usuário</label>
                         <input type="text" class="form-control" id="usuarioDev" autocomplete="username" required>
                     </div>
                     <div class="mb-3">
@@ -50,6 +50,9 @@
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="abaCarografoDev" data-bs-toggle="tab" data-bs-target="#painelAbaCarografoDev" type="button" role="tab">Carografo</button>
                     </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="abaBlusasDev" data-bs-toggle="tab" data-bs-target="#painelBlusasDev" type="button" role="tab">Blusas</button>
+                    </li>
                 </ul>
 
                 <div class="tab-content">
@@ -68,6 +71,19 @@
                         </div>
 
                         <div class="carografo-filtros">
+                            <div>
+                                <label class="form-label" for="filtroCarografoDevNome">Nome ou telefone</label>
+                                <input type="search" class="form-control" id="filtroCarografoDevNome" placeholder="Pesquisar por nome ou telefone">
+                            </div>
+                            <div>
+                                <label class="form-label" for="filtroCarografoDevParoquia">Paróquia</label>
+                                <select class="form-select" id="filtroCarografoDevParoquia">
+                                    <option value="">Todas</option>
+                                    <option value="NOSSA SENHORA DA GUIA">Nossa Senhora da Guia</option>
+                                    <option value="SAO PEDRO E SAO PAULO">São Pedro e São Paulo</option>
+                                    <option value="OUTRAS">Outras</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="form-label" for="filtroCarografoDevEquipe">Equipe</label>
                                 <select class="form-select" id="filtroCarografoDevEquipe">
@@ -102,6 +118,32 @@
 
                         <div id="painelCarografoDev" class="carografo-grid mt-3"></div>
                     </div>
+
+                    <div class="tab-pane fade" id="painelBlusasDev" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+                            <h2 class="h5 mb-0">Blusas</h2>
+                            <button type="button" class="btn btn-sm btn-primary" id="atualizarBlusasDev">Atualizar</button>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="pararPedidosBlusaDev">
+                            <label class="form-check-label" for="pararPedidosBlusaDev">Parar de receber pedidos de Blusas</label>
+                        </div>
+                        <div class="row g-2 align-items-end mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label" for="valorBlusaUnicaDev">Valor de 1 blusa</label>
+                                <input type="text" class="form-control" id="valorBlusaUnicaDev" inputmode="decimal" placeholder="35,00">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label" for="valorBlusaMultiplaDev">Valor por blusa com 2 ou mais</label>
+                                <input type="text" class="form-control" id="valorBlusaMultiplaDev" inputmode="decimal" placeholder="32,50">
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" class="btn btn-primary w-100" id="salvarValoresBlusaDev">Salvar valores</button>
+                            </div>
+                        </div>
+                        <div id="resumoBlusasDev" class="row g-3 mb-3"></div>
+                        <div id="tabelaBlusasDev" class="table-responsive"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -113,7 +155,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Resumo do Usuario</h5>
+                    <h5 class="modal-title">Resumo do Usuário</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body"></div>
@@ -125,7 +167,7 @@
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Foto do Usuario</h5>
+                    <h5 class="modal-title">Foto do Usuário</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body text-center">
@@ -135,28 +177,47 @@
         </div>
     </div>
 
-    <div class="modal fade" id="modalEditarUsuarioDev" tabindex="-1">
+    <div class="modal fade" id="modalEditarUsuárioDev" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Editar Perfil do Usuario</h5>
+                    <h5 class="modal-title">Editar Perfil do Usuário</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="formEditarUsuarioDev">
-                        <input type="hidden" id="editarDevUsuarioId">
+                    <form id="formEditarUsuárioDev">
+                        <input type="hidden" id="editarDevUsuárioId">
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label" for="editarDevNomeCompleto">Nome completo</label>
                                 <input type="text" class="form-control" id="editarDevNomeCompleto" disabled>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="editarDevNomeCracha">Nome para o cracha</label>
+                                <label class="form-label" for="editarDevNomeCracha">Nome para o crachá</label>
                                 <input type="text" class="form-control" id="editarDevNomeCracha" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="editarDevTelefone">Telefone</label>
                                 <input type="tel" class="form-control" id="editarDevTelefone" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label d-block">Paróquia</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="editarDevParoquia" id="editarDevParoquiaGuia" value="NOSSA SENHORA DA GUIA" required>
+                                    <label class="form-check-label" for="editarDevParoquiaGuia">Nossa Senhora da Guia</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="editarDevParoquia" id="editarDevParoquiaPedroPaulo" value="SAO PEDRO E SAO PAULO" required>
+                                    <label class="form-check-label" for="editarDevParoquiaPedroPaulo">São Pedro e São Paulo</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="editarDevParoquia" id="editarDevParoquiaOutras" value="OUTRAS" required>
+                                    <label class="form-check-label" for="editarDevParoquiaOutras">Outras. Qual?</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6" id="campoOutraParoquiaEditarDev" style="display:none;">
+                                <label class="form-label" for="outraParoquiaEditarDev">Nome da paróquia</label>
+                                <input type="text" class="form-control" id="outraParoquiaEditarDev">
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label" for="editarDevMovimento">Movimento</label>
@@ -189,15 +250,15 @@
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label" for="editarDevRestricaoMedica">Restricao medica</label>
+                                <label class="form-label" for="editarDevRestricaoMedica">Restrição médica</label>
                                 <input type="text" class="form-control" id="editarDevRestricaoMedica">
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label" for="editarDevRestricaoAlimentar">Restricao alimentar</label>
+                                <label class="form-label" for="editarDevRestricaoAlimentar">Restrição alimentar</label>
                                 <input type="text" class="form-control" id="editarDevRestricaoAlimentar">
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label" for="editarDevRestricaoMedicacao">Restricao de medicacao</label>
+                                <label class="form-label" for="editarDevRestricaoMedicacao">Restrição à medicação</label>
                                 <input type="text" class="form-control" id="editarDevRestricaoMedicacao">
                             </div>
                             <div class="col-md-4">
@@ -207,8 +268,8 @@
                                     <label class="form-check-label" for="editarDevTocaSim">Sim</label>
                                 </div>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="editarDevTocaInstrumento" id="editarDevTocaNao" value="nao">
-                                    <label class="form-check-label" for="editarDevTocaNao">Nao</label>
+                                    <input class="form-check-input" type="radio" name="editarDevTocaInstrumento" id="editarDevTocaNão" value="nao">
+                                    <label class="form-check-label" for="editarDevTocaNão">Não</label>
                                 </div>
                             </div>
                             <div class="col-md-8">
@@ -222,17 +283,17 @@
                                     <label class="form-check-label" for="editarDevCantaSim">Sim</label>
                                 </div>
                                 <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="editarDevCanta" id="editarDevCantaNao" value="nao">
-                                    <label class="form-check-label" for="editarDevCantaNao">Nao</label>
+                                    <input class="form-check-input" type="radio" name="editarDevCanta" id="editarDevCantaNão" value="nao">
+                                    <label class="form-check-label" for="editarDevCantaNão">Não</label>
                                 </div>
                             </div>
                             <div class="col-12">
-                                <label class="form-label">Quais equipes ja serviu?</label>
+                                <label class="form-label">Quais equipes já serviu?</label>
                                 <div id="editarDevEquipesServidas" class="row g-2"></div>
                             </div>
                         </div>
                         <div class="text-end mt-3">
-                            <button type="submit" class="btn btn-primary">Salvar Alteracoes</button>
+                            <button type="submit" class="btn btn-primary">Salvar Alterações</button>
                         </div>
                     </form>
                 </div>
@@ -244,12 +305,12 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Escalar Usuario</h5>
+                    <h5 class="modal-title">Escalar Usuário</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <form id="formEscalarDev">
-                        <input type="hidden" id="escalarDevUsuarioId">
+                        <input type="hidden" id="escalarDevUsuárioId">
                         <div class="mb-3">
                             <label class="form-label" for="escalarDevPerfil">Perfil de acesso</label>
                             <select class="form-select" id="escalarDevPerfil">
@@ -272,15 +333,15 @@
         </div>
     </div>
 
-    <div class="modal fade" id="modalHistoricoUsuarioDev" tabindex="-1">
+    <div class="modal fade" id="modalHistóricoUsuárioDev" tabindex="-1">
         <div class="modal-dialog modal-xl modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Historico do Usuario</h5>
+                    <h5 class="modal-title">Histórico do Usuário</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="conteudoHistoricoUsuarioDev"></div>
+                    <div id="conteudoHistóricoUsuárioDev"></div>
                 </div>
             </div>
         </div>
@@ -288,6 +349,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="js/abas-persistentes.js"></script>
+    <script src="js/paroquia.js"></script>
     <script src="js/desenvolvimento.js"></script>
 </body>
 </html>
