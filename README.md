@@ -188,4 +188,4 @@ Para dúvidas ou problemas, entre em contato com o desenvolvedor.
 
 ---
 
-**Desenvolvido com ❤️ para o Sistema ECRI**
+**Desenvolvido para o Sistema ECRI d aparoquia nossa senhora da Guia - Queimadas PB**
