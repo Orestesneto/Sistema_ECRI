@@ -1,4 +1,4 @@
-const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 800 * 1024;
+const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 300 * 1024;
 const TIPOS_FOTO_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
 
 function tamanhoFotoBase64Bytes(fotoPerfil) {
@@ -24,7 +24,7 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   }
 
   if (tamanhoFotoBase64Bytes(fotoPerfil) > TAMANHO_MAXIMO_FOTO_SALVA_BYTES) {
-    return { erro: 'A foto deve ter no maximo 800KB apos a compressao' };
+    return { erro: 'A foto deve ter no maximo 300KB apos a compressao' };
   }
 
   return { fotoPerfil };

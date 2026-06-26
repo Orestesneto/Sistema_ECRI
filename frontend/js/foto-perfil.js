@@ -1,8 +1,8 @@
 const FOTO_PERFIL_TIPOS_ACEITOS = ['image/jpeg', 'image/png', 'image/webp', 'image/heif', 'image/heic'];
 const FOTO_PERFIL_EXTENSOES_ACEITAS = ['jpg', 'jpeg', 'png', 'webp', 'heif', 'heic'];
 const FOTO_PERFIL_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
-const FOTO_PERFIL_SALVA_MAX_BYTES = 800 * 1024;
-const FOTO_PERFIL_DIMENSAO_FINAL = 500;
+const FOTO_PERFIL_SALVA_MAX_BYTES = 300 * 1024;
+const FOTO_PERFIL_DIMENSAO_MAXIMA = 500;
 
 function fotoPerfilDentroDoLimiteUpload(arquivo) {
     return arquivo && arquivo.size <= FOTO_PERFIL_UPLOAD_MAX_BYTES;
@@ -31,7 +31,7 @@ async function otimizarFotoPerfil(arquivo) {
 
     const arquivoImagem = await prepararArquivoImagemFotoPerfil(arquivo);
     const imagem = await carregarImagemFotoPerfil(arquivoImagem);
-    const canvas = criarCanvasFotoPerfilQuadrada(imagem);
+    const canvas = criarCanvasFotoPerfilProporcional(imagem);
 
     const fotoComprimida = comprimirCanvasFotoPerfil(canvas);
     if (fotoComprimida) {
@@ -84,28 +84,27 @@ function carregarImagemFotoPerfil(arquivo) {
     });
 }
 
-function criarCanvasFotoPerfilQuadrada(imagem) {
+function criarCanvasFotoPerfilProporcional(imagem, limite = FOTO_PERFIL_DIMENSAO_MAXIMA) {
+    const { largura, altura } = calcularDimensoesFotoPerfil(imagem.width, imagem.height, limite);
     const canvas = document.createElement('canvas');
-    canvas.width = FOTO_PERFIL_DIMENSAO_FINAL;
-    canvas.height = FOTO_PERFIL_DIMENSAO_FINAL;
-
-    const origemTamanho = Math.min(imagem.width, imagem.height);
-    const origemX = Math.max(0, Math.round((imagem.width - origemTamanho) / 2));
-    const origemY = Math.max(0, Math.round((imagem.height - origemTamanho) / 2));
-
-    canvas.getContext('2d').drawImage(
-        imagem,
-        origemX,
-        origemY,
-        origemTamanho,
-        origemTamanho,
-        0,
-        0,
-        FOTO_PERFIL_DIMENSAO_FINAL,
-        FOTO_PERFIL_DIMENSAO_FINAL
-    );
+    canvas.width = largura;
+    canvas.height = altura;
+    canvas.getContext('2d').drawImage(imagem, 0, 0, largura, altura);
 
     return canvas;
+}
+
+function calcularDimensoesFotoPerfil(larguraOriginal, alturaOriginal, limite) {
+    const maiorLado = Math.max(larguraOriginal, alturaOriginal);
+    if (maiorLado <= limite) {
+        return { largura: larguraOriginal, altura: alturaOriginal };
+    }
+
+    const escala = limite / maiorLado;
+    return {
+        largura: Math.max(1, Math.round(larguraOriginal * escala)),
+        altura: Math.max(1, Math.round(alturaOriginal * escala))
+    };
 }
 
 function comprimirCanvasFotoPerfil(canvas) {
@@ -136,15 +135,23 @@ function comprimirCanvasNoFormato(canvas, tipo, qualidades) {
 }
 
 function reduzirDimensoesFotoPerfil(canvasOriginal) {
-    const canvas = document.createElement('canvas');
-    canvas.width = FOTO_PERFIL_DIMENSAO_FINAL;
-    canvas.height = FOTO_PERFIL_DIMENSAO_FINAL;
-    canvas.getContext('2d').drawImage(canvasOriginal, 0, 0, FOTO_PERFIL_DIMENSAO_FINAL, FOTO_PERFIL_DIMENSAO_FINAL);
+    let largura = canvasOriginal.width;
+    let altura = canvasOriginal.height;
 
-    const fotoComprimida = comprimirCanvasFotoPerfil(canvas);
-    if (fotoComprimida) {
-        return fotoComprimida;
+    for (let tentativa = 0; tentativa < 8; tentativa += 1) {
+        largura = Math.max(120, Math.round(largura * 0.82));
+        altura = Math.max(120, Math.round(altura * 0.82));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = largura;
+        canvas.height = altura;
+        canvas.getContext('2d').drawImage(canvasOriginal, 0, 0, largura, altura);
+
+        const fotoComprimida = comprimirCanvasFotoPerfil(canvas);
+        if (fotoComprimida) {
+            return fotoComprimida;
+        }
     }
 
-    throw new Error('Nao foi possivel compactar a foto para ate 800KB. Selecione outra imagem.');
+    throw new Error('Nao foi possivel compactar a foto para ate 300KB. Selecione outra imagem.');
 }
