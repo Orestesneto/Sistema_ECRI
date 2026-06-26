@@ -33,7 +33,7 @@
                                 <form id="formLogin">
                                     <div class="mb-3">
                                         <label for="cpfLogin" class="form-label">CPF</label>
-                                        <input type="text" class="form-control" id="cpfLogin" inputmode="numeric" maxlength="11" required>
+                                        <input type="text" class="form-control" id="cpfLogin" inputmode="numeric" maxlength="11" autocomplete="username" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="dataNascimentoLogin" class="form-label">Data de Nascimento</label>
@@ -45,7 +45,7 @@
 
                             <!-- Aba de Registro -->
                             <div id="registro" class="tab-pane fade">
-                                <form id="formRegistro">
+                                <form id="formRegistro" novalidate>
                                     <div class="mb-3">
                                         <label for="movimento" class="form-label">Movimento de Origem</label>
                                         <div>
@@ -115,7 +115,7 @@
                                     <div class="mb-3">
                                         <label for="fotoPerfilRegistro" class="form-label">Foto de Perfil</label>
                                         <input type="file" class="form-control" id="fotoPerfilRegistro" accept="image/*" required>
-                                        <small class="text-muted">Formatos: JPG, PNG (max 1MB)</small>
+                                        <small class="text-muted">Formatos: JPG, PNG (max 2MB)</small>
                                     </div>
                                     <div id="previewFotoRegistro" class="mb-3">
                                         <img id="fotoPreviewRegistro" src="" alt="Preview" style="max-width:150px; display:none;">
@@ -201,6 +201,24 @@
 
                         <div id="alertaLogin" class="alert alert-danger mt-3" role="alert" style="display:none;"></div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalErroRegistro" tabindex="-1" aria-labelledby="modalErroRegistroTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalErroRegistroTitulo">Verifique o cadastro</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="modalErroRegistroMensagem" class="mb-2"></p>
+                    <ul id="modalErroRegistroLista" class="mb-0"></ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendi</button>
                 </div>
             </div>
         </div>

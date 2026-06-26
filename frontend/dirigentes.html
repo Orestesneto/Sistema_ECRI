@@ -13,7 +13,12 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid">
             <span class="navbar-brand"><img src="assets/logo-ecri.png" alt="ECRI" class="brand-logo">Sistema ECRI - Equipe Dirigente</span>
-            <button class="btn btn-outline-light" onclick="logout()">Sair</button>
+            <div class="d-flex align-items-center gap-2">
+                <a id="btnAreaExclusivaDirigente" class="btn btn-outline-warning btn-icon-area-exclusiva" href="desenvolvimento.html" title="Área exclusiva" aria-label="Área exclusiva" style="display:none;">
+                    <i class="fa-solid fa-user-shield"></i>
+                </a>
+                <button class="btn btn-outline-light" onclick="logout()">Sair</button>
+            </div>
         </div>
     </nav>
 
@@ -42,6 +47,9 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#reunioes">Reuniões - Próximos 15 Dias</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#acompanhamentoFaltas">Acompanhamento de Faltas</a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#configuracoes">Configurações</a>
@@ -122,7 +130,7 @@
                             <div class="mb-3">
                                 <label class="form-label">Foto de Perfil</label>
                                 <input type="file" class="form-control" id="fotoPerfilDirigente" accept="image/*">
-                                <small class="text-muted">Formatos: JPG, PNG (máx 1MB)</small>
+                                <small class="text-muted">Formatos: JPG, PNG (max 2MB)</small>
                             </div>
                             <div id="previewFotoDirigente" class="mb-3">
                                 <img id="fotoPreviewDirigente" src="" alt="Preview" style="max-width:150px; display:none;">
@@ -235,6 +243,15 @@
                         <button type="submit" class="btn btn-success w-100">Adicionar</button>
                     </div>
                 </form>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-10">
+                        <label class="form-label" for="filtroUsuariosBusca">Buscar por nome ou telefone</label>
+                        <input type="search" class="form-control" id="filtroUsuariosBusca" placeholder="Digite o nome ou telefone">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="button" class="btn btn-outline-secondary w-100" id="limparFiltrosUsuarios">Limpar</button>
+                    </div>
+                </div>
                 <div id="tabelaUsuários" class="table-responsive mt-3"></div>
                 <h4 class="mt-4">Pessoas sem cadastro</h4>
                 <div id="tabelaPessoasExternas" class="table-responsive mt-3"></div>
@@ -347,6 +364,12 @@
                 <div id="containerReunioes" class="mt-3"></div>
             </div>
 
+            <!-- Aba Acompanhamento de Faltas -->
+            <div id="acompanhamentoFaltas" class="tab-pane fade">
+                <h3 class="mt-3">Acompanhamento de Faltas</h3>
+                <div id="listaEquipesFaltas" class="table-responsive mt-3"></div>
+            </div>
+
             <!-- Aba Configurações -->
             <div id="configuracoes" class="tab-pane fade">
                 <h3 class="mt-3">Configurações</h3>
@@ -361,11 +384,34 @@
                             <option value="carografo">Carógrafo</option>
                             <option value="situacao">Situação</option>
                             <option value="reunioes">Reuniões - Próximos 15 Dias</option>
+                            <option value="acompanhamentoFaltas">Acompanhamento de Faltas</option>
                         </select>
                     </div>
                     <div class="col-md-3 d-flex align-items-end">
                         <button type="submit" class="btn btn-primary w-100">Salvar Configurações</button>
                     </div>
+                </form>
+                <h3 class="mt-4">Configurações do Encontro</h3>
+                <form id="formConfiguracoesEncontroDirigente" class="border rounded p-3 mt-2">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="reuniaoEntregaPastasDirigente">
+                        <label class="form-check-label" for="reuniaoEntregaPastasDirigente">
+                            Reunião de entrega de Pastas já aconteceu
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="reuniaoRevelacaoEquipesDirigente">
+                        <label class="form-check-label" for="reuniaoRevelacaoEquipesDirigente">
+                            Reunião de Revelação das equipes aconteceu.
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="pararPedidosBlusaDirigente">
+                        <label class="form-check-label" for="pararPedidosBlusaDirigente">
+                            Parar de receber pedidos de Blusas
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar configurações</button>
                 </form>
             </div>
         </div>
@@ -422,7 +468,7 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Nome completo</label>
-                                <input type="text" class="form-control" id="editarNomeCompleto" disabled>
+                                <input type="text" class="form-control" id="editarNomeCompleto" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Nome para o crachá</label>
@@ -528,6 +574,23 @@
                 </div>
                 <div class="modal-body text-center">
                     <img id="fotoGrandeImagem" src="" alt="Foto grande" style="max-width: 100%; max-height: 75vh; border-radius: 10px;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalAcompanhamentoFaltas" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tituloModalAcompanhamentoFaltas">Acompanhamento de Faltas</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="conteudoModalAcompanhamentoFaltas"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
             </div>
         </div>

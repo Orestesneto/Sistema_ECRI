@@ -1,7 +1,8 @@
-const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 1;
+﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 2;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_COORDENADOR_KEY = 'coordenadorAbaAtual';
+const PERCENTUAL_TAXA_CARTAO = 0.08;
 let participantesEquipeCache = [];
 let alteracaoStatusPendente = null;
 let pagamentosEquipeCache = [];
@@ -12,23 +13,34 @@ let blusaConfirmacaoPendente = null;
 let pedidosBlusaBloqueadosCoordenador = false;
 let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
+let linkCheckoutCartaoProprioAtual = '';
+let pagamentoProprioMonitoradoId = null;
+let intervaloMonitoramentoPagamentoProprio = null;
+let tentativasMonitoramentoPagamentoProprio = 0;
 
 if (!getToken()) {
     window.location.href = 'index.html';
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     renderizarCamposExperiencia('camposExperienciaCoordenador', 'coordenador');
     configurarCampoParoquia('paroquiaCoordenador', 'campoOutraParoquiaCoordenador');
     document.getElementById('anoEncontroCoordenador')?.addEventListener('input', limitarCampoNumerico);
     configurarPersistenciaAbas(ABA_ATUAL_COORDENADOR_KEY);
     configurarFiltrosCarografoEscrita();
     carregarPerfilCoordenador();
-    carregarPagamentos();
-    carregarBlusas();
-    carregarConfirmacoes();
-    carregarReunioes();
-    abrirAbaPersistida(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');
+    const dashboardLiberado = await aplicarRestricaoEntregaPastasCoordenador();
+
+    if (dashboardLiberado) {
+        carregarPagamentos();
+        carregarBlusas();
+        carregarPagamentoProprio();
+        carregarConfirmacoes();
+        carregarReunioes();
+        abrirAbaPersistida(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');
+    } else {
+        abrirAbaCoordenadorMeuPerfil();
+    }
 });
 
 document.addEventListener('click', (e) => {
@@ -44,6 +56,70 @@ document.addEventListener('click', (e) => {
     }
 });
 
+async function aplicarRestricaoEntregaPastasCoordenador() {
+    const usuario = obterUsuarioLogadoCoordenador();
+    if (usuario?.perfil && usuario.perfil !== 'coordenador') {
+        return true;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/configuracoes-dashboard`, {
+            headers: getHeaders()
+        });
+        const configuracoes = await response.json();
+
+        if (!response.ok) {
+            console.error(configuracoes.erro || 'Erro ao carregar configurações do dashboard');
+            return true;
+        }
+
+        const liberado = Boolean(configuracoes.reuniao_entrega_pastas);
+        alternarAbasCoordenadorPorEntregaPastas(liberado);
+        return liberado;
+    } catch (err) {
+        console.error(err);
+        return true;
+    }
+}
+
+function alternarAbasCoordenadorPorEntregaPastas(liberado) {
+    document.querySelectorAll('.nav-tabs a[data-bs-toggle="tab"]').forEach((link) => {
+        const item = link.closest('.nav-item');
+        if (!item) return;
+        const ehMeuPerfil = link.getAttribute('href') === '#meuPerfil';
+        if (!liberado && !ehMeuPerfil) {
+            item.dataset.ocultoEntregaPastas = '1';
+            item.style.display = 'none';
+        } else if (item.dataset.ocultoEntregaPastas === '1') {
+            delete item.dataset.ocultoEntregaPastas;
+            item.style.display = '';
+        }
+    });
+
+    document.querySelectorAll('.tab-content > .tab-pane').forEach((pane) => {
+        const ehMeuPerfil = pane.id === 'meuPerfil';
+        if (!liberado && !ehMeuPerfil) {
+            pane.classList.remove('show', 'active');
+        }
+    });
+}
+
+function abrirAbaCoordenadorMeuPerfil() {
+    localStorage.setItem(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');
+    const abaPerfil = document.querySelector('a[href="#meuPerfil"]');
+    if (abaPerfil && window.bootstrap?.Tab) {
+        bootstrap.Tab.getOrCreateInstance(abaPerfil).show();
+    }
+}
+
+function obterUsuarioLogadoCoordenador() {
+    try {
+        return JSON.parse(localStorage.getItem('usuario') || 'null');
+    } catch (err) {
+        return null;
+    }
+}
+
 // Carregar perfil do coordenador
 async function carregarPerfilCoordenador() {
     try {
@@ -58,7 +134,7 @@ async function carregarPerfilCoordenador() {
         document.getElementById('nomeCrachaCoordenador').value = usuario.nome_cracha || '';
         document.getElementById('telefoneCoordenador').value = usuario.telefone;
         preencherParoquia('paroquiaCoordenador', 'outraParoquiaCoordenador', 'campoOutraParoquiaCoordenador', usuario.paroquia);
-        document.getElementById('equipeCoordenador').value = usuario.equipe || 'NÃƒÆ’Ã‚Â£o escalado';
+        document.getElementById('equipeCoordenador').value = usuario.equipe || 'Não escalado';
         marcarMovimentoOrigem('movimentoCoordenador', usuario.movimento_origem);
         document.getElementById('anoEncontroCoordenador').value = usuario.ano_encontro || '';
         document.getElementById('restricaoMedicaCoord').value = usuario.restricao_medica || '';
@@ -90,25 +166,30 @@ document.getElementById('formPerfilCoordenador')?.addEventListener('submit', asy
     const restricaoMedicacao = document.getElementById('restricaoMedicacaoCoord').value;
     const fotoPerfil = document.getElementById('fotoPerfilCoordenador').files[0];
     
-    let fotoBase64 = obterFotoPerfilPreview('fotoPreviewCoordenador');
+    let fotoBase64 = null;
 
     if (!anoEncontroValido(anoEncontro)) {
-        mostrarAlerta('alertaCoordenador', 'Informe um ano do encontro vÃƒÆ’Ã‚Â¡lido', 'warning');
+        mostrarAlerta('alertaCoordenador', 'Informe um ano do encontro válido', 'warning');
         return;
     }
 
     if (!paroquiaValida(paroquia)) {
-        mostrarAlerta('alertaCoordenador', 'Informe a parÃƒÆ’Ã‚Â³quia ÃƒÆ’Ã‚Â  qual vocÃƒÆ’Ã‚Âª pertence', 'warning');
+        mostrarAlerta('alertaCoordenador', 'Informe a paróquia à qual você pertence', 'warning');
         return;
     }
     
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
-            mostrarAlerta('alertaCoordenador', `A foto deve ter no mÃƒÆ’Ã‚Â¡ximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+            mostrarAlerta('alertaCoordenador', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
             return;
         }
 
-        fotoBase64 = await converterParaBase64(fotoPerfil);
+        try {
+            fotoBase64 = await converterParaBase64(fotoPerfil);
+        } catch (err) {
+            mostrarAlerta('alertaCoordenador', err.message || 'Erro ao otimizar a foto', 'warning');
+            return;
+        }
         document.getElementById('fotoPreviewCoordenador').src = fotoBase64;
         document.getElementById('fotoPreviewCoordenador').style.display = 'block';
     }
@@ -233,7 +314,7 @@ function renderizarRestricoesAlimentares() {
         </table>
     `;
 }
-// Atualizar restriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Âµes (dispara o formulÃƒÆ’Ã‚Â¡rio de perfil)
+// Atualizar restrições (dispara o formulário de perfil)
 document.getElementById('formRestricoesCoord')?.addEventListener('submit', (e) => {
     e.preventDefault();
     document.getElementById('formPerfilCoordenador').dispatchEvent(new Event('submit'));
@@ -254,20 +335,21 @@ async function carregarPagamentos() {
         document.getElementById('valorRecebidoPagamentos').textContent = formatarMoeda(resumo.valorRecebido || 0);
         document.getElementById('valorFaltaReceberPagamentos').textContent = formatarMoeda(resumo.valorFaltaReceber || 0);
         
-        let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th><th>AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</th></tr></thead><tbody>';
+        let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         pagamentos.forEach(p => {
             const fotoHtml = p.foto_perfil 
                 ? `<img src="${p.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
                 : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
             const confirmado = p.status === 'confirmado';
-            const statusHtml = confirmado ? '<span class="badge bg-success">Pago</span>' : '<span class="badge bg-warning text-dark">Pendente</span>';
+            const pendente = p.status === 'pendente';
+            const statusHtml = obterStatusBadge(p.status);
             const baixaHtml = confirmado
                 ? `${formatarFormaPagamento(p.forma_pagamento)}<br><small>${formatarDataHora(p.data_confirmacao)}</small>`
                 : '-';
-            const acaoHtml = confirmado
-                ? '-'
-                : `<button class="btn btn-sm btn-success" onclick="abrirModalConfirmarPagamento(${Number(p.id)})">Confirmar</button>`;
+            const acaoHtml = pendente
+                ? `<button class="btn btn-sm btn-success" onclick="abrirModalConfirmarPagamento(${Number(p.id)})">Confirmar</button>`
+                : '-';
             
             html += `<tr>
                 <td>${fotoHtml}</td>
@@ -307,7 +389,7 @@ async function carregarBlusas() {
             return acc;
         }, {});
 
-        let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th><th>AÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</th></tr></thead><tbody>';
+        let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         blusasEquipeCache.forEach(b => {
             const fotoHtml = b.foto_perfil 
@@ -317,12 +399,8 @@ async function carregarBlusas() {
             const pago = b.status === 'confirmado';
             const badge = !temSolicitacao
                 ? '<span class="badge bg-secondary">Sem camisa</span>'
-                : pago
-                    ? '<span class="badge bg-success">Pago</span>'
-                    : '<span class="badge bg-warning text-dark">Pendente</span>';
-            const baixaHtml = pago
-                ? `${formatarFormaPagamento(b.forma_pagamento)}<br><small>${formatarDataHora(b.data_confirmacao)}</small>`
-                : '-';
+                : obterStatusBadge(b.status);
+            const baixaHtml = pago ? formatarBaixaBlusaCoordenador(b) : '-';
             const acaoHtml = renderizarAcoesBlusa(b, temSolicitacao, pago);
             const valorPendenteUsuario = valorPendentePorUsuario[Number(b.usuario_id)] || 0;
             const usuarioHtml = `
@@ -359,9 +437,13 @@ function renderizarAcoesBlusa(blusa, temSolicitacao, pago) {
         return `<button class="btn btn-sm btn-primary" onclick="abrirModalAdicionarBlusa(${Number(blusa.usuario_id)})">Adicionar</button>`;
     }
 
+    if (pago) {
+        return `<button class="btn btn-sm btn-primary" onclick="abrirModalAdicionarBlusa(${Number(blusa.usuario_id)})">Adicionar</button>`;
+    }
+
     return `
         <button class="btn btn-sm btn-primary me-1" onclick="abrirModalAdicionarBlusa(${Number(blusa.usuario_id)})">Adicionar</button>
-        ${pago ? '' : `<button class="btn btn-sm btn-success me-1" onclick="abrirModalConfirmarPagamentoBlusa(${Number(blusa.id)})">Confirmar</button>`}
+        <button class="btn btn-sm btn-success me-1" onclick="abrirModalConfirmarPagamentoBlusa(${Number(blusa.id)})">Confirmar</button>
         <button class="btn btn-sm btn-outline-danger" onclick="excluirSolicitacaoBlusa(${Number(blusa.id)})">Excluir</button>
     `;
 }
@@ -402,7 +484,7 @@ function renderizarResumoBlusas(blusas) {
         </div>
         <div class="col-md-4 col-lg-2">
             <div class="resumo-blusas-total">
-                <span>Total jÃƒÆ’Ã‚Â¡ pago</span>
+                <span>Total já pago</span>
                 <strong>${formatarMoeda(valorPago)}</strong>
             </div>
         </div>
@@ -511,7 +593,7 @@ document.getElementById('btnSalvarConfirmacaoPagamentoBlusa')?.addEventListener(
 });
 
 async function excluirSolicitacaoBlusa(solicitacaoId) {
-    if (!confirm('Tem certeza que deseja excluir esta solicitaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o de camisa?')) return;
+    if (!confirm('Tem certeza que deseja excluir esta solicitação de camisa?')) return;
 
     try {
         const response = await fetch(`${API_URL}/coordenador/solicitacoes-blusa/${solicitacaoId}`, {
@@ -521,13 +603,13 @@ async function excluirSolicitacaoBlusa(solicitacaoId) {
         const data = await response.json().catch(() => ({}));
 
         if (response.ok) {
-            mostrarAlerta('alertaCoordenador', 'SolicitaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o de camisa excluÃƒÆ’Ã‚Â­da!', 'success');
+            mostrarAlerta('alertaCoordenador', 'Solicitação de camisa excluída!', 'success');
             carregarBlusas();
         } else {
-            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao excluir solicitaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o de camisa', 'danger');
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao excluir solicitação de camisa', 'danger');
         }
     } catch (err) {
-        mostrarAlerta('alertaCoordenador', 'Erro ao excluir solicitaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o de camisa', 'danger');
+        mostrarAlerta('alertaCoordenador', 'Erro ao excluir solicitação de camisa', 'danger');
         console.error(err);
     }
 }
@@ -963,8 +1045,10 @@ async function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
         return;
     }
 
+    const janelaWhatsApp = abrirJanelaWhatsAppPendente();
     const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
     let tokenConfirmacao = '';
+    let linkConfirmacao = '';
 
     try {
         const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${Number(usuarioId)}/token-confirmacao`, {
@@ -974,26 +1058,54 @@ async function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
         const data = await response.json();
 
         if (!response.ok || !data.token_confirmacao) {
+            fecharJanelaWhatsAppPendente(janelaWhatsApp);
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
             return;
         }
 
         tokenConfirmacao = data.token_confirmacao;
+        linkConfirmacao = data.link_confirmacao || '';
         usuario.token_confirmacao = tokenConfirmacao;
     } catch (err) {
+        fecharJanelaWhatsAppPendente(janelaWhatsApp);
         mostrarAlerta('alertaCoordenador', 'Erro ao gerar link de confirmação.', 'danger');
         console.error(err);
         return;
     }
 
-    const linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(tokenConfirmacao)}`;
+    if (!linkConfirmacao) {
+        linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(tokenConfirmacao)}`;
+    }
     const mensagem = `Olá ${usuario.nome_completo},
 Ficamos muito felizes pelo seu sim!
 Precisamos que você atualize seus dados em nosso sistema.
 Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
-    window.open(`https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+    abrirWhatsAppComJanela(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
+}
+
+function abrirJanelaWhatsAppPendente() {
+    const janela = window.open('', '_blank');
+    if (janela) {
+        janela.document.write('<p style="font-family:Arial,sans-serif;padding:16px;">Abrindo WhatsApp...</p>');
+    }
+    return janela;
+}
+
+function abrirWhatsAppComJanela(janela, url) {
+    if (janela && !janela.closed) {
+        janela.location.href = url;
+        return;
+    }
+
+    window.location.href = url;
+}
+
+function fecharJanelaWhatsAppPendente(janela) {
+    if (janela && !janela.closed) {
+        janela.close();
+    }
 }
 
 function limparTelefoneWhatsApp(telefone) {
@@ -1057,6 +1169,360 @@ document.getElementById('btnSalvarConfirmacaoPagamento')?.addEventListener('clic
     }
 });
 
+async function carregarPagamentoProprio() {
+    const listaPagamentos = document.getElementById('listaPagamentosProprios');
+    const listaBlusas = document.getElementById('listaBlusasProprias');
+    if (!listaPagamentos || !listaBlusas) return;
+
+    try {
+        const response = await fetch(`${API_URL}/equipista/status`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            const erro = escapeHtml(data.erro || 'Erro ao carregar seus pagamentos.');
+            listaPagamentos.innerHTML = `<div class="alert alert-danger">${erro}</div>`;
+            listaBlusas.innerHTML = '';
+            return;
+        }
+
+        const resumoBlusas = data.resumo_blusas || {};
+        const pagamentosProprios = (data.pagamentos || []).filter(pagamento => {
+            return !(pagamento.tipo === 'blusa' && pagamento.status === 'pendente' && Number(resumoBlusas.pendente || 0) <= 0);
+        });
+
+        let htmlPagamentos = '<table class="table table-sm"><thead><tr><th>Tipo</th><th>Valor</th><th>Forma</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
+        if (!pagamentosProprios.length) {
+            htmlPagamentos += '<tr><td colspan="5" class="text-muted">Nenhum pagamento pendente.</td></tr>';
+        }
+        pagamentosProprios.forEach(pagamento => {
+            const badge = obterBadgeStatusPagamentoProprio(pagamento.status);
+            const linkPagamento = pagamento.mercado_pago_init_point || pagamento.mercado_pago_sandbox_init_point || '';
+            let acao = '-';
+
+            if (pagamento.status === 'pendente') {
+                const botaoPix = pagamento.forma_pagamento === 'pix' && pagamento.pix_qr_code
+                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}')">PIX</button>`
+                    : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemProprioPendente('${escapeAttr(pagamento.tipo)}', 'pix', ${Number(pagamento.valor || 0)})">PIX</button>`;
+                const botaoCartao = pagamento.forma_pagamento === 'cartao_credito' && linkPagamento
+                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalCartaoProprioCodificado('${encodeURIComponent(linkPagamento)}', '${encodeURIComponent(pagamento.valor || '')}')">Cartão</button>`
+                    : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemProprioPendente('${escapeAttr(pagamento.tipo)}', 'cartao_credito', ${Number(pagamento.valor || 0)})">Cartão</button>`;
+                acao = `<div class="d-flex flex-wrap gap-1">${botaoPix}${botaoCartao}</div>`;
+            }
+
+            htmlPagamentos += `<tr><td>${escapeHtml(pagamento.tipo)}</td><td>${formatarMoeda(pagamento.valor)}</td><td>${formatarFormaPagamento(pagamento.forma_pagamento)}</td><td>${badge}</td><td>${acao}</td></tr>`;
+        });
+        htmlPagamentos += '</tbody></table>';
+        listaPagamentos.innerHTML = htmlPagamentos;
+
+        let htmlBlusas = `
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <div class="alert alert-light border mb-0 py-2"><strong>Total:</strong> ${formatarMoeda(resumoBlusas.total || 0)}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="alert alert-success mb-0 py-2"><strong>Pago:</strong> ${formatarMoeda(resumoBlusas.pago || 0)}</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="alert alert-warning mb-0 py-2"><strong>A pagar:</strong> ${formatarMoeda(resumoBlusas.pendente || 0)}</div>
+                </div>
+            </div>
+            <table class="table table-sm"><thead><tr><th>Tamanho</th><th>Valor</th><th>Status</th><th>Confirmação</th></tr></thead><tbody>
+        `;
+        if (!(data.blusas || []).length) {
+            htmlBlusas += '<tr><td colspan="4" class="text-muted">Nenhuma blusa solicitada.</td></tr>';
+        }
+        (data.blusas || []).forEach(blusa => {
+            htmlBlusas += `<tr><td>${escapeHtml(blusa.tamanho)}</td><td>${formatarMoeda(blusa.valor)}</td><td>${obterBadgeStatusPagamentoProprio(blusa.status)}</td><td>${obterTextoConfirmacaoBlusaPropria(blusa)}</td></tr>`;
+        });
+        htmlBlusas += '</tbody></table>';
+        listaBlusas.innerHTML = htmlBlusas;
+    } catch (err) {
+        listaPagamentos.innerHTML = '<div class="alert alert-danger">Erro ao carregar seus pagamentos.</div>';
+        listaBlusas.innerHTML = '';
+        console.error(err);
+    }
+}
+
+async function pagarItemProprioPendente(tipo, formaPagamento, valorAtual) {
+    try {
+        const response = await fetch(`${API_URL}/equipista/solicitar-pagamento`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ tipo, valor: Number(valorAtual || 0), forma_pagamento: formaPagamento })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao solicitar pagamento', 'danger');
+            return;
+        }
+
+        mostrarAlerta('alertaCoordenador', data.ja_existia ? data.mensagem : 'Pagamento solicitado com sucesso!', data.ja_existia ? 'warning' : 'success');
+        const linkPagamento = data.init_point || data.sandbox_init_point || '';
+
+        if (data.id && !data.ja_existia) {
+            iniciarMonitoramentoPagamentoProprio(data.id);
+        }
+
+        if (data.pix_qr_code) {
+            renderizarPixPagamentoProprioMercadoPago(data);
+            abrirModalPixProprio(data.pix_qr_code, data.pix_qr_code_base64);
+        } else {
+            renderizarLinkPagamentoProprioMercadoPago(linkPagamento);
+        }
+
+        if (linkPagamento && data.forma_pagamento === 'cartao_credito') {
+            abrirModalCartaoProprio({
+                linkPagamento,
+                valorBase: data.valor_base,
+                acrescimoCartao: data.acrescimo_cartao,
+                valorFinal: data.valor_final || data.valor
+            });
+        }
+
+        carregarPagamentoProprio();
+    } catch (err) {
+        mostrarAlerta('alertaCoordenador', 'Erro ao solicitar pagamento', 'danger');
+        console.error(err);
+    }
+}
+
+function iniciarMonitoramentoPagamentoProprio(pagamentoId) {
+    pagamentoProprioMonitoradoId = Number(pagamentoId);
+    tentativasMonitoramentoPagamentoProprio = 0;
+    if (intervaloMonitoramentoPagamentoProprio) {
+        clearInterval(intervaloMonitoramentoPagamentoProprio);
+    }
+
+    intervaloMonitoramentoPagamentoProprio = setInterval(verificarPagamentoProprioMonitorado, 5000);
+    setTimeout(verificarPagamentoProprioMonitorado, 2000);
+}
+
+function pararMonitoramentoPagamentoProprio() {
+    if (intervaloMonitoramentoPagamentoProprio) {
+        clearInterval(intervaloMonitoramentoPagamentoProprio);
+        intervaloMonitoramentoPagamentoProprio = null;
+    }
+    pagamentoProprioMonitoradoId = null;
+    tentativasMonitoramentoPagamentoProprio = 0;
+}
+
+async function verificarPagamentoProprioMonitorado() {
+    if (!pagamentoProprioMonitoradoId) return;
+    tentativasMonitoramentoPagamentoProprio += 1;
+
+    try {
+        const response = await fetch(`${API_URL}/equipista/status`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+        if (!response.ok) return;
+
+        const pagamento = (data.pagamentos || []).find(item => Number(item.id) === Number(pagamentoProprioMonitoradoId));
+        if (pagamento?.status === 'confirmado') {
+            pararMonitoramentoPagamentoProprio();
+            carregarPagamentoProprio();
+            abrirModalPagamentoProprioAprovado();
+            return;
+        }
+    } catch (err) {
+        console.error(err);
+    }
+
+    if (tentativasMonitoramentoPagamentoProprio >= 120) {
+        pararMonitoramentoPagamentoProprio();
+    }
+}
+
+function abrirModalPagamentoProprioAprovado() {
+    ['modalPagamentoPixProprio', 'modalPagamentoCartaoProprio', 'modalCheckoutCartaoProprio'].forEach((id) => {
+        const modal = bootstrap.Modal.getInstance(document.getElementById(id));
+        if (modal) modal.hide();
+    });
+
+    new bootstrap.Modal(document.getElementById('modalPagamentoProprioAprovado')).show();
+}
+
+function renderizarLinkPagamentoProprioMercadoPago(linkPagamento) {
+    const container = document.getElementById('resultadoPagamentoProprioMercadoPago');
+    if (!container) return;
+
+    if (!linkPagamento) {
+        container.innerHTML = '<div class="alert alert-warning mb-0">Pagamento criado, mas o link do Mercado Pago não foi retornado.</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="alert alert-info mb-0">
+            Pagamento criado no Mercado Pago.
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="abrirModalCartaoProprioCodificado('${encodeURIComponent(linkPagamento)}')">Pagar com o cartão</button>
+        </div>
+    `;
+}
+
+function renderizarPixPagamentoProprioMercadoPago(pagamento) {
+    const container = document.getElementById('resultadoPagamentoProprioMercadoPago');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="alert alert-info mb-0">
+            PIX gerado no Mercado Pago.
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}')">Ver código PIX</button>
+        </div>
+    `;
+}
+
+function abrirModalPixProprioCodificado(codigoPix, qrCodeBase64 = '') {
+    abrirModalPixProprio(decodeURIComponent(codigoPix || ''), decodeURIComponent(qrCodeBase64 || ''));
+}
+
+function abrirModalPixProprio(codigoPix, qrCodeBase64 = '') {
+    const campoCodigo = document.getElementById('pixProprioCopiaCola');
+    const imagem = document.getElementById('pixProprioQrCodeImagem');
+    const alerta = document.getElementById('alertaCopiaPixProprio');
+    if (!campoCodigo || !imagem) return;
+
+    campoCodigo.value = codigoPix || '';
+    if (alerta) alerta.style.display = 'none';
+
+    if (qrCodeBase64) {
+        imagem.src = `data:image/png;base64,${qrCodeBase64}`;
+        imagem.style.display = 'inline-block';
+    } else {
+        imagem.removeAttribute('src');
+        imagem.style.display = 'none';
+    }
+
+    new bootstrap.Modal(document.getElementById('modalPagamentoPixProprio')).show();
+}
+
+document.getElementById('botaoCopiarPixProprio')?.addEventListener('click', async () => {
+    const campoCodigo = document.getElementById('pixProprioCopiaCola');
+    const alerta = document.getElementById('alertaCopiaPixProprio');
+    const codigo = campoCodigo?.value || '';
+    if (!codigo) return;
+
+    try {
+        await navigator.clipboard.writeText(codigo);
+    } catch (err) {
+        campoCodigo.select();
+        document.execCommand('copy');
+    }
+
+    if (alerta) {
+        alerta.style.display = 'block';
+        setTimeout(() => { alerta.style.display = 'none'; }, 2500);
+    }
+});
+
+function abrirModalCartaoProprioCodificado(linkPagamento, valorFinal = '', valorBase = '', acrescimoCartao = '') {
+    abrirModalCartaoProprio({
+        linkPagamento: decodeURIComponent(linkPagamento || ''),
+        valorFinal: valorFinal ? Number(decodeURIComponent(valorFinal)) : undefined,
+        valorBase: valorBase ? Number(decodeURIComponent(valorBase)) : undefined,
+        acrescimoCartao: acrescimoCartao ? Number(decodeURIComponent(acrescimoCartao)) : undefined
+    });
+}
+
+function abrirModalCartaoProprio({ linkPagamento, valorBase, acrescimoCartao, valorFinal }) {
+    const modalEl = document.getElementById('modalPagamentoCartaoProprio');
+    const botao = document.getElementById('botaoPagarCartaoProprio');
+    if (!modalEl || !botao || !linkPagamento) return;
+
+    const valores = normalizarValoresCartaoProprio(valorBase, acrescimoCartao, valorFinal);
+    document.getElementById('cartaoProprioValorBase').textContent = formatarMoeda(valores.valorBase);
+    document.getElementById('cartaoProprioTaxa').textContent = formatarMoeda(valores.acrescimoCartao);
+    document.getElementById('cartaoProprioValorFinal').textContent = formatarMoeda(valores.valorFinal);
+    linkCheckoutCartaoProprioAtual = linkPagamento;
+
+    new bootstrap.Modal(modalEl).show();
+}
+
+document.getElementById('botaoPagarCartaoProprio')?.addEventListener('click', () => {
+    abrirModalCheckoutCartaoProprio(linkCheckoutCartaoProprioAtual);
+});
+
+document.getElementById('modalCheckoutCartaoProprio')?.addEventListener('hidden.bs.modal', () => {
+    const iframe = document.getElementById('iframeCheckoutCartaoProprio');
+    if (iframe) iframe.removeAttribute('src');
+});
+
+function abrirModalCheckoutCartaoProprio(linkPagamento) {
+    const modalResumoEl = document.getElementById('modalPagamentoCartaoProprio');
+    const modalCheckoutEl = document.getElementById('modalCheckoutCartaoProprio');
+    const iframe = document.getElementById('iframeCheckoutCartaoProprio');
+    const linkExterno = document.getElementById('linkCheckoutCartaoProprioExterno');
+    if (!modalCheckoutEl || !iframe || !linkPagamento) return;
+
+    const modalResumo = bootstrap.Modal.getInstance(modalResumoEl);
+    if (modalResumo) modalResumo.hide();
+
+    iframe.src = linkPagamento;
+    if (linkExterno) linkExterno.href = linkPagamento;
+
+    new bootstrap.Modal(modalCheckoutEl).show();
+}
+
+function normalizarValoresCartaoProprio(valorBase, acrescimoCartao, valorFinal) {
+    const finalInformado = Number(valorFinal || 0);
+    const baseInformada = Number(valorBase || 0);
+    const taxaInformada = Number(acrescimoCartao || 0);
+
+    if (baseInformada > 0 || taxaInformada > 0) {
+        return {
+            valorBase: baseInformada,
+            acrescimoCartao: taxaInformada,
+            valorFinal: finalInformado || baseInformada + taxaInformada
+        };
+    }
+
+    if (finalInformado > 0) {
+        const valorBaseCalculado = finalInformado / (1 + PERCENTUAL_TAXA_CARTAO);
+        return {
+            valorBase: valorBaseCalculado,
+            acrescimoCartao: finalInformado - valorBaseCalculado,
+            valorFinal: finalInformado
+        };
+    }
+
+    return { valorBase: 0, acrescimoCartao: 0, valorFinal: 0 };
+}
+
+function obterBadgeStatusPagamentoProprio(status) {
+    const mapa = {
+        confirmado: '<span class="badge bg-success">Confirmado</span>',
+        pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
+        ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        cancelado: '<span class="badge bg-secondary">Cancelado</span>'
+    };
+    return mapa[status] || `<span class="badge bg-secondary">${escapeHtml(status || '-')}</span>`;
+}
+
+function obterTextoConfirmacaoBlusaPropria(blusa) {
+    if (!blusa || blusa.status !== 'confirmado') return '-';
+
+    const detalhes = [];
+    const confirmadoPor = blusa.confirmado_por_nome || blusa.confirmado_por_cracha;
+    const origem = blusa.origem_confirmacao || (blusa.confirmado_por ? 'coordenador' : 'mercado_pago');
+
+    if (origem === 'coordenador') {
+        detalhes.push('<strong>Confirmado via coordenador</strong>');
+        if (confirmadoPor) detalhes.push(`<small>Por ${escapeHtml(confirmadoPor)}</small>`);
+    } else {
+        detalhes.push('<strong>Confirmado via Mercado Pago</strong>');
+        const forma = formatarFormaPagamento(blusa.forma_pagamento);
+        if (forma !== '-') detalhes.push(`<small>${escapeHtml(forma)}</small>`);
+    }
+
+    if (blusa.data_confirmacao) {
+        detalhes.push(`<small>Em ${formatarDataHora(blusa.data_confirmacao)}</small>`);
+    }
+
+    return `<div>${detalhes.join('<br>')}</div>`;
+}
+
 function formatarMoeda(valor) {
     return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
@@ -1064,9 +1530,43 @@ function formatarMoeda(valor) {
 function formatarFormaPagamento(forma) {
     const mapa = {
         pix: 'PIX',
-        dinheiro: 'Dinheiro'
+        dinheiro: 'Dinheiro',
+        cartao_credito: 'Cartão de crédito'
     };
     return mapa[forma] || '-';
+}
+
+function formatarFormaPagamentoBaixaBlusa(forma, origemMercadoPago = false) {
+    const mapa = origemMercadoPago
+        ? {
+            pix: 'PIX via Mercado Pago',
+            cartao_credito: 'Cartão de crédito via Mercado Pago'
+        }
+        : {
+            pix: 'PIX direto na conta do coordenador',
+            dinheiro: 'Dinheiro à vista'
+        };
+    return mapa[forma] || formatarFormaPagamento(forma);
+}
+
+function formatarBaixaBlusaCoordenador(blusa) {
+    const nomeConfirmador = blusa.confirmado_por_nome || blusa.confirmado_por_cracha || '';
+    const origemMercadoPago = !nomeConfirmador && ['pix', 'cartao_credito'].includes(blusa.forma_pagamento);
+    const linhas = [
+        `<strong>${escapeHtml(formatarFormaPagamentoBaixaBlusa(blusa.forma_pagamento, origemMercadoPago))}</strong>`
+    ];
+
+    if (nomeConfirmador) {
+        linhas.push(`<small>Baixa por ${escapeHtml(nomeConfirmador)}</small>`);
+    } else if (origemMercadoPago) {
+        linhas.push('<small>Baixa automática pelo Mercado Pago</small>');
+    }
+
+    if (blusa.data_confirmacao) {
+        linhas.push(`<small>Em ${formatarDataHora(blusa.data_confirmacao)}</small>`);
+    }
+
+    return linhas.join('<br>');
 }
 
 function formatarDataHora(valor) {
@@ -1078,6 +1578,8 @@ function obterStatusBadge(status) {
     const mapa = {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
+        ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };
@@ -1110,11 +1612,15 @@ function escapeHtml(valor) {
         .replace(/'/g, '&#039;');
 }
 
+function escapeAttr(valor) {
+    return escapeHtml(valor).replace(/`/g, '&#096;');
+}
+
 function getToken() {
     return localStorage.getItem('token');
 }
 
-// ===== FUNÃƒÆ’Ã¢â‚¬Â¡ÃƒÆ’Ã¢â‚¬Â¢ES DE REUNIÃƒÆ’Ã†â€™O =====
+// ===== FUNCOES DE REUNIAO =====
 
 document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1136,12 +1642,12 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
         });
         
         if (response.ok) {
-            mostrarAlerta('alertaCoordenador', 'ReuniÃƒÆ’Ã‚Â£o agendada com sucesso!', 'success');
+            mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
         }
     } catch (err) {
-        mostrarAlerta('alertaCoordenador', 'Erro ao agendar reuniÃƒÆ’Ã‚Â£o', 'danger');
+        mostrarAlerta('alertaCoordenador', 'Erro ao agendar reunião', 'danger');
         console.error(err);
     }
 });
@@ -1155,7 +1661,7 @@ async function carregarReunioes() {
         const reunioes = await response.json();
         
         if (reunioes.length === 0) {
-            document.getElementById('listaReunioes').innerHTML = '<p class="text-muted">Nenhuma reuniÃƒÆ’Ã‚Â£o agendada</p>';
+            document.getElementById('listaReunioes').innerHTML = '<p class="text-muted">Nenhuma reunião agendada</p>';
             return;
         }
         
@@ -1170,11 +1676,11 @@ async function carregarReunioes() {
                 <div class="card mb-3">
                     <div class="card-body">
                         <h5 class="card-title">${r.titulo} ${statusBadge}</h5>
-                        <p class="card-text">${r.descricao || '<em>Sem descriÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</em>'}</p>
+                        <p class="card-text">${r.descricao || '<em>Sem descrição</em>'}</p>
                         <table class="table table-sm">
                             <tr>
                                 <td><strong>Data:</strong> ${data}</td>
-                                <td><strong>HorÃƒÆ’Ã‚Â¡rio:</strong> ${r.horario_inicio}${r.horario_fim ? ' - ' + r.horario_fim : ''}</td>
+                                <td><strong>Horário:</strong> ${r.horario_inicio}${r.horario_fim ? ' - ' + r.horario_fim : ''}</td>
                             </tr>
                             <tr>
                                 <td colspan="2"><strong>Local:</strong> ${r.local}</td>
@@ -1223,7 +1729,7 @@ async function abrirChamada(reuniaoId) {
         }
 
         if (!presencas || presencas.length === 0) {
-            container.innerHTML = '<div class="alert alert-info">Nenhum usuÃƒÆ’Ã‚Â¡rio escalado para a equipe desta chamada.</div>';
+            container.innerHTML = '<div class="alert alert-info">Nenhum usuário escalado para a equipe desta chamada.</div>';
             container.style.display = 'block';
             return;
         }
@@ -1242,16 +1748,16 @@ async function abrirChamada(reuniaoId) {
                     </select>
                 </td>
                 <td>
-                    <input type="text" class="form-control form-control-sm presenca-observacao" data-reuniao-id="${reuniaoId}" data-usuario-id="${p.id}" value="${escapeHtml(p.observacao || '')}" placeholder="ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o">
+                    <input type="text" class="form-control form-control-sm presenca-observacao" data-reuniao-id="${reuniaoId}" data-usuario-id="${p.id}" value="${escapeHtml(p.observacao || '')}" placeholder="Observação">
                 </td>
             </tr>
         `).join('');
 
         container.innerHTML = `
-            <h6>Chamada de presenca</h6>
+            <h6>Chamada de presença</h6>
             <div class="table-responsive">
                 <table class="table table-sm align-middle">
-                    <thead><tr><th>Foto</th><th>Usuário</th><th>Perfil</th><th>Equipe</th><th>PresenÃƒÆ’Ã‚Â§a</th><th>ObservaÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</th></tr></thead>
+                    <thead><tr><th>Foto</th><th>Usuário</th><th>Perfil</th><th>Equipe</th><th>Presença</th><th>Observação</th></tr></thead>
                     <tbody>${linhas}</tbody>
                 </table>
             </div>
@@ -1332,18 +1838,18 @@ document.getElementById('formEditarReuniao')?.addEventListener('submit', async (
         });
         
         if (response.ok) {
-            mostrarAlerta('alertaCoordenador', 'ReuniÃƒÆ’Ã‚Â£o atualizada com sucesso!', 'success');
+            mostrarAlerta('alertaCoordenador', 'Reunião atualizada com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEditarReuniao')).hide();
             carregarReunioes();
         }
     } catch (err) {
-        mostrarAlerta('alertaCoordenador', 'Erro ao atualizar reuniÃƒÆ’Ã‚Â£o', 'danger');
+        mostrarAlerta('alertaCoordenador', 'Erro ao atualizar reunião', 'danger');
         console.error(err);
     }
 });
 
 async function deletarReuniao(id) {
-    if (!confirm('Tem certeza que deseja cancelar essa reuniÃƒÆ’Ã‚Â£o?')) return;
+    if (!confirm('Tem certeza que deseja cancelar essa reunião?')) return;
     
     try {
         const response = await fetch(`${API_URL}/coordenador/reunioes/${id}`, {
@@ -1352,11 +1858,11 @@ async function deletarReuniao(id) {
         });
         
         if (response.ok) {
-            mostrarAlerta('alertaCoordenador', 'ReuniÃƒÆ’Ã‚Â£o cancelada com sucesso!', 'success');
+            mostrarAlerta('alertaCoordenador', 'Reunião cancelada com sucesso!', 'success');
             carregarReunioes();
         }
     } catch (err) {
-        mostrarAlerta('alertaCoordenador', 'Erro ao cancelar reuniÃƒÆ’Ã‚Â£o', 'danger');
+        mostrarAlerta('alertaCoordenador', 'Erro ao cancelar reunião', 'danger');
         console.error(err);
     }
 }

@@ -9,8 +9,9 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('../utils/equipes');
-const { pedidosBlusaBloqueados } = require('../utils/configuracoes');
+const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
+const { normalizarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
 const TAXAS_POR_MOVIMENTO = {
@@ -31,6 +32,41 @@ function gerarTokenConfirmacao(participante) {
     process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
+}
+
+function obterBaseUrl(req) {
+  return process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+async function gerarCodigoLinkCurto() {
+  for (let tentativa = 0; tentativa < 6; tentativa += 1) {
+    const codigo = crypto.randomBytes(4).toString('base64url');
+    const existente = await database.get('SELECT codigo FROM links_encurtados WHERE codigo = ?', [codigo]);
+    if (!existente) return codigo;
+  }
+
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+}
+
+async function encurtarLinkConfirmacao(req, destino) {
+  const codigo = await gerarCodigoLinkCurto();
+  await database.run(
+    'INSERT INTO links_encurtados (codigo, destino) VALUES (?, ?)',
+    [codigo, destino]
+  );
+  return `${obterBaseUrl(req)}/c/${codigo}`;
+}
+
+async function gerarDadosConfirmacao(req, participante) {
+  const token = gerarTokenConfirmacao(participante);
+  const linkCompleto = `${obterBaseUrl(req)}/frontend/confirmacao.html?token=${encodeURIComponent(token)}`;
+  const linkCurto = await encurtarLinkConfirmacao(req, linkCompleto);
+
+  return {
+    token_confirmacao: token,
+    link_confirmacao: linkCurto,
+    link_confirmacao_completo: linkCompleto
+  };
 }
 const TAMANHOS_BLUSA = [
   '8 Anos',
@@ -92,9 +128,11 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
-    const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
-      ? foto_perfil
-      : null;
+    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    if (fotoValidada.erro) {
+      return res.status(400).json({ erro: fotoValidada.erro });
+    }
+    const fotoPerfil = fotoValidada.fotoPerfil;
 
     await database.run(
       `UPDATE usuarios
@@ -293,7 +331,7 @@ router.post('/participantes-equipe/:tipo/:id/token-confirmacao', verificarToken,
       return res.status(403).json({ erro: 'Participante não pertence à sua equipe' });
     }
 
-    res.json({ token_confirmacao: gerarTokenConfirmacao(participante) });
+    res.json(await gerarDadosConfirmacao(req, participante));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar link de confirmação' });
@@ -382,9 +420,11 @@ router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador'
 
     const solicitacoes = await database.all(`
       SELECT u.id as usuario_id, u.nome_completo, u.email, u.nome_cracha, u.foto_perfil, u.equipe,
-             sb.id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao, sb.data_confirmacao, sb.forma_pagamento
+             sb.id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao, sb.data_confirmacao, sb.forma_pagamento,
+             sb.confirmado_por, confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha
       FROM usuarios u
       LEFT JOIN solicitacoes_blusa sb ON sb.usuario_id = u.id
+      LEFT JOIN usuarios confirmador ON confirmador.id = sb.confirmado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'
@@ -410,6 +450,17 @@ router.get('/configuracoes-blusa', verificarToken, verificarPerfil(['coordenador
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar configurações de blusa' });
+  }
+});
+
+router.get('/configuracoes-dashboard', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
+  try {
+    res.json({
+      reuniao_entrega_pastas: (await obterConfiguracao(database, 'reuniao_entrega_pastas', 'false')) === 'true'
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar configurações do dashboard' });
   }
 });
 

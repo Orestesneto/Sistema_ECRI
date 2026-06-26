@@ -7,9 +7,9 @@ const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
+const { normalizarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
-const TAMANHO_MAXIMO_FOTO_BYTES = 1 * 1024 * 1024;
 
 function lerToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
@@ -129,19 +129,11 @@ router.put('/:token', async (req, res) => {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
-    const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
-      ? foto_perfil
-      : null;
-
-    if (!fotoPerfil) {
-      return res.status(400).json({ erro: 'Foto de perfil obrigatoria' });
+    const fotoValidada = normalizarFotoPerfil(foto_perfil, { obrigatoria: true });
+    if (fotoValidada.erro) {
+      return res.status(400).json({ erro: fotoValidada.erro });
     }
-
-    const fotoBase64 = fotoPerfil.split(',')[1] || '';
-    const tamanhoFotoBytes = Math.ceil((fotoBase64.length * 3) / 4);
-    if (tamanhoFotoBytes > TAMANHO_MAXIMO_FOTO_BYTES) {
-      return res.status(400).json({ erro: 'A foto deve ter no máximo 1MB' });
-    }
+    const fotoPerfil = fotoValidada.fotoPerfil;
 
     if (dadosToken.tipo === 'externo') {
       const cpfExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpfNumeros]);

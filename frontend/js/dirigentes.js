@@ -1,9 +1,9 @@
-﻿const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 1;
+﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 2;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
-const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes'];
+const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas'];
 let chartPerfis = null;
 let chartStatus = null;
 let usuariosCache = [];
@@ -17,15 +17,15 @@ const EQUIPES_FIXAS = [
     'Anjos da Guarda',
     'Arco Iris',
     'Bandinha',
-    'Boa Ação',
-    'Coordenação Geral',
+    'Boa Acao',
+    'Coordenacao Geral',
     'ECRI SHOP',
     'Escrita',
-    'Missa e Oração',
+    'Missa e Oracao',
     'Papa Lanche',
     'Pombo Correio',
     'Ranguinho',
-    'Som e Iluminação',
+    'Som e Iluminacao',
     'Teatrinho',
     'Vassourinha'
 ];
@@ -41,17 +41,21 @@ document.addEventListener('DOMContentLoaded', () => {
     configurarCampoParoquia('paroquiaDirigente', 'campoOutraParoquiaDirigente');
     configurarCampoParoquia('editarParoquia', 'campoOutraParoquiaEditar');
     configurarConfiguraçõesDirigente();
+    configurarFormularioConfiguracoesEncontroDirigente();
     document.getElementById('anoEncontroDirigente')?.addEventListener('input', limitarCampoNumerico);
     document.getElementById('editarAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
+    configurarFiltrosUsuarios();
     configurarFiltrosCarografo();
     carregarOpcoesEquipe();
     carregarPerfilDirigente();
+    carregarConfiguracoesEncontroDirigente();
     carregarRelatorio();
     carregarUsuários();
     carregarPessoasExternas();
     carregarEventos();
     carregarSituacao();
     carregarReunioes();
+    carregarAcompanhamentoFaltas();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
 });
@@ -106,6 +110,7 @@ async function carregarPerfilDirigente() {
         const usuario = await response.json();
         perfilDirigenteId = usuario.id || perfilDirigenteId;
         const paroquiaPerfil = usuario.paroquia || obterParoquiaPerfilDirigenteLocal(usuario.id);
+        configurarIconeAreaExclusiva(usuario);
         
         document.getElementById('emailDirigente').value = usuario.email;
         document.getElementById('nomeCompletoDirigente').value = usuario.nome_completo;
@@ -128,6 +133,86 @@ async function carregarPerfilDirigente() {
     }
 }
 
+function configurarIconeAreaExclusiva(usuario) {
+    const botao = document.getElementById('btnAreaExclusivaDirigente');
+    if (!botao) return;
+
+    const nome = normalizarTextoAcessoExclusivo(usuario?.nome_completo || usuario?.nome_cracha || '');
+    const email = String(usuario?.email || '').trim().toLowerCase();
+    const podeAcessar = nome.includes('ORESTES PEREIRA') || email === 'admin@teste.com';
+
+    botao.style.display = podeAcessar ? 'inline-flex' : 'none';
+}
+
+function normalizarTextoAcessoExclusivo(valor) {
+    return String(valor || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toUpperCase();
+}
+
+function configurarFormularioConfiguracoesEncontroDirigente() {
+    document.getElementById('formConfiguracoesEncontroDirigente')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await salvarConfiguracoesEncontroDirigente();
+    });
+}
+
+async function carregarConfiguracoesEncontroDirigente() {
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/configuracoes-encontro`, {
+            headers: getHeaders()
+        });
+        const configuracoes = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', configuracoes.erro || 'Erro ao carregar configurações do encontro', 'danger');
+            return;
+        }
+
+        const entregaPastas = document.getElementById('reuniaoEntregaPastasDirigente');
+        const revelacaoEquipes = document.getElementById('reuniaoRevelacaoEquipesDirigente');
+        const pararPedidosBlusa = document.getElementById('pararPedidosBlusaDirigente');
+
+        if (entregaPastas) entregaPastas.checked = Boolean(configuracoes.reuniao_entrega_pastas);
+        if (revelacaoEquipes) revelacaoEquipes.checked = Boolean(configuracoes.reuniao_revelacao_equipes);
+        if (pararPedidosBlusa) pararPedidosBlusa.checked = Boolean(configuracoes.parar_pedidos_blusa);
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao carregar configurações do encontro', 'danger');
+        console.error(err);
+    }
+}
+
+async function salvarConfiguracoesEncontroDirigente() {
+    const body = {
+        reuniao_entrega_pastas: document.getElementById('reuniaoEntregaPastasDirigente')?.checked || false,
+        reuniao_revelacao_equipes: document.getElementById('reuniaoRevelacaoEquipesDirigente')?.checked || false,
+        parar_pedidos_blusa: document.getElementById('pararPedidosBlusaDirigente')?.checked || false
+    };
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/configuracoes-encontro`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            mostrarAlerta('alertaDirigentes', 'Configurações do encontro salvas com sucesso!', 'success');
+            await carregarConfiguracoesEncontroDirigente();
+        } else {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao salvar configurações do encontro', 'danger');
+            await carregarConfiguracoesEncontroDirigente();
+        }
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao salvar configurações do encontro', 'danger');
+        await carregarConfiguracoesEncontroDirigente();
+        console.error(err);
+    }
+}
+
 // Atualizar perfil do dirigente
 document.getElementById('formPerfilDirigente')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -141,7 +226,7 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
     const restricaoMedicacao = '';
     const fotoPerfil = document.getElementById('fotoPerfilDirigente').files[0];
     
-    let fotoBase64 = obterFotoPerfilPreview('fotoPreviewDirigente');
+    let fotoBase64 = null;
 
     if (!anoEncontroValido(anoEncontro)) {
         mostrarAlerta('alertaDirigentes', 'Informe um ano do encontro válido', 'warning');
@@ -159,7 +244,12 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
             return;
         }
 
-        fotoBase64 = await converterParaBase64(fotoPerfil);
+        try {
+            fotoBase64 = await converterParaBase64(fotoPerfil);
+        } catch (err) {
+            mostrarAlerta('alertaDirigentes', err.message || 'Erro ao otimizar a foto', 'warning');
+            return;
+        }
         document.getElementById('fotoPreviewDirigente').src = fotoBase64;
         document.getElementById('fotoPreviewDirigente').style.display = 'block';
     }
@@ -397,46 +487,94 @@ async function carregarUsuários() {
         });
         
         const usuarios = await response.json();
-        usuariosCache = usuarios.map(aplicarFallbackParóquiaPessoa);
-        
-        let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Nome</th><th>Email</th><th>Perfil</th><th>Equipe</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
-        
-        usuariosCache.forEach(u => {
-            const fotoHtml = u.foto_perfil 
-                ? `<img src="${u.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
-                : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
-            
-            const perfilBadge = {
-                'equipista': '<span class="badge bg-info">Equipista</span>',
-                'coordenador': '<span class="badge bg-success">Coordenador</span>',
-                'equipe_dirigente': '<span class="badge bg-danger">Dirigente</span>'
-            }[u.perfil] || u.perfil;
-            
-            const statusBadge = u.status === 'confirmado' 
-                ? '<span class="badge bg-success">Confirmado</span>' 
-                : '<span class="badge bg-warning">Pendente</span>';
-            
-            html += `<tr>
-                <td>${fotoHtml}</td>
-                <td>${u.nome_completo}</td>
-                <td>${u.email}</td>
-                <td>${perfilBadge}</td>
-                <td>${u.equipe || '-'}</td>
-                <td>${statusBadge}</td>
-                <td>
-                    <button class="btn btn-sm btn-secondary" onclick="abrirModalEditarUsuário(${u.id})">Editar</button>
-                    <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${u.id})">Escalar</button>
-                </td>
-            </tr>`;
-        });
-        
-        html += '</tbody></table>';
-        document.getElementById('tabelaUsuários').innerHTML = html;
+        usuariosCache = usuarios
+            .map(aplicarFallbackParóquiaPessoa)
+            .sort(ordenarUsuarioPorNome);
+
+        renderizarTabelaUsuarios();
         aplicarFiltrosCarografo();
         renderizarEventos();
+        carregarAcompanhamentoFaltas();
     } catch (err) {
         console.error(err);
     }
+}
+
+function configurarFiltrosUsuarios() {
+    document.getElementById('filtroUsuariosBusca')?.addEventListener('input', aplicarFiltroGerenciarUsuarios);
+    document.getElementById('limparFiltrosUsuarios')?.addEventListener('click', () => {
+        const filtroBusca = document.getElementById('filtroUsuariosBusca');
+        if (filtroBusca) filtroBusca.value = '';
+        aplicarFiltroGerenciarUsuarios();
+    });
+}
+
+function aplicarFiltroGerenciarUsuarios() {
+    renderizarTabelaUsuarios();
+    renderizarPessoasExternas();
+}
+
+function renderizarTabelaUsuarios() {
+    const container = document.getElementById('tabelaUsuários');
+    if (!container) return;
+
+    const busca = document.getElementById('filtroUsuariosBusca')?.value || '';
+    const filtroNome = normalizarTextoFiltro(busca);
+    const filtroTelefone = normalizarTelefoneFiltro(busca);
+    const usuariosFiltrados = usuariosCache
+        .filter((usuario) => {
+            const nomeUsuario = normalizarTextoFiltro(`${usuario.nome_completo || ''} ${usuario.nome_cracha || ''}`);
+            const telefoneUsuario = normalizarTelefoneFiltro(usuario.telefone || '');
+            if (!filtroNome && !filtroTelefone) return true;
+            if (filtroTelefone && telefoneUsuario.includes(filtroTelefone)) return true;
+            if (filtroNome && nomeUsuario.includes(filtroNome)) return true;
+            return false;
+        })
+        .sort(ordenarUsuarioPorNome);
+
+    let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Nome</th><th>Email</th><th>Perfil</th><th>Equipe</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
+
+    if (!usuariosFiltrados.length) {
+        html += '<tr><td colspan="7" class="text-muted">Nenhum usuário encontrado.</td></tr>';
+    }
+
+    usuariosFiltrados.forEach(u => {
+        const fotoHtml = u.foto_perfil
+            ? `<img src="${escapeAttr(sanitizarImagemPerfil(u.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
+            : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+
+        const perfilBadge = {
+            'equipista': '<span class="badge bg-info">Equipista</span>',
+            'coordenador': '<span class="badge bg-success">Coordenador</span>',
+            'equipe_dirigente': '<span class="badge bg-danger">Dirigente</span>'
+        }[u.perfil] || escapeHtml(u.perfil || '-');
+
+        const statusBadge = u.status === 'confirmado'
+            ? '<span class="badge bg-success">Confirmado</span>'
+            : '<span class="badge bg-warning">Pendente</span>';
+
+        html += `<tr>
+            <td>${fotoHtml}</td>
+            <td>${escapeHtml(u.nome_completo || '')}</td>
+            <td>${escapeHtml(u.email || '')}</td>
+            <td>${perfilBadge}</td>
+            <td>${escapeHtml(u.equipe || '-')}</td>
+            <td>${statusBadge}</td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="abrirModalEditarUsuário(${Number(u.id)})">Editar</button>
+                <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${Number(u.id)})">Escalar</button>
+            </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function ordenarUsuarioPorNome(a, b) {
+    const nomeA = a.nome_completo || a.nome_cracha || '';
+    const nomeB = b.nome_completo || b.nome_cracha || '';
+    return nomeA.localeCompare(nomeB, 'pt-BR', { sensitivity: 'base' });
 }
 
 async function excluirUsuário(usuarioId, nomeUsuário) {
@@ -466,8 +604,31 @@ async function excluirUsuário(usuarioId, nomeUsuário) {
     }
 }
 
-function abrirModalEditarUsuário(usuarioId) {
-    const usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
+async function abrirModalEditarUsuário(usuarioId) {
+    let usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/usuarios/${usuarioId}`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao carregar dados do usuário', 'danger');
+            return;
+        }
+
+        usuario = aplicarFallbackParóquiaPessoa(data);
+        usuariosCache = usuariosCache.map(item => Number(item.id) === Number(usuario.id) ? usuario : item);
+    } catch (err) {
+        if (!usuario) {
+            mostrarAlerta('alertaDirigentes', 'Erro ao carregar dados do usuário', 'danger');
+            console.error(err);
+            return;
+        }
+        console.error(err);
+    }
+
     if (!usuario) return;
 
     document.getElementById('editarUsuárioId').value = usuario.id;
@@ -477,7 +638,7 @@ function abrirModalEditarUsuário(usuarioId) {
     preencherParoquia('editarParoquia', 'outraParoquiaEditar', 'campoOutraParoquiaEditar', usuario.paroquia);
     document.getElementById('editarMovimento').value = usuario.movimento_origem || '';
     document.getElementById('editarAnoEncontro').value = usuario.ano_encontro || '';
-    document.getElementById('editarEquipe').value = usuario.equipe || '';
+    document.getElementById('editarEquipe').value = usuario.equipe || 'SEM EQUIPE';
     document.getElementById('editarStatus').value = usuario.status || 'pendente';
     document.getElementById('editarRestricaoMedica').value = usuario.restricao_medica || '';
     document.getElementById('editarRestricaoAlimentar').value = usuario.restricao_alimentar || '';
@@ -505,6 +666,7 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
     }
 
     const body = {
+        nome_completo: document.getElementById('editarNomeCompleto').value,
         nome_cracha: document.getElementById('editarNomeCracha').value,
         telefone: document.getElementById('editarTelefone').value,
         paroquia,
@@ -527,10 +689,11 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
 
         if (response.ok) {
             const data = await response.json();
-            const paroquiaSalva = data.paroquia || paroquia;
+            const usuarioAtualizado = data.usuario ? aplicarFallbackParóquiaPessoa(data.usuario) : null;
+            const paroquiaSalva = usuarioAtualizado?.paroquia || data.paroquia || paroquia;
             salvarParoquiaUsuarioLocal(usuarioId, paroquiaSalva);
             usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
-                ? { ...usuario, paroquia: paroquiaSalva }
+                ? { ...usuario, ...body, ...(usuarioAtualizado || {}), paroquia: paroquiaSalva }
                 : usuario);
             aplicarFiltrosCarografo();
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
@@ -557,7 +720,7 @@ async function carregarPessoasExternas() {
         });
 
         const pessoas = await response.json();
-        pessoasExternasCache = Array.isArray(pessoas) ? pessoas : [];
+        pessoasExternasCache = (Array.isArray(pessoas) ? pessoas : []).sort(ordenarUsuarioPorNome);
 
         renderizarPessoasExternas();
         aplicarFiltrosCarografo();
@@ -576,9 +739,28 @@ function renderizarPessoasExternas() {
         return;
     }
 
-    const linhas = pessoasExternasCache.map(pessoa => {
+    const busca = document.getElementById('filtroUsuariosBusca')?.value || '';
+    const filtroNome = normalizarTextoFiltro(busca);
+    const filtroTelefone = normalizarTelefoneFiltro(busca);
+    const pessoasFiltradas = pessoasExternasCache
+        .filter((pessoa) => {
+            const nomePessoa = normalizarTextoFiltro(`${pessoa.nome_completo || ''} ${pessoa.nome_cracha || ''}`);
+            const telefonePessoa = normalizarTelefoneFiltro(pessoa.telefone || '');
+            if (!filtroNome && !filtroTelefone) return true;
+            if (filtroTelefone && telefonePessoa.includes(filtroTelefone)) return true;
+            if (filtroNome && nomePessoa.includes(filtroNome)) return true;
+            return false;
+        })
+        .sort(ordenarUsuarioPorNome);
+
+    if (!pessoasFiltradas.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhuma pessoa sem cadastro encontrada.</div>';
+        return;
+    }
+
+    const linhas = pessoasFiltradas.map(pessoa => {
         const fotoHtml = pessoa.foto_perfil
-            ? `<img src="${pessoa.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
+            ? `<img src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
             : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
 
         return `
@@ -727,7 +909,7 @@ function carregarOpcoesEquipe() {
     }
 
     if (editarEquipe) {
-        editarEquipe.innerHTML = '<option value="">SEM EQUIPE</option>' + EQUIPES_FIXAS
+        editarEquipe.innerHTML = EQUIPES_FIXAS
             .map(equipe => `<option value="${escapeHtml(equipe)}">${escapeHtml(equipe)}</option>`)
             .join('');
     }
@@ -1135,6 +1317,14 @@ function escapeHtml(valor) {
         .replace(/'/g, '&#039;');
 }
 
+function escapeAttr(valor) {
+    return escapeHtml(valor).replace(/`/g, '&#096;');
+}
+
+function sanitizarImagemPerfil(src) {
+    return String(src || '').startsWith('data:image/') ? src : '';
+}
+
 function abrirModalResumoUsuário(usuarioId) {
     const usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
     if (!usuario) return;
@@ -1210,6 +1400,8 @@ function obterStatusBadge(status) {
     const mapa = {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
+        ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };
@@ -1269,12 +1461,10 @@ async function carregarSituacao() {
         let htmlPagamentos = '<table class="table table-sm"><thead><tr><th>Foto</th><th>Usuário</th><th>Tipo</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
         data.pagamentos.forEach(p => {
             const fotoHtml = p.foto_perfil 
-                ? `<img src="${p.foto_perfil}" alt="Foto" class="foto-clickable" style="width:30px; height:30px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFoto(this.src)">`
+                ? `<img src="${escapeAttr(sanitizarImagemPerfil(p.foto_perfil))}" alt="Foto" class="foto-clickable" title="Clique para ampliar" style="width:30px; height:30px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
                 : `<div style="width:30px; height:30px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center; font-size:10px;">-</div>`;
             
-            const badge = p.status === 'confirmado' 
-                ? '<span class="badge bg-success">Confirmado</span>' 
-                : '<span class="badge bg-warning">Pendente</span>';
+            const badge = obterStatusBadge(p.status);
             htmlPagamentos += `<tr><td>${fotoHtml}</td><td>${p.nome_completo}</td><td>${p.tipo}</td><td>R$ ${p.valor.toFixed(2)}</td><td>${badge}</td></tr>`;
         });
         htmlPagamentos += '</tbody></table>';
@@ -1284,12 +1474,10 @@ async function carregarSituacao() {
         let htmlBlusas = '<table class="table table-sm"><thead><tr><th>Foto</th><th>Usuário</th><th>Tamanho</th><th>Status</th></tr></thead><tbody>';
         data.blusas.forEach(b => {
             const fotoHtml = b.foto_perfil 
-                ? `<img src="${b.foto_perfil}" alt="Foto" class="foto-clickable" style="width:30px; height:30px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFoto(this.src)">`
+                ? `<img src="${escapeAttr(sanitizarImagemPerfil(b.foto_perfil))}" alt="Foto" class="foto-clickable" title="Clique para ampliar" style="width:30px; height:30px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
                 : `<div style="width:30px; height:30px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center; font-size:10px;">-</div>`;
             
-            const badge = b.status === 'confirmado' 
-                ? '<span class="badge bg-success">Confirmado</span>' 
-                : '<span class="badge bg-warning">Pendente</span>';
+            const badge = obterStatusBadge(b.status);
             htmlBlusas += `<tr><td>${fotoHtml}</td><td>${b.nome_completo}</td><td>${b.tamanho}</td><td>${badge}</td></tr>`;
         });
         htmlBlusas += '</tbody></table>';
@@ -1407,6 +1595,7 @@ async function enviarLinkConfirmacaoModalEscalar() {
         return;
     }
 
+    const janelaWhatsApp = abrirJanelaWhatsAppPendenteDirigente();
     try {
         const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${participanteId}/token-confirmacao`, {
             method: 'POST',
@@ -1415,12 +1604,13 @@ async function enviarLinkConfirmacaoModalEscalar() {
         const data = await response.json();
 
         if (!response.ok || !data.token_confirmacao) {
+            fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
             mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
             return;
         }
 
         const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
-        const linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
+        const linkConfirmacao = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
         const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
 Ficamos muito felizes pelo seu sim!
 Precisamos que você atualize seus dados em nosso sistema.
@@ -1428,10 +1618,34 @@ Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
 
-        window.open(`https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+        abrirWhatsAppComJanelaDirigente(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
     } catch (err) {
+        fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
         mostrarAlerta('alertaDirigentes', 'Erro ao gerar link de confirmação.', 'danger');
         console.error(err);
+    }
+}
+
+function abrirJanelaWhatsAppPendenteDirigente() {
+    const janela = window.open('', '_blank');
+    if (janela) {
+        janela.document.write('<p style="font-family:Arial,sans-serif;padding:16px;">Abrindo WhatsApp...</p>');
+    }
+    return janela;
+}
+
+function abrirWhatsAppComJanelaDirigente(janela, url) {
+    if (janela && !janela.closed) {
+        janela.location.href = url;
+        return;
+    }
+
+    window.location.href = url;
+}
+
+function fecharJanelaWhatsAppPendenteDirigente(janela) {
+    if (janela && !janela.closed) {
+        janela.close();
     }
 }
 
@@ -1476,7 +1690,7 @@ async function carregarReunioes() {
         let html = '<div class="row">';
         reunioes.forEach(r => {
             const fotoHtml = r.foto_perfil 
-                ? `<img src="${r.foto_perfil}" alt="Foto" style="width:50px; height:50px; border-radius:50%; object-fit:cover; margin-right:10px;">`
+                ? `<img src="${escapeAttr(sanitizarImagemPerfil(r.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:50px; height:50px; border-radius:50%; object-fit:cover; margin-right:10px; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
                 : `<div style="width:50px; height:50px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center; margin-right:10px;">-</div>`;
             
             const statusBadge = {
@@ -1514,6 +1728,149 @@ async function carregarReunioes() {
         console.error(err);
         document.getElementById('containerReunioes').innerHTML = '<div class="alert alert-danger">Erro ao carregar reuniões.</div>';
     }
+}
+
+async function carregarAcompanhamentoFaltas() {
+    const container = document.getElementById('listaEquipesFaltas');
+    if (!container) return;
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/acompanhamento-faltas/equipes`, {
+            headers: getHeaders()
+        });
+        const equipes = await response.json();
+
+        if (!response.ok) {
+            container.innerHTML = `<div class="alert alert-danger">${escapeHtml(equipes.erro || 'Erro ao carregar equipes.')}</div>`;
+            return;
+        }
+
+        if (!equipes.length) {
+            container.innerHTML = '<div class="alert alert-info">Nenhuma equipe cadastrada.</div>';
+            return;
+        }
+
+        const linhas = equipes.map(item => `
+            <tr>
+                <td><strong>${escapeHtml(item.equipe)}</strong></td>
+                <td>${Number(item.total_usuarios || 0)}</td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="abrirAcompanhamentoFaltasEquipe('${escapeAttr(item.equipe)}')">
+                        Acompanhar faltas
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+
+        container.innerHTML = `
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Equipe</th>
+                        <th>Usuários</th>
+                        <th>Ação</th>
+                    </tr>
+                </thead>
+                <tbody>${linhas}</tbody>
+            </table>
+        `;
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div class="alert alert-danger">Erro ao carregar acompanhamento de faltas.</div>';
+    }
+}
+
+async function abrirAcompanhamentoFaltasEquipe(equipe) {
+    const modalEl = document.getElementById('modalAcompanhamentoFaltas');
+    const titulo = document.getElementById('tituloModalAcompanhamentoFaltas');
+    const conteudo = document.getElementById('conteudoModalAcompanhamentoFaltas');
+    if (!modalEl || !titulo || !conteudo) return;
+
+    const equipeNome = String(equipe || '');
+    titulo.textContent = `Acompanhamento de Faltas - ${equipeNome}`;
+    conteudo.innerHTML = '<div class="alert alert-info mb-0">Carregando usuários...</div>';
+    new bootstrap.Modal(modalEl).show();
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/acompanhamento-faltas/equipes/${encodeURIComponent(equipeNome)}`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            conteudo.innerHTML = `<div class="alert alert-danger">${escapeHtml(data.erro || 'Erro ao carregar usuários da equipe.')}</div>`;
+            return;
+        }
+
+        renderizarModalAcompanhamentoFaltas(data.equipe || equipeNome, data.usuarios || []);
+    } catch (err) {
+        console.error(err);
+        conteudo.innerHTML = '<div class="alert alert-danger">Erro ao carregar usuários da equipe.</div>';
+    }
+}
+
+function renderizarModalAcompanhamentoFaltas(equipe, usuarios) {
+    const conteudo = document.getElementById('conteudoModalAcompanhamentoFaltas');
+    if (!conteudo) return;
+
+    if (!usuarios.length) {
+        conteudo.innerHTML = `<div class="alert alert-info mb-0">Nenhum usuário encontrado na equipe ${escapeHtml(equipe)}.</div>`;
+        return;
+    }
+
+    const totais = usuarios.reduce((acc, usuario) => {
+        acc.presencas += Number(usuario.total_presencas || 0);
+        acc.faltasJustificadas += Number(usuario.total_faltas_justificadas || 0);
+        acc.faltas += Number(usuario.total_faltas || 0);
+        return acc;
+    }, { presencas: 0, faltasJustificadas: 0, faltas: 0 });
+
+    const linhas = usuarios.map(usuario => {
+        const fotoHtml = usuario.foto_perfil
+            ? `<img src="${escapeAttr(sanitizarImagemPerfil(usuario.foto_perfil))}" alt="Foto de ${escapeAttr(usuario.nome_completo || '')}" title="Clique para ampliar" style="width:44px; height:44px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
+            : '<div style="width:44px; height:44px; border-radius:50%; background:#e9ecef; display:flex; align-items:center; justify-content:center;">-</div>';
+
+        return `
+            <tr>
+                <td>${fotoHtml}</td>
+                <td>
+                    <strong>${escapeHtml(usuario.nome_cracha || usuario.nome_completo || '-')}</strong>
+                    <br><small class="text-muted">${escapeHtml(usuario.nome_completo || '')}</small>
+                </td>
+                <td><span class="badge bg-success">${Number(usuario.total_presencas || 0)}</span></td>
+                <td><span class="badge bg-warning text-dark">${Number(usuario.total_faltas_justificadas || 0)}</span></td>
+                <td><span class="badge bg-danger">${Number(usuario.total_faltas || 0)}</span></td>
+            </tr>
+        `;
+    }).join('');
+
+    conteudo.innerHTML = `
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <div class="alert alert-success mb-0 py-2"><strong>Presenças:</strong> ${totais.presencas}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="alert alert-warning mb-0 py-2"><strong>Faltas justificadas:</strong> ${totais.faltasJustificadas}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="alert alert-danger mb-0 py-2"><strong>Faltas:</strong> ${totais.faltas}</div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Foto</th>
+                        <th>Usuário</th>
+                        <th>Presenças</th>
+                        <th>Faltas justificadas</th>
+                        <th>Faltas</th>
+                    </tr>
+                </thead>
+                <tbody>${linhas}</tbody>
+            </table>
+        </div>
+    `;
 }
 
 function mostrarAlerta(elementId, mensagem, tipo) {

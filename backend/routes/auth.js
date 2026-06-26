@@ -8,9 +8,9 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
+const { normalizarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
-const TAMANHO_MAXIMO_FOTO_BYTES = 1 * 1024 * 1024;
 
 // Registro de novo usuario (Equipista)
 router.post('/registro', async (req, res) => {
@@ -86,19 +86,11 @@ router.post('/registro', async (req, res) => {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
-    const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
-      ? foto_perfil
-      : null;
-
-    if (!fotoPerfil) {
-      return res.status(400).json({ erro: 'Foto de perfil inválida' });
+    const fotoValidada = normalizarFotoPerfil(foto_perfil, { obrigatoria: true });
+    if (fotoValidada.erro) {
+      return res.status(400).json({ erro: fotoValidada.erro });
     }
-
-    const fotoBase64 = fotoPerfil.split(',')[1] || '';
-    const tamanhoFotoBytes = Math.ceil((fotoBase64.length * 3) / 4);
-    if (tamanhoFotoBytes > TAMANHO_MAXIMO_FOTO_BYTES) {
-      return res.status(400).json({ erro: 'A foto deve ter no máximo 1MB' });
-    }
+    const fotoPerfil = fotoValidada.fotoPerfil;
 
     const usuarioExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpfNumeros]);
     if (usuarioExistente) {
@@ -151,22 +143,19 @@ router.post('/registro', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { email, senha, cpf, data_nascimento } = req.body;
-    const identificador = String(cpf || email || '').trim();
-    const senhaInformada = String(data_nascimento || senha || '').trim();
-    const cpfNumeros = apenasNumeros(identificador);
+    const { cpf, data_nascimento } = req.body;
+    const cpfNumeros = apenasNumeros(cpf);
+    const senhaInformada = apenasNumeros(data_nascimento);
 
-    if (!identificador || !senhaInformada) {
+    if (!cpfNumeros || !senhaInformada) {
       return res.status(400).json({ erro: 'CPF e data de nascimento sao obrigatorios' });
     }
 
-    if (!identificador.includes('@') && !cpfValido(cpfNumeros)) {
+    if (!cpfValido(cpfNumeros)) {
       return res.status(400).json({ erro: 'CPF inválido' });
     }
 
-    const usuario = identificador.includes('@')
-      ? await database.get('SELECT * FROM usuarios WHERE email = ?', [identificador])
-      : await database.get('SELECT * FROM usuarios WHERE cpf = ?', [cpfNumeros]);
+    const usuario = await database.get('SELECT * FROM usuarios WHERE cpf = ?', [cpfNumeros]);
 
     if (!usuario) {
       return res.status(401).json({ erro: 'CPF ou data de nascimento incorretos' });

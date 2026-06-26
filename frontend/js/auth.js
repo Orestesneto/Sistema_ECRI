@@ -1,16 +1,15 @@
-﻿const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 1;
+﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 2;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 // Login
 document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    const identificador = document.getElementById('cpfLogin').value.trim();
-    const cpf = somenteNumeros(identificador);
+    const cpf = somenteNumeros(document.getElementById('cpfLogin').value);
     const data_nascimento = somenteNumeros(document.getElementById('dataNascimentoLogin').value);
 
-    if (!identificador.includes('@') && !cpfValido(cpf)) {
+    if (!cpfValido(cpf)) {
         mostrarAlerta('alertaLogin', 'Informe um CPF válido', 'warning');
         return;
     }
@@ -24,9 +23,7 @@ document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
         const response = await fetch(`${API_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(identificador.includes('@')
-                ? { email: identificador, senha: data_nascimento }
-                : { cpf, data_nascimento })
+            body: JSON.stringify({ cpf, data_nascimento })
         });
         
         const data = await response.json();
@@ -80,69 +77,36 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     const equipes_servidas = Array.from(document.querySelectorAll('input[name="equipesServidas"]:checked'))
         .map((checkbox) => checkbox.value);
 
-    if (!cpfValido(cpf)) {
-        mostrarAlerta('alertaLogin', 'Informe um CPF válido', 'warning');
+    const pendencias = [];
+
+    if (!movimento_origem) pendencias.push('Selecione o movimento de origem.');
+    if (!cpfValido(cpf)) pendencias.push('Informe um CPF válido com 11 números.');
+    if (data_nascimento.length !== 8) pendencias.push('Informe a data de nascimento com 8 números, no formato DDMMAAAA.');
+    if (isCasal && (!document.getElementById('nomeMarido').value.trim() || !document.getElementById('nomeEsposa').value.trim())) pendencias.push('Informe o nome do marido e o nome da esposa.');
+    if (!isCasal && !nome_completo) pendencias.push('Informe o nome completo.');
+    if (!nome_cracha) pendencias.push('Informe o nome para o crachá.');
+    if (isCasal && (!telefoneEsposa || !telefoneMarido)) pendencias.push('Informe o WhatsApp da esposa e o WhatsApp do marido.');
+    if (!isCasal && !telefone) pendencias.push('Informe o telefone WhatsApp.');
+    if (!anoEncontroValido(ano_encontro)) pendencias.push('Informe um ano do encontro válido.');
+    if (!paroquiaValida(paroquia)) pendencias.push('Informe a paróquia à qual você pertence.');
+    if (!toca_instrumento) pendencias.push('Informe se você toca algum instrumento.');
+    if (toca_instrumento === 'sim' && !instrumentos) pendencias.push('Informe quais instrumentos você toca.');
+    if (!canta) pendencias.push('Informe se você canta.');
+    if (!fotoPerfil) pendencias.push('Selecione uma foto de perfil.');
+    if (fotoPerfil && !fotoDentroDoLimite(fotoPerfil)) pendencias.push(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`);
+
+    if (pendencias.length) {
+        mostrarModalErroRegistro('Não foi possível criar o cadastro ainda. Confira os itens abaixo:', pendencias);
         return;
     }
 
-    if (data_nascimento.length !== 8) {
-        mostrarAlerta('alertaLogin', 'Informe a data de nascimento com 8 números', 'warning');
+    let foto_perfil;
+    try {
+        foto_perfil = await converterParaBase64(fotoPerfil);
+    } catch (err) {
+        mostrarModalErroRegistro(err.message || 'Erro ao carregar a foto.', ['Selecione outra imagem e tente novamente.']);
         return;
     }
-
-    if (!nome_completo || !nome_cracha) {
-        mostrarAlerta('alertaLogin', movimentoOrigemCasal(movimento_origem)
-            ? 'Informe o nome do marido e o nome da esposa'
-            : 'Informe o nome completo e o nome para o crachá', 'warning');
-        return;
-    }
-
-    if (isCasal && (!telefoneEsposa || !telefoneMarido)) {
-        mostrarAlerta('alertaLogin', 'Informe o WhatsApp da esposa e o WhatsApp do marido', 'warning');
-        return;
-    }
-
-    if (!isCasal && !telefone) {
-        mostrarAlerta('alertaLogin', 'Informe o telefone WhatsApp', 'warning');
-        return;
-    }
-
-    if (!anoEncontroValido(ano_encontro)) {
-        mostrarAlerta('alertaLogin', 'Informe um ano do encontro válido', 'warning');
-        return;
-    }
-
-    if (!paroquiaValida(paroquia)) {
-        mostrarAlerta('alertaLogin', 'Informe a paróquia à qual você pertence', 'warning');
-        return;
-    }
-
-    if (!toca_instrumento) {
-        mostrarAlerta('alertaLogin', 'Informe se você toca algum instrumento', 'warning');
-        return;
-    }
-
-    if (toca_instrumento === 'sim' && !instrumentos) {
-        mostrarAlerta('alertaLogin', 'Informe quais instrumentos você toca', 'warning');
-        return;
-    }
-
-    if (!canta) {
-        mostrarAlerta('alertaLogin', 'Informe se você canta', 'warning');
-        return;
-    }
-
-    if (!fotoPerfil) {
-        mostrarAlerta('alertaLogin', 'A foto de perfil é obrigatória', 'warning');
-        return;
-    }
-
-    if (!fotoDentroDoLimite(fotoPerfil)) {
-        mostrarAlerta('alertaLogin', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
-        return;
-    }
-
-    const foto_perfil = await converterParaBase64(fotoPerfil);
     
     try {
         const response = await fetch(`${API_URL}/auth/registro`, {
@@ -189,10 +153,10 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
                 document.querySelector('[href="#login"]').click();
             }, 1500);
         } else {
-            mostrarAlerta('alertaLogin', data.erro, 'danger');
+            mostrarModalErroRegistro(data.erro || 'Erro ao criar conta.', []);
         }
     } catch (err) {
-        mostrarAlerta('alertaLogin', 'Erro ao criar conta', 'danger');
+        mostrarModalErroRegistro('Erro ao criar conta.', ['Verifique sua conexão e tente novamente.']);
         console.error(err);
     }
 });
@@ -348,14 +312,22 @@ document.getElementById('fotoPerfilRegistro')?.addEventListener('change', async 
     }
 
     if (!fotoDentroDoLimite(fotoPerfil)) {
-        mostrarAlerta('alertaLogin', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+        mostrarModalErroRegistro('A foto selecionada não pode ser usada.', [`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`]);
         e.target.value = '';
         preview.src = '';
         preview.style.display = 'none';
         return;
     }
 
-    preview.src = await converterParaBase64(fotoPerfil);
+    try {
+        preview.src = await converterParaBase64(fotoPerfil);
+    } catch (err) {
+        mostrarModalErroRegistro(err.message || 'Erro ao carregar a foto.', ['Selecione outra imagem e tente novamente.']);
+        e.target.value = '';
+        preview.src = '';
+        preview.style.display = 'none';
+        return;
+    }
     preview.style.display = 'block';
 });
 
@@ -377,6 +349,34 @@ function mostrarAlerta(elementId, mensagem, tipo) {
     alerta.className = `alert alert-${tipo}`;
     alerta.textContent = mensagem;
     alerta.style.display = 'block';
+}
+
+function mostrarModalErroRegistro(mensagem, itens = []) {
+    const modalEl = document.getElementById('modalErroRegistro');
+    const mensagemEl = document.getElementById('modalErroRegistroMensagem');
+    const listaEl = document.getElementById('modalErroRegistroLista');
+
+    if (!modalEl || !mensagemEl || !listaEl) {
+        mostrarAlerta('alertaLogin', [mensagem, ...itens].filter(Boolean).join(' '), 'warning');
+        return;
+    }
+
+    mensagemEl.textContent = mensagem;
+    listaEl.innerHTML = itens.length
+        ? itens.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
+        : '';
+    listaEl.style.display = itens.length ? 'block' : 'none';
+
+    new bootstrap.Modal(modalEl).show();
+}
+
+function escapeHtml(valor) {
+    return String(valor || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 function logout() {

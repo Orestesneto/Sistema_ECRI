@@ -1,5 +1,5 @@
-﻿const API_URL = 'http://localhost:5000/api';
-const TAMANHO_MAXIMO_FOTO_MB = 1;
+﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 2;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 const params = new URLSearchParams(window.location.search);
@@ -28,7 +28,14 @@ document.getElementById('confirmacaoFoto')?.addEventListener('change', async (e)
         return;
     }
 
-    const fotoBase64 = await converterParaBase64(arquivo);
+    let fotoBase64;
+    try {
+        fotoBase64 = await converterParaBase64(arquivo);
+    } catch (err) {
+        mostrarAlerta(err.message || 'Erro ao otimizar a foto', 'warning');
+        e.target.value = '';
+        return;
+    }
     document.getElementById('fotoConfirmacao').innerHTML =
         `<img src="${fotoBase64}" alt="Foto" style="width:120px; height:120px; border-radius:50%; object-fit:cover;">`;
 });
@@ -92,7 +99,13 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         return;
     }
 
-    const fotoPerfil = await converterParaBase64(fotoArquivo);
+    let fotoPerfil;
+    try {
+        fotoPerfil = await converterParaBase64(fotoArquivo);
+    } catch (err) {
+        mostrarAlerta(err.message || 'Erro ao otimizar a foto', 'warning');
+        return;
+    }
     const cpf = somenteNumeros(document.getElementById('confirmacaoCpf')?.value || '');
     const dataNascimento = somenteNumeros(document.getElementById('confirmacaoDataNascimento')?.value || '');
     const anoEncontro = somenteNumeros(document.getElementById('confirmacaoAnoEncontro')?.value || '');

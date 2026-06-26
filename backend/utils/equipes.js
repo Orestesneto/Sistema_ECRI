@@ -24,7 +24,16 @@ function normalizarEquipe(equipe) {
   }
 
   const equipeNormalizada = equipe.trim();
-  return EQUIPES.find(item => item.toLowerCase() === equipeNormalizada.toLowerCase()) || equipeNormalizada;
+  const equipeComparacao = normalizarTextoComparacaoEquipe(equipeNormalizada);
+  return EQUIPES.find(item => normalizarTextoComparacaoEquipe(item) === equipeComparacao) || equipeNormalizada;
+}
+
+function normalizarTextoComparacaoEquipe(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function equipeValida(equipe) {
@@ -52,7 +61,7 @@ function aplicarRegraSemEquipe(equipe, status) {
   if (!equipeNormalizada || equipeSemEquipe(equipeNormalizada)) {
     return {
       equipe: 'SEM EQUIPE',
-      status: 'pendente'
+      status
     };
   }
 

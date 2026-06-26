@@ -1,10 +1,11 @@
-﻿const API_URL = 'http://localhost:5000/api';
+﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
 const TOKEN_KEY = 'devToken';
 const ABA_ATUAL_DEV_KEY = 'desenvolvimentoAbaAtual';
 
 let carografoDevCache = [];
 let equipesDevCache = [];
 let blusasDevCache = [];
+let excluidosDevCache = [];
 
 const EQUIPES_SERVIDAS_DEV = [
     'Apresentadores',
@@ -68,9 +69,12 @@ document.getElementById('sairDev')?.addEventListener('click', () => {
 
 document.getElementById('atualizarLogsDev')?.addEventListener('click', carregarLogsDev);
 document.getElementById('atualizarBlusasDev')?.addEventListener('click', carregarBlusasDev);
+document.getElementById('atualizarExcluidosDev')?.addEventListener('click', carregarExcluidosDev);
 document.getElementById('pararPedidosBlusaDev')?.addEventListener('change', salvarConfiguracoesDev);
 document.getElementById('salvarValoresBlusaDev')?.addEventListener('click', salvarConfiguracoesDev);
 document.getElementById('editarDevAnoEncontro')?.addEventListener('input', limitarCampoNumericoDev);
+document.getElementById('editarDevCpf')?.addEventListener('input', limitarCampoNumericoDev);
+document.getElementById('editarDevDataNascimento')?.addEventListener('input', limitarCampoNumericoDev);
 
 document.getElementById('formEditarUsuárioDev')?.addEventListener('submit', salvarEdicaoUsuárioDev);
 document.getElementById('formEscalarDev')?.addEventListener('submit', salvarEscalaUsuárioDev);
@@ -104,6 +108,7 @@ function mostrarAreaDev(usuario) {
     carregarLogsDev();
     carregarCarografoDev();
     carregarBlusasDev();
+    carregarExcluidosDev();
     carregarConfiguracoesDev();
     abrirAbaPersistida(ABA_ATUAL_DEV_KEY, 'painelLogsDev');
 }
@@ -290,7 +295,7 @@ function renderizarBlusasDev(blusas) {
 
     const linhas = blusas.map((blusa) => {
         const fotoHtml = blusa.foto_perfil
-            ? `<img src="${escapeHtml(blusa.foto_perfil)}" alt="Foto" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">`
+            ? `<img src="${escapeHtml(blusa.foto_perfil)}" alt="Foto" title="Clique para ampliar" style="width:38px; height:38px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrandeDev(this.src)">`
             : '<div style="width:38px; height:38px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
         const status = obterStatusBadge(blusa.status);
         const baixa = blusa.status === 'confirmado'
@@ -464,6 +469,76 @@ async function carregarCarografoDev() {
         mostrarAlertaDev('Erro ao carregar carografo', 'danger');
         console.error(err);
     }
+}
+
+async function carregarExcluidosDev() {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    try {
+        const response = await fetch(`${API_URL}/desenvolvimento/usuarios-excluidos`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const usuarios = await response.json();
+
+        if (!response.ok) {
+            mostrarAlertaDev(usuarios.erro || 'Erro ao carregar usuários excluídos', 'danger');
+            return;
+        }
+
+        excluidosDevCache = Array.isArray(usuarios) ? usuarios : [];
+        renderizarExcluidosDev();
+    } catch (err) {
+        mostrarAlertaDev('Erro ao carregar usuários excluídos', 'danger');
+        console.error(err);
+    }
+}
+
+function renderizarExcluidosDev() {
+    const painel = document.getElementById('painelExcluidosDevCards');
+    if (!painel) return;
+
+    if (!excluidosDevCache.length) {
+        painel.innerHTML = '<div class="alert alert-info">Nenhum usuário excluído registrado.</div>';
+        return;
+    }
+
+    painel.innerHTML = [...excluidosDevCache]
+        .sort((a, b) => String(a.nome_completo || '').localeCompare(String(b.nome_completo || ''), 'pt-BR', { sensitivity: 'base' }))
+        .map(usuario => {
+            const nome = escapeHtml(usuario.nome_completo || '');
+            const movimentoOrigem = escapeHtml(usuario.movimento_origem || '-');
+            const anoEncontro = escapeHtml(usuario.ano_encontro || '-');
+            const telefone = escapeHtml(usuario.telefone || '-');
+            const equipeAtual = escapeHtml(usuario.equipe || 'SEM EQUIPE');
+            const statusBadge = obterStatusBadge(usuario.status);
+            const perfil = escapeHtml(formatarPerfilAcesso(usuario.perfil));
+            const dataExclusao = usuario.data_exclusao ? formatarDataHoraDev(usuario.data_exclusao) : '-';
+            const origem = usuario.origem === 'equipe_dirigente' ? 'Equipe dirigente' : 'Área exclusiva';
+            const fotoHtml = usuario.foto_perfil
+                ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
+                : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+
+            return `
+                <div class="carografo-item carografo-item-removido">
+                    <div class="carografo-foto-coluna">
+                        ${fotoHtml}
+                    </div>
+                    <div class="carografo-info">
+                        <div class="carografo-topo">
+                            <strong>${nome}</strong>
+                        </div>
+                        <div class="carografo-linha">${movimentoOrigem} - ${anoEncontro}</div>
+                        <div class="carografo-linha">${telefone}</div>
+                        <div class="carografo-equipe">Equipe: ${equipeAtual}</div>
+                        <div class="carografo-linha">Perfil: ${perfil}</div>
+                        <div class="carografo-status">${statusBadge}</div>
+                        <div class="carografo-linha text-danger"><strong>Excluído em:</strong> ${escapeHtml(dataExclusao)}</div>
+                        <div class="carografo-linha"><strong>Origem:</strong> ${escapeHtml(origem)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
 }
 
 async function carregarEquipesDev() {
@@ -705,6 +780,9 @@ function abrirModalResumoCarografoDev(usuarioId) {
     const fotoHtml = usuario.foto_perfil
         ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrandeDev('${escapeJsAttr(usuario.foto_perfil)}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
+    const botaoAcoes = usuario.perfil === 'equipe_dirigente'
+        ? `<button type="button" class="btn btn-outline-primary" onclick="abrirAcoesUsuarioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Ações deste usuário</button>`
+        : '';
 
     corpo.innerHTML = `
         <div class="text-center">
@@ -728,6 +806,7 @@ function abrirModalResumoCarografoDev(usuarioId) {
             </tbody>
         </table>
         <div class="d-flex justify-content-end gap-2 flex-wrap">
+            ${botaoAcoes}
             <button type="button" class="btn btn-outline-dark" onclick="abrirHistóricoUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Histórico</button>
             <button type="button" class="btn btn-secondary" onclick="abrirModalEditarUsuárioDev(${Number(usuario.id)})">Editar</button>
             <button type="button" class="btn btn-primary" onclick="abrirModalEscalarDev(${Number(usuario.id)})">Escalar</button>
@@ -745,6 +824,8 @@ function abrirModalEditarUsuárioDev(usuarioId) {
     document.getElementById('editarDevUsuárioId').value = usuario.id;
     document.getElementById('editarDevNomeCompleto').value = usuario.nome_completo || '';
     document.getElementById('editarDevNomeCracha').value = usuario.nome_cracha || '';
+    document.getElementById('editarDevCpf').value = somenteNumerosDev(usuario.cpf || '');
+    document.getElementById('editarDevDataNascimento').value = somenteNumerosDev(usuario.data_nascimento || '');
     document.getElementById('editarDevTelefone').value = usuario.telefone || '';
     preencherParoquia('editarDevParoquia', 'outraParoquiaEditarDev', 'campoOutraParoquiaEditarDev', usuario.paroquia);
     document.getElementById('editarDevMovimento').value = usuario.movimento_origem || '';
@@ -772,7 +853,19 @@ async function salvarEdicaoUsuárioDev(e) {
 
     const usuarioId = document.getElementById('editarDevUsuárioId').value;
     const anoEncontro = somenteNumerosDev(document.getElementById('editarDevAnoEncontro').value);
+    const cpf = somenteNumerosDev(document.getElementById('editarDevCpf').value);
+    const dataNascimento = somenteNumerosDev(document.getElementById('editarDevDataNascimento').value);
     const paroquia = obterParoquia('editarDevParoquia', 'outraParoquiaEditarDev');
+
+    if (!cpfValidoDev(cpf)) {
+        mostrarAlertaDev('Informe um CPF válido com 11 números', 'warning');
+        return;
+    }
+
+    if (dataNascimento.length !== 8) {
+        mostrarAlertaDev('Informe a data de nascimento com 8 números, no formato DDMMAAAA', 'warning');
+        return;
+    }
 
     if (!anoEncontroValidoDev(anoEncontro)) {
         mostrarAlertaDev('Informe um ano do encontro válido', 'warning');
@@ -786,6 +879,8 @@ async function salvarEdicaoUsuárioDev(e) {
 
     const body = {
         nome_cracha: document.getElementById('editarDevNomeCracha').value,
+        cpf,
+        data_nascimento: dataNascimento,
         telefone: document.getElementById('editarDevTelefone').value,
         paroquia,
         movimento_origem: document.getElementById('editarDevMovimento').value,
@@ -896,6 +991,7 @@ async function excluirUsuárioDev(usuarioId, nomeUsuário) {
         bootstrap.Modal.getInstance(document.getElementById('modalResumoCarografoDev'))?.hide();
         await carregarCarografoDev();
         await carregarLogsDev();
+        await carregarExcluidosDev();
     } catch (err) {
         mostrarAlertaDev('Erro ao excluir usuario', 'danger');
         console.error(err);
@@ -957,6 +1053,75 @@ function renderizarHistóricoUsuárioDev(logs) {
                         <th>Quem fez</th>
                         <th>O que foi feito</th>
                         <th>Detalhes da mudanca</th>
+                    </tr>
+                </thead>
+                <tbody>${linhas}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function abrirAcoesUsuarioDev(usuarioId, nomeUsuário) {
+    const container = document.getElementById('conteudoAcoesUsuarioDev');
+    const modalEl = document.getElementById('modalAcoesUsuarioDev');
+    if (!container || !modalEl) return;
+
+    modalEl.querySelector('.modal-title').textContent = `Ações de ${nomeUsuário || 'Usuário'}`;
+    container.innerHTML = '<div class="alert alert-info mb-0">Carregando ações...</div>';
+    new bootstrap.Modal(modalEl).show();
+
+    try {
+        const token = sessionStorage.getItem(TOKEN_KEY);
+        const response = await fetch(`${API_URL}/desenvolvimento/usuarios/${usuarioId}/acoes`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const logs = await response.json();
+
+        if (!response.ok) {
+            container.innerHTML = `<div class="alert alert-danger mb-0">${escapeHtml(logs.erro || 'Erro ao carregar ações')}</div>`;
+            return;
+        }
+
+        renderizarAcoesUsuarioDev(logs);
+    } catch (err) {
+        container.innerHTML = '<div class="alert alert-danger mb-0">Erro ao carregar ações.</div>';
+        console.error(err);
+    }
+}
+
+function renderizarAcoesUsuarioDev(logs) {
+    const container = document.getElementById('conteudoAcoesUsuarioDev');
+    if (!container) return;
+
+    if (!logs.length) {
+        container.innerHTML = '<div class="alert alert-info mb-0">Nenhuma ação registrada para este usuário.</div>';
+        return;
+    }
+
+    const linhas = logs.map((log) => {
+        const detalhes = log.detalhes || {};
+        const alvo = log.nome_completo || log.email || (log.usuario_id ? `Usuário ID ${log.usuario_id}` : '-');
+        return `
+            <tr>
+                <td>${formatarDataHoraDev(log.data_acao)}</td>
+                <td>${escapeHtml(formatarAcaoHistórico(log.acao || ''))}</td>
+                <td>${escapeHtml(alvo)}</td>
+                <td>${escapeHtml(log.email || '-')}</td>
+                <td><pre class="mb-0 small">${escapeHtml(JSON.stringify(detalhes, null, 2))}</pre></td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Ação</th>
+                        <th>Perfil alterado</th>
+                        <th>Email</th>
+                        <th>Detalhes</th>
                     </tr>
                 </thead>
                 <tbody>${linhas}</tbody>
@@ -1076,6 +1241,8 @@ function obterStatusBadge(status) {
     const mapa = {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
+        ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };
@@ -1155,6 +1322,27 @@ function limitarCampoNumericoDev(e) {
 
 function anoEncontroValidoDev(valor) {
     return /^\d{4}$/.test(String(valor || ''));
+}
+
+function cpfValidoDev(valor) {
+    const cpf = somenteNumerosDev(valor);
+
+    if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) {
+        return false;
+    }
+
+    const calcularDigito = (base) => {
+        let soma = 0;
+        for (let i = 0; i < base.length; i += 1) {
+            soma += Number(base[i]) * (base.length + 1 - i);
+        }
+        const resto = soma % 11;
+        return resto < 2 ? 0 : 11 - resto;
+    };
+
+    const primeiroDigito = calcularDigito(cpf.slice(0, 9));
+    const segundoDigito = calcularDigito(cpf.slice(0, 10));
+    return cpf === `${cpf.slice(0, 9)}${primeiroDigito}${segundoDigito}`;
 }
 
 function formatarDataHora(valor) {

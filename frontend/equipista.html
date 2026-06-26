@@ -113,7 +113,7 @@
                             <div class="mb-3">
                                 <label class="form-label">Foto de Perfil</label>
                                 <input type="file" class="form-control" id="fotoPerfil" accept="image/*">
-                                <small class="text-muted">Formatos: JPG, PNG (máx 1MB)</small>
+                                <small class="text-muted">Formatos: JPG, PNG (max 2MB)</small>
                             </div>
                             <div id="previewFoto" class="mb-3">
                                 <img id="fotoPreview" src="" alt="Preview" style="max-width:150px; display:none;">
@@ -198,6 +198,9 @@
                                 <input class="form-check-input" type="radio" name="formaPagamentoOnline" id="formaPagamentoCartao" value="cartao_credito">
                                 <label class="form-check-label" for="formaPagamentoCartao">Cartão de Crédito</label>
                             </div>
+                            <div id="avisoTaxaCartao" class="alert alert-warning mt-2 mb-0 py-2" style="display:none;">
+                                Ao escolher cartão de crédito, haverá cobrança adicional de 8% referente à taxa da maquineta.
+                            </div>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-success mt-3">Solicitar pagamento</button>
@@ -222,6 +225,100 @@
         </div>
 
         <div id="alertaEquipista" class="alert mt-3" role="alert" style="display:none;"></div>
+    </div>
+
+    <div class="modal fade" id="modalPagamentoPix" tabindex="-1" aria-labelledby="modalPagamentoPixTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalPagamentoPixTitulo">Pagamento PIX</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-3">
+                        <img id="pixQrCodeImagem" src="" alt="QR Code PIX" class="img-fluid border rounded p-2" style="max-width:220px; display:none;">
+                    </div>
+                    <label class="form-label" for="pixCopiaCola">Código copia e cola</label>
+                    <textarea class="form-control" id="pixCopiaCola" rows="5" readonly></textarea>
+                    <div id="alertaCopiaPix" class="small text-success mt-2" style="display:none;">Código copiado.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="button" class="btn btn-success" id="botaoCopiarPix">Copiar código</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalPagamentoCartao" tabindex="-1" aria-labelledby="modalPagamentoCartaoTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalPagamentoCartaoTitulo">Pagamento com cartão</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        O pagamento com cartão de crédito tem acréscimo de 8% referente à taxa da maquineta.
+                    </div>
+                    <div class="border rounded p-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Valor cobrado</span>
+                            <strong id="cartaoValorBase">R$ 0,00</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                            <span>Taxa da maquineta (8%)</span>
+                            <strong id="cartaoTaxa">R$ 0,00</strong>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between">
+                            <span>Total no cartão</span>
+                            <strong id="cartaoValorFinal">R$ 0,00</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="button" id="botaoPagarCartao" class="btn btn-success">Pagar com o cartão</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalCheckoutCartao" tabindex="-1" aria-labelledby="modalCheckoutCartaoTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalCheckoutCartaoTitulo">Pagar com cartão</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <iframe id="iframeCheckoutCartao" title="Checkout Mercado Pago" style="width:100%; min-height:75vh; border:0;"></iframe>
+                </div>
+                <div class="modal-footer">
+                    <a id="linkCheckoutCartaoExterno" href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary">Abrir em nova aba</a>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalPagamentoAprovado" tabindex="-1" aria-labelledby="modalPagamentoAprovadoTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalPagamentoAprovadoTitulo">Pagamento aprovado!</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <h4 class="text-success mb-2">Pagamento aprovado!</h4>
+                    <p class="mb-0">Seu pagamento foi reconhecido pelo Mercado Pago.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" data-bs-dismiss="modal">OK</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>

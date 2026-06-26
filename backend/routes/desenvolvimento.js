@@ -1,5 +1,6 @@
 ﻿const express = require('express');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const database = require('../config/database');
 const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
 const { EQUIPES, normalizarEquipe, equipeValida } = require('../utils/equipes');
@@ -9,6 +10,7 @@ const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
+const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const {
   VALOR_BLUSA_UNICA,
   VALOR_BLUSA_MULTIPLA,
@@ -19,8 +21,8 @@ const {
 
 const router = express.Router();
 
-const DEV_USUARIO = 'orestes.pereira';
-const DEV_SENHA = 'neto1991';
+const DEV_USUARIO = process.env.DEV_USUARIO || (process.env.NODE_ENV === 'production' ? '' : 'orestes.pereira');
+const DEV_SENHA = process.env.DEV_SENHA || (process.env.NODE_ENV === 'production' ? '' : 'neto1991');
 
 function verificarTokenDesenvolvimento(req, res, next) {
   const authHeader = req.headers.authorization || '';
@@ -46,6 +48,10 @@ function verificarTokenDesenvolvimento(req, res, next) {
 router.post('/login', (req, res) => {
   const { usuario, senha } = req.body;
 
+  if (!DEV_USUARIO || !DEV_SENHA) {
+    return res.status(503).json({ erro: 'Acesso de desenvolvimento nao configurado' });
+  }
+
   if (usuario !== DEV_USUARIO || senha !== DEV_SENHA) {
     return res.status(401).json({ erro: 'Usuario ou senha incorretos' });
   }
@@ -68,6 +74,84 @@ router.get('/acesso', verificarTokenDesenvolvimento, (req, res) => {
     mensagem: 'Area exclusiva liberada',
     usuario: req.dev.usuario
   });
+});
+
+router.post('/criar-dirigente', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const cpf = String(req.body.cpf || '11111111111').replace(/\D/g, '') || null;
+    const email = String(req.body.email || `${cpf}@cpf.ecri.local`).trim().toLowerCase();
+    const senha = String(req.body.senha || '01012000').trim();
+    const nomeCompleto = String(req.body.nome_completo || 'ORESTES PEREIRA DA SILVA NETO').trim().toUpperCase();
+    const nomeCracha = String(req.body.nome_cracha || 'ORESTES').trim().toUpperCase();
+    const telefone = String(req.body.telefone || '(11) 99999-9999').trim();
+    const dataNascimento = String(req.body.data_nascimento || senha).replace(/\D/g, '');
+
+    if (!email || !senha || !nomeCompleto || !nomeCracha || !telefone) {
+      return res.status(400).json({ erro: 'Email, senha, nome e telefone sao obrigatorios' });
+    }
+
+    const senhaHash = await bcrypt.hash(senha, 10);
+    const usuarioExistente = await database.get('SELECT id FROM usuarios WHERE email = ?', [email]);
+
+    if (usuarioExistente) {
+      await database.run(
+        `UPDATE usuarios
+         SET senha = ?, nome_completo = ?, nome_cracha = ?, telefone = ?, cpf = COALESCE(?, cpf),
+             data_nascimento = COALESCE(?, data_nascimento), movimento_origem = 'ECRI',
+             perfil = 'equipe_dirigente', status = 'confirmado'
+         WHERE email = ?`,
+        [senhaHash, nomeCompleto, nomeCracha, telefone, cpf, dataNascimento || null, email]
+      );
+
+      return res.json({
+        mensagem: 'Usuario dirigente atualizado com sucesso',
+        email,
+        perfil: 'equipe_dirigente'
+      });
+    }
+
+    const resultado = await database.run(
+      `INSERT INTO usuarios (
+        email, senha, nome_completo, nome_cracha, telefone, paroquia, cpf, data_nascimento,
+        ano_encontro, toca_instrumento, instrumentos, canta, equipes_servidas,
+        movimento_origem, perfil, status, equipe
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        email,
+        senhaHash,
+        nomeCompleto,
+        nomeCracha,
+        telefone,
+        'SAO PEDRO E SAO PAULO',
+        cpf,
+        dataNascimento || null,
+        '2026',
+        'nao',
+        '',
+        'nao',
+        JSON.stringify([]),
+        'ECRI',
+        'equipe_dirigente',
+        'confirmado',
+        'EQUIPE DIRIGENTE'
+      ]
+    );
+
+    await registrarHistorico(resultado.lastID, 'dirigente_criado_desenvolvimento', {
+      email,
+      nome_completo: nomeCompleto
+    });
+
+    res.status(201).json({
+      mensagem: 'Usuario dirigente criado com sucesso',
+      id: resultado.lastID,
+      email,
+      perfil: 'equipe_dirigente'
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao criar usuario dirigente' });
+  }
 });
 
 router.get('/logs', verificarTokenDesenvolvimento, async (req, res) => {
@@ -123,10 +207,47 @@ router.get('/usuarios/:usuario_id/logs', verificarTokenDesenvolvimento, async (r
   }
 });
 
+router.get('/usuarios/:usuario_id/acoes', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const usuario_id = Number(req.params.usuario_id);
+
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'Usuário inválido' });
+    }
+
+    const usuario = await database.get('SELECT id, nome_completo, perfil FROM usuarios WHERE id = ?', [usuario_id]);
+    if (!usuario) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const logs = await database.all(`
+      SELECT h.id, h.usuario_id, h.acao, h.detalhes, h.data_acao,
+             u.nome_completo, u.email, u.perfil, u.equipe
+      FROM historico h
+      LEFT JOIN usuarios u ON u.id = h.usuario_id
+      ORDER BY h.data_acao DESC, h.id DESC
+      LIMIT 1000
+    `);
+
+    const acoes = logs
+      .map(log => ({ ...log, detalhes: parseDetalhes(log.detalhes) }))
+      .filter(log => autorHistoricoEhUsuario(log.detalhes, usuario_id))
+      .slice(0, 300);
+
+    res.json(await Promise.all(acoes.map(async (log) => ({
+      ...log,
+      responsavel: await identificarResponsavel(log.detalhes)
+    }))));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar ações do usuário' });
+  }
+});
+
 router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   try {
     const usuarios = await database.all(`
-      SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
+      SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
              perfil, status, equipe, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
@@ -137,6 +258,29 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar carografo' });
+  }
+});
+
+router.get('/usuarios-excluidos', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const registros = await database.all(`
+      SELECT id, usuario_id, dados, excluido_por, origem, data_exclusao
+      FROM usuarios_excluidos
+      ORDER BY data_exclusao DESC, id DESC
+      LIMIT 1000
+    `);
+
+    res.json(registros.map((registro) => ({
+      id: registro.id,
+      usuario_id: registro.usuario_id,
+      excluido_por: registro.excluido_por,
+      origem: registro.origem,
+      data_exclusao: registro.data_exclusao,
+      ...parseDetalhes(registro.dados)
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar usuários excluídos' });
   }
 });
 
@@ -208,6 +352,8 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     const usuario_id = Number(req.params.usuario_id);
     const {
       nome_cracha,
+      cpf,
+      data_nascimento,
       telefone,
       paroquia,
       movimento_origem,
@@ -220,18 +366,33 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     } = req.body;
     const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
     const experiencia = normalizarExperienciaPerfil(req.body);
+    const cpfNumeros = apenasNumeros(cpf);
+    const dataNascimento = apenasNumeros(data_nascimento);
 
     if (!usuario_id) {
       return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
-    if (!nome_cracha || !telefone || !paroquia || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Preencha crachá, telefone, paróquia, movimento, ano e status válidos' });
+    if (!nome_cracha || !cpfNumeros || !dataNascimento || !telefone || !paroquia || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
+      return res.status(400).json({ erro: 'Preencha crachá, CPF, data de nascimento, telefone, paróquia, movimento, ano e status válidos' });
     }
 
-    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    if (!cpfValido(cpfNumeros)) {
+      return res.status(400).json({ erro: 'CPF inválido' });
+    }
+
+    if (dataNascimento.length !== 8) {
+      return res.status(400).json({ erro: 'Data de nascimento deve conter 8 números' });
+    }
+
+    const usuario = await database.get('SELECT id, data_nascimento FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const cpfExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ? AND id <> ?', [cpfNumeros, usuario_id]);
+    if (cpfExistente) {
+      return res.status(400).json({ erro: 'CPF já cadastrado em outro usuário' });
     }
 
     const equipeNormalizada = equipe ? normalizarEquipe(equipe) : null;
@@ -251,14 +412,24 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
+    const senhaHash = dataNascimento !== usuario.data_nascimento
+      ? await bcrypt.hash(dataNascimento, 10)
+      : null;
+    const emailInterno = `${cpfNumeros}@cpf.ecri.local`;
+
     await database.run(
       `UPDATE usuarios
-       SET nome_cracha = ?, telefone = ?, paroquia = ?, movimento_origem = ?, ano_encontro = ?,
+       SET email = ?, senha = COALESCE(?, senha), nome_cracha = ?, cpf = ?, data_nascimento = ?,
+           telefone = ?, paroquia = ?, movimento_origem = ?, ano_encontro = ?,
            restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            status = ?, equipe = ?, toca_instrumento = ?, instrumentos = ?, canta = ?, equipes_servidas = ?
        WHERE id = ?`,
       [
+        emailInterno,
+        senhaHash,
         String(nome_cracha).trim().toUpperCase(),
+        cpfNumeros,
+        dataNascimento,
         telefone,
         paroquiaNormalizada,
         movimentoOrigem,
@@ -297,10 +468,12 @@ router.delete('/usuarios/:usuario_id', verificarTokenDesenvolvimento, async (req
       return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
-    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
+
+    await registrarUsuarioExcluido(usuario, req.dev.usuario, 'area_exclusiva');
 
     await database.run('UPDATE pagamentos SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
     await database.run('UPDATE solicitacoes_blusa SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
@@ -375,6 +548,24 @@ function parseDetalhes(valor) {
   } catch (err) {
     return { texto: valor };
   }
+}
+
+function autorHistoricoEhUsuario(detalhes, usuarioId) {
+  const chaves = ['alterado_por', 'editado_por', 'excluido_por', 'registrado_por', 'confirmado_por', 'criado_por'];
+  return chaves.some((chave) => Number(detalhes?.[chave]) === Number(usuarioId));
+}
+
+async function registrarUsuarioExcluido(usuario, excluidoPor, origem) {
+  await database.run(
+    `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
+     VALUES (?, ?, ?, ?)`,
+    [
+      usuario.id,
+      JSON.stringify(usuario),
+      excluidoPor || null,
+      origem
+    ]
+  );
 }
 
 async function identificarResponsavel(detalhes) {

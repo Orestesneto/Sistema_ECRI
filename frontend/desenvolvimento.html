@@ -53,6 +53,9 @@
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="abaBlusasDev" data-bs-toggle="tab" data-bs-target="#painelBlusasDev" type="button" role="tab">Blusas</button>
                     </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="abaExcluidosDev" data-bs-toggle="tab" data-bs-target="#painelExcluidosDev" type="button" role="tab">Os excluídos</button>
+                    </li>
                 </ul>
 
                 <div class="tab-content">
@@ -144,6 +147,14 @@
                         <div id="resumoBlusasDev" class="row g-3 mb-3"></div>
                         <div id="tabelaBlusasDev" class="table-responsive"></div>
                     </div>
+
+                    <div class="tab-pane fade" id="painelExcluidosDev" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+                            <h2 class="h5 mb-0">Os excluídos</h2>
+                            <button type="button" class="btn btn-sm btn-primary" id="atualizarExcluidosDev">Atualizar</button>
+                        </div>
+                        <div id="painelExcluidosDevCards" class="carografo-grid mt-3"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -195,6 +206,14 @@
                             <div class="col-md-6">
                                 <label class="form-label" for="editarDevNomeCracha">Nome para o crachá</label>
                                 <input type="text" class="form-control" id="editarDevNomeCracha" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="editarDevCpf">CPF</label>
+                                <input type="text" class="form-control" id="editarDevCpf" inputmode="numeric" maxlength="11" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="editarDevDataNascimento">Data de nascimento</label>
+                                <input type="text" class="form-control" id="editarDevDataNascimento" inputmode="numeric" maxlength="8" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="editarDevTelefone">Telefone</label>
@@ -342,6 +361,20 @@
                 </div>
                 <div class="modal-body">
                     <div id="conteudoHistóricoUsuárioDev"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalAcoesUsuarioDev" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Ações deste usuário</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="conteudoAcoesUsuarioDev"></div>
                 </div>
             </div>
         </div>

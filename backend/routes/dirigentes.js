@@ -1,4 +1,5 @@
 ﻿const express = require('express');
+const bcrypt = require('bcryptjs');
 const database = require('../config/database');
 const { verificarToken, verificarPerfil } = require('../middleware/auth');
 const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
@@ -8,9 +9,11 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
+const { normalizarFotoPerfil } = require('../utils/foto');
+const { apenasNumeros, cpfValido } = require('../utils/cpf');
+const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 
 const router = express.Router();
-const TAMANHO_MAXIMO_FOTO_BYTES = 1 * 1024 * 1024;
 
 // Obter dados do próprio perfil
 router.get('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
@@ -53,9 +56,11 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
-    const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
-      ? foto_perfil
-      : null;
+    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    if (fotoValidada.erro) {
+      return res.status(400).json({ erro: fotoValidada.erro });
+    }
+    const fotoPerfil = fotoValidada.fotoPerfil;
 
     await database.run(
       `UPDATE usuarios
@@ -91,11 +96,52 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
   }
 });
 
+router.get('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    res.json({
+      reuniao_entrega_pastas: (await obterConfiguracao(database, 'reuniao_entrega_pastas', 'false')) === 'true',
+      reuniao_revelacao_equipes: (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true',
+      parar_pedidos_blusa: (await obterConfiguracao(database, 'parar_pedidos_blusa', 'false')) === 'true'
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar configurações do encontro' });
+  }
+});
+
+router.put('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const reuniaoEntregaPastas = Boolean(req.body.reuniao_entrega_pastas);
+    const reuniaoRevelacaoEquipes = Boolean(req.body.reuniao_revelacao_equipes);
+    const pararPedidosBlusa = Boolean(req.body.parar_pedidos_blusa);
+
+    await salvarConfiguracao(database, 'reuniao_entrega_pastas', reuniaoEntregaPastas ? 'true' : 'false');
+    await salvarConfiguracao(database, 'reuniao_revelacao_equipes', reuniaoRevelacaoEquipes ? 'true' : 'false');
+    await salvarConfiguracao(database, 'parar_pedidos_blusa', pararPedidosBlusa ? 'true' : 'false');
+
+    await registrarHistorico(req.usuario.id, 'configuracoes_encontro_atualizadas', {
+      reuniao_entrega_pastas: reuniaoEntregaPastas,
+      reuniao_revelacao_equipes: reuniaoRevelacaoEquipes,
+      parar_pedidos_blusa: pararPedidosBlusa
+    });
+
+    res.json({
+      mensagem: 'Configurações salvas com sucesso',
+      reuniao_entrega_pastas: reuniaoEntregaPastas,
+      reuniao_revelacao_equipes: reuniaoRevelacaoEquipes,
+      parar_pedidos_blusa: pararPedidosBlusa
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao salvar configurações do encontro' });
+  }
+});
+
 // Obter todos os cadastros
 router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuarios = await database.all(`
-      SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
+      SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
@@ -109,11 +155,40 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
   }
 });
 
+router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const usuario_id = Number(req.params.usuario_id);
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'Usuário inválido' });
+    }
+
+    const usuario = await database.get(`
+      SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             toca_instrumento, instrumentos, canta, equipes_servidas
+      FROM usuarios
+      WHERE id = ?
+    `, [usuario_id]);
+
+    if (!usuario) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    res.json(usuario);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao obter usuário' });
+  }
+});
+
 router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuario_id = Number(req.params.usuario_id);
     const {
+      nome_completo,
       nome_cracha,
+      cpf,
+      data_nascimento,
       telefone,
       paroquia,
       movimento_origem,
@@ -126,18 +201,40 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
     } = req.body;
     const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
     const experiencia = normalizarExperienciaPerfil(req.body);
+    const nomeCompleto = String(nome_completo || '').trim().toUpperCase();
+    const nomeCracha = String(nome_cracha || '').trim().toUpperCase();
+    const cpfFoiEnviado = Object.prototype.hasOwnProperty.call(req.body, 'cpf');
+    const dataNascimentoFoiEnviada = Object.prototype.hasOwnProperty.call(req.body, 'data_nascimento');
 
     if (!usuario_id) {
       return res.status(400).json({ erro: 'Usuário inválido' });
     }
 
-    if (!nome_cracha || !telefone || !paroquia || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Preencha crachá, telefone, paróquia, movimento, ano e status válidos' });
+    if (!nomeCompleto || !nomeCracha || !telefone || !paroquia || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
+      return res.status(400).json({ erro: 'Preencha nome, crachá, telefone, paróquia, movimento, ano e status válidos' });
     }
 
-    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT id, cpf, data_nascimento FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const cpfNumeros = cpfFoiEnviado ? apenasNumeros(cpf) : usuario.cpf;
+    const dataNascimento = dataNascimentoFoiEnviada ? apenasNumeros(data_nascimento) : usuario.data_nascimento;
+
+    if (cpfFoiEnviado && !cpfValido(cpfNumeros)) {
+      return res.status(400).json({ erro: 'CPF inválido' });
+    }
+
+    if (dataNascimentoFoiEnviada && dataNascimento.length !== 8) {
+      return res.status(400).json({ erro: 'Data de nascimento deve conter 8 números' });
+    }
+
+    if (cpfNumeros) {
+      const cpfExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ? AND id <> ?', [cpfNumeros, usuario_id]);
+      if (cpfExistente) {
+        return res.status(400).json({ erro: 'CPF já cadastrado em outro usuário' });
+      }
     }
 
     const equipeNormalizada = equipe ? normalizarEquipe(equipe) : 'SEM EQUIPE';
@@ -159,14 +256,25 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
+    const senhaHash = dataNascimentoFoiEnviada && dataNascimento && dataNascimento !== usuario.data_nascimento
+      ? await bcrypt.hash(dataNascimento, 10)
+      : null;
+    const emailInterno = cpfNumeros ? `${cpfNumeros}@cpf.ecri.local` : null;
+
     await database.run(
       `UPDATE usuarios
-       SET nome_cracha = ?, telefone = ?, paroquia = ?, movimento_origem = ?, ano_encontro = ?,
+       SET email = COALESCE(?, email), senha = COALESCE(?, senha), nome_completo = ?, nome_cracha = ?, cpf = COALESCE(?, cpf), data_nascimento = COALESCE(?, data_nascimento),
+           telefone = ?, paroquia = ?, movimento_origem = ?, ano_encontro = ?,
            restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            status = ?, equipe = ?, toca_instrumento = ?, instrumentos = ?, canta = ?, equipes_servidas = ?
        WHERE id = ?`,
       [
-        String(nome_cracha).trim().toUpperCase(),
+        emailInterno,
+        senhaHash,
+        nomeCompleto,
+        nomeCracha,
+        cpfNumeros,
+        dataNascimento,
         telefone,
         paroquiaNormalizada,
         movimentoOrigem,
@@ -189,9 +297,18 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
       status: regraEquipeStatus.status
     });
 
+    const usuarioAtualizado = await database.get(`
+      SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             toca_instrumento, instrumentos, canta, equipes_servidas
+      FROM usuarios
+      WHERE id = ?
+    `, [usuario_id]);
+
     res.json({
       mensagem: 'Perfil atualizado com sucesso',
-      paroquia: paroquiaNormalizada
+      paroquia: paroquiaNormalizada,
+      usuario: usuarioAtualizado
     });
   } catch (err) {
     console.error(err);
@@ -212,10 +329,16 @@ router.delete('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_
       return res.status(400).json({ erro: 'Você não pode excluir o próprio usuário' });
     }
 
-    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT * FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
+
+    await database.run(
+      `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
+       VALUES (?, ?, ?, ?)`,
+      [usuario.id, JSON.stringify(usuario), req.usuario.id, 'equipe_dirigente']
+    );
 
     await database.run('UPDATE pagamentos SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
     await database.run('UPDATE solicitacoes_blusa SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
@@ -237,6 +360,56 @@ router.delete('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_
 
 router.get('/equipes', verificarToken, verificarPerfil(['equipe_dirigente']), (req, res) => {
   res.json(EQUIPES);
+});
+
+router.get('/acompanhamento-faltas/equipes', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const equipesCadastradas = EQUIPES.filter(equipe => !equipeSemEquipe(equipe));
+    const totais = await database.all(`
+      SELECT equipe, COUNT(*) AS total_usuarios
+      FROM usuarios
+      WHERE equipe IS NOT NULL
+        AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+      GROUP BY equipe
+    `);
+
+    const totalPorEquipe = totais.reduce((acc, item) => {
+      acc[normalizarEquipe(item.equipe)] = Number(item.total_usuarios || 0);
+      return acc;
+    }, {});
+
+    res.json(equipesCadastradas.map(equipe => ({
+      equipe,
+      total_usuarios: totalPorEquipe[normalizarEquipe(equipe)] || 0
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar acompanhamento de faltas' });
+  }
+});
+
+router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const equipe = normalizarEquipe(req.params.equipe);
+    if (!equipe || equipeSemEquipe(equipe) || !equipeValida(equipe)) {
+      return res.status(400).json({ erro: 'Equipe inválida' });
+    }
+
+    const usuarios = await database.all(`
+      SELECT id, nome_completo, nome_cracha, email, telefone, foto_perfil, perfil, status, equipe,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'presente'), 0) AS total_presencas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta'), 0) AS total_faltas
+      FROM usuarios
+      WHERE equipe = ?
+      ORDER BY nome_completo ASC
+    `, [equipe]);
+
+    res.json({ equipe, usuarios });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar faltas da equipe' });
+  }
 });
 
 router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
@@ -282,17 +455,11 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
-    const fotoPerfil = typeof foto_perfil === 'string' && foto_perfil.startsWith('data:image/')
-      ? foto_perfil
-      : null;
-
-    if (fotoPerfil) {
-      const fotoBase64 = fotoPerfil.split(',')[1] || '';
-      const tamanhoFotoBytes = Math.ceil((fotoBase64.length * 3) / 4);
-      if (tamanhoFotoBytes > TAMANHO_MAXIMO_FOTO_BYTES) {
-        return res.status(400).json({ erro: 'A foto deve ter no máximo 1MB' });
-      }
+    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    if (fotoValidada.erro) {
+      return res.status(400).json({ erro: fotoValidada.erro });
     }
+    const fotoPerfil = fotoValidada.fotoPerfil;
 
     const resultado = await database.run(
       `INSERT INTO pessoas_externas (nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, criado_por)
@@ -567,7 +734,7 @@ router.put('/escalar-equipe/:usuario_id', verificarToken, verificarPerfil(['equi
     }
 
     const statusAtual = await database.get('SELECT status FROM usuarios WHERE id = ?', [usuario_id]);
-    const statusFinal = equipeSemEquipe(equipeNormalizada) ? 'pendente' : (statusAtual?.status || 'pendente');
+    const statusFinal = statusAtual?.status || 'pendente';
 
     await database.run(
       `UPDATE usuarios SET equipe = ?, status = ? WHERE id = ?`,
