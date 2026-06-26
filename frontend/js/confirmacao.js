@@ -23,7 +23,7 @@ document.getElementById('confirmacaoFoto')?.addEventListener('change', async (e)
     if (!arquivo) return;
 
     if (!fotoPerfilTipoAceito(arquivo) || arquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         e.target.value = '';
         return;
     }
@@ -95,7 +95,7 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
     }
 
     if (!fotoPerfilTipoAceito(fotoArquivo) || fotoArquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         return;
     }
 

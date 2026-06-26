@@ -33,8 +33,8 @@
 
             <div class="mb-3">
                 <label class="form-label">Foto de perfil</label>
-                <input type="file" class="form-control" id="confirmacaoFoto" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
-                <small class="text-muted">Formatos: JPG, PNG (max 2MB)</small>
+                <input type="file" class="form-control" id="confirmacaoFoto" accept=".jpg,.jpeg,.png,.heif,.heic,.webp,image/jpeg,image/png,image/heif,image/heic,image/webp" required>
+                <small class="text-muted">Formatos: JPG, PNG, HEIF ou WEBP (max 3MB)</small>
             </div>
 
             <input type="hidden" id="confirmacaoNome">
@@ -115,7 +115,13 @@
         </form>
     </div>
 
-    <script src="js/foto-perfil.js"></script>
+    <footer class="app-footer">
+        <div>Desenvolvido por Orestes Neto</div>
+        <a href="https://wa.me/5583996552101" target="_blank" rel="noopener">Contato WhatsApp (83) 99655-2101</a>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script src="js/foto-perfil.js?v=20260626-mobile-fallback"></script>
     <script src="js/confirmacao.js"></script>
 </body>
 </html>

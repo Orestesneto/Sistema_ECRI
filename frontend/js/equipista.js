@@ -133,7 +133,7 @@ document.getElementById('formPerfil')?.addEventListener('submit', async (e) => {
     
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
-            mostrarAlerta('alertaEquipista', `A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+            mostrarAlerta('alertaEquipista', `A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
             return;
         }
 

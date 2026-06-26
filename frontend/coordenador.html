@@ -124,8 +124,8 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Foto de Perfil</label>
-                                <input type="file" class="form-control" id="fotoPerfilCoordenador" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
-                                <small class="text-muted">Formatos: JPG, PNG (max 2MB)</small>
+                                <input type="file" class="form-control" id="fotoPerfilCoordenador" accept=".jpg,.jpeg,.png,.heif,.heic,.webp,image/jpeg,image/png,image/heif,image/heic,image/webp">
+                                <small class="text-muted">Formatos: JPG, PNG, HEIF ou WEBP (max 3MB)</small>
                             </div>
                             <div id="previewFotoCoordenador" class="mb-3">
                                 <img id="fotoPreviewCoordenador" src="" alt="Preview" style="max-width:150px; display:none;">
@@ -569,12 +569,18 @@
         </div>
     </div>
 
+    <footer class="app-footer">
+        <div>Desenvolvido por Orestes Neto</div>
+        <a href="https://wa.me/5583996552101" target="_blank" rel="noopener">Contato WhatsApp (83) 99655-2101</a>
+    </footer>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="js/paroquia.js"></script>
     <script src="js/abas-persistentes.js"></script>
     <script src="js/perfil-experiencia.js"></script>
-    <script src="js/foto-perfil.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script src="js/foto-perfil.js?v=20260626-mobile-fallback"></script>
     <script src="js/coordenador.js?v=20260622-whatsapp"></script>
 </body>
 </html>

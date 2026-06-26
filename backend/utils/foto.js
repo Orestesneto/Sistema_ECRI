@@ -1,4 +1,4 @@
-const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 700 * 1024;
+const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 800 * 1024;
 const TIPOS_FOTO_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
 
 function tamanhoFotoBase64Bytes(fotoPerfil) {
@@ -20,11 +20,11 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   const separadorTipo = fotoPerfil.indexOf(';');
   const tipo = separadorTipo > 5 ? fotoPerfil.slice(5, separadorTipo).toLowerCase() : '';
   if (!TIPOS_FOTO_PERMITIDOS.includes(tipo)) {
-    return { erro: 'A foto deve ser JPG, JPEG, PNG ou WEBP' };
+    return { erro: 'A foto deve ser JPG, JPEG, PNG ou WEBP apos a compressao' };
   }
 
   if (tamanhoFotoBase64Bytes(fotoPerfil) > TAMANHO_MAXIMO_FOTO_SALVA_BYTES) {
-    return { erro: 'A foto deve ter no maximo 700KB apos a compressao' };
+    return { erro: 'A foto deve ter no maximo 800KB apos a compressao' };
   }
 
   return { fotoPerfil };

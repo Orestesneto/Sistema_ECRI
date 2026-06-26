@@ -53,6 +53,27 @@ body {
     margin: 0 auto 14px;
 }
 
+.app-footer,
+.login-footer {
+    margin: 18px 0 28px;
+    text-align: center;
+    color: #5f6375;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.app-footer a,
+.login-footer a {
+    color: var(--ecri-blue);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.app-footer a:hover,
+.login-footer a:hover {
+    text-decoration: underline;
+}
+
 .brand-subtitle {
     color: #5f6375;
 }
