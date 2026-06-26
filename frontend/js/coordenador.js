@@ -1,5 +1,5 @@
-﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
-const TAMANHO_MAXIMO_FOTO_MB = 2;
+const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_COORDENADOR_KEY = 'coordenadorAbaAtual';
 const PERCENTUAL_TAXA_CARTAO = 0.08;
@@ -180,7 +180,7 @@ document.getElementById('formPerfilCoordenador')?.addEventListener('submit', asy
     
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
-            mostrarAlerta('alertaCoordenador', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+            mostrarAlerta('alertaCoordenador', `A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
             return;
         }
 
@@ -754,47 +754,100 @@ function renderizarCarografoEscrita(usuarios) {
 
 function baixarRelatorioCarografoEscritaExcel() {
     if (typeof XLSX === 'undefined') {
-        mostrarAlerta('alertaCoordenador', 'Biblioteca de Excel não carregada.', 'warning');
+        mostrarAlerta('alertaCoordenador', 'Biblioteca de Excel não carregada. Verifique a internet e tente novamente.', 'warning');
         return;
     }
 
-    const usuarios = carografoEscritaCache
-        .filter(usuario => usuario.status === 'confirmado' && !usuarioSemEquipeCoordenador(usuario))
-        .sort(ordenarUsuarioCarografoCoordenador)
-        .map(usuario => ({
-            'Nome completo': usuario.nome_completo || '',
-            'Nome do crachá': usuario.nome_cracha || '',
-            'Paróquia': usuario.paroquia || '',
-            'Movimento de origem': usuario.movimento_origem || '',
-            'Ano do encontro': usuario.ano_encontro || '',
-            'Telefone': usuario.telefone || '',
-            'Equipe': usuario.equipe || '',
-            'Toca instrumento': formatarSimNao(usuario.toca_instrumento),
-            'Instrumentos': usuario.instrumentos || '',
-            'Canta': formatarSimNao(usuario.canta)
-        }));
-
-    if (!usuarios.length) {
+    const pessoas = carografoEscritaCache.filter(usuario => usuario.status === 'confirmado' && !usuarioSemEquipeCoordenador(usuario));
+    if (!pessoas.length) {
         mostrarAlerta('alertaCoordenador', 'Nenhum usuário confirmado para exportar.', 'warning');
         return;
     }
 
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(usuarios);
-    worksheet['!cols'] = [
-        { wch: 34 },
-        { wch: 24 },
-        { wch: 28 },
-        { wch: 20 },
-        { wch: 16 },
-        { wch: 18 },
-        { wch: 22 },
-        { wch: 18 },
-        { wch: 28 },
-        { wch: 12 }
-    ];
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Carografo');
-    XLSX.writeFile(workbook, `carografo-escrita-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const equipes = Array.from(new Set(pessoas.map(pessoa => pessoa.equipe || 'SEM EQUIPE')))
+        .sort((a, b) => {
+            if (a === 'SEM EQUIPE') return -1;
+            if (b === 'SEM EQUIPE') return 1;
+            return a.localeCompare(b, 'pt-BR');
+        });
+
+    equipes.forEach((equipe) => {
+        const linhas = pessoas
+            .filter(pessoa => (pessoa.equipe || 'SEM EQUIPE') === equipe)
+            .sort(ordenarPorPerfilRelatorioCoordenador)
+            .map(pessoa => ({
+                'Nome completo': pessoa.nome_completo || '',
+                'Nome do crachá': pessoa.nome_cracha || '',
+                'Movimento de origem': pessoa.movimento_origem || '',
+                'Telefone para contato': pessoa.telefone || '',
+                'Perfil de acesso': formatarPerfilAcessoCoordenador(pessoa.perfil)
+            }));
+
+        const worksheet = XLSX.utils.json_to_sheet(linhas, {
+            header: [
+                'Nome completo',
+                'Nome do crachá',
+                'Movimento de origem',
+                'Telefone para contato',
+                'Perfil de acesso'
+            ]
+        });
+        worksheet['!cols'] = [
+            { wch: 34 },
+            { wch: 24 },
+            { wch: 20 },
+            { wch: 22 },
+            { wch: 18 }
+        ];
+
+        XLSX.utils.book_append_sheet(workbook, worksheet, nomeAbaExcelCoordenador(equipe, workbook.SheetNames));
+    });
+
+    const data = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `relatorio-carografo-${data}.xlsx`);
+}
+
+function ordenarPorPerfilRelatorioCoordenador(a, b) {
+    const prioridade = {
+        coordenador: 0,
+        equipista: 1,
+        equipe_dirigente: 2,
+        sem_cadastro: 3
+    };
+    const prioridadeA = prioridade[a.perfil] ?? 4;
+    const prioridadeB = prioridade[b.perfil] ?? 4;
+
+    if (prioridadeA !== prioridadeB) return prioridadeA - prioridadeB;
+    return String(a.nome_completo || '').localeCompare(String(b.nome_completo || ''), 'pt-BR');
+}
+
+function formatarPerfilAcessoCoordenador(perfil) {
+    const mapa = {
+        coordenador: 'Coordenador',
+        equipista: 'Equipista',
+        equipe_dirigente: 'Dirigente',
+        sem_cadastro: 'Sem cadastro'
+    };
+
+    return mapa[perfil] || perfil || '';
+}
+
+function nomeAbaExcelCoordenador(nome, existentes) {
+    const base = String(nome || 'SEM EQUIPE')
+        .replace(/[\\/?*[\]:]/g, ' ')
+        .trim()
+        .slice(0, 31) || 'SEM EQUIPE';
+    let nomeFinal = base;
+    let contador = 2;
+
+    while (existentes.includes(nomeFinal)) {
+        const sufixo = ` ${contador}`;
+        nomeFinal = `${base.slice(0, 31 - sufixo.length)}${sufixo}`;
+        contador += 1;
+    }
+
+    return nomeFinal;
 }
 
 async function carregarConfirmacoes() {
@@ -1885,12 +1938,7 @@ function logout() {
 }
 
 function converterParaBase64(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivo);
-    });
+    return otimizarFotoPerfil(arquivo);
 }
 
 function marcarMovimentoOrigem(name, valor) {
@@ -1911,7 +1959,7 @@ function obterFotoPerfilPreview(id) {
 }
 
 function fotoDentroDoLimite(arquivo) {
-    return arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
+    return fotoPerfilTipoAceito(arquivo) && arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
 }
 
 async function lerErroResposta(response, mensagemPadrao) {

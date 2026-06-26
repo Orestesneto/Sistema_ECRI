@@ -14,6 +14,12 @@ const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 
 const router = express.Router();
+const MOTIVOS_IMPEDIMENTO_SERVIR = [
+  'Separação do casal',
+  'Não faz parte dos movimentos',
+  'Não tem casamento na Igreja',
+  'Outros'
+];
 
 // Obter dados do próprio perfil
 router.get('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
@@ -142,7 +148,7 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
   try {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       ORDER BY data_cadastro DESC
@@ -164,7 +170,7 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
 
     const usuario = await database.get(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
@@ -299,7 +305,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
 
     const usuarioAtualizado = await database.get(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
@@ -313,6 +319,60 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao atualizar perfil do usuário' });
+  }
+});
+
+router.put('/usuarios/:usuario_id/impedimento-servir', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const usuario_id = Number(req.params.usuario_id);
+    const pessoaImpedidaServir = req.body.pessoa_impedida_servir ? 1 : 0;
+    const motivos = pessoaImpedidaServir
+      ? normalizarMotivosImpedimentoServir(req.body.motivos_impedimento_servir, req.body.outro_motivo_impedimento_servir)
+      : null;
+
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'Usuário inválido' });
+    }
+
+    if (pessoaImpedidaServir && motivos.erro) {
+      return res.status(400).json({ erro: motivos.erro });
+    }
+
+    if (!pessoaImpedidaServir) {
+      return res.status(403).json({ erro: 'Somente a área exclusiva pode desmarcar este impedimento' });
+    }
+
+    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    if (!usuario) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const responsavel = await database.get('SELECT nome_completo, email FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const motivosComResponsavel = {
+      ...motivos.dados,
+      cadastrado_por_id: req.usuario.id,
+      cadastrado_por_nome: responsavel?.nome_completo || responsavel?.email || `Usuario ID ${req.usuario.id}`
+    };
+
+    await database.run(
+      'UPDATE usuarios SET pessoa_impedida_servir = ?, pessoa_impedida_motivos = ? WHERE id = ?',
+      [pessoaImpedidaServir, JSON.stringify(motivosComResponsavel), usuario_id]
+    );
+
+    await registrarHistorico(usuario_id, 'impedimento_servir_atualizado', {
+      editado_por: req.usuario.id,
+      pessoa_impedida_servir: Boolean(pessoaImpedidaServir),
+      pessoa_impedida_motivos: motivosComResponsavel
+    });
+
+    res.json({
+      mensagem: 'Informação atualizada com sucesso',
+      pessoa_impedida_servir: pessoaImpedidaServir,
+      pessoa_impedida_motivos: JSON.stringify(motivosComResponsavel)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar impedimento para servir' });
   }
 });
 
@@ -861,6 +921,7 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       FROM pagamentos p
       JOIN usuarios u ON p.usuario_id = u.id
       WHERE u.equipe IS NOT NULL AND UPPER(u.equipe) <> 'SEM EQUIPE'
+        AND NOT (p.tipo = 'taxa' AND u.perfil = 'equipe_dirigente')
       ORDER BY p.data_solicitacao DESC
     `);
 
@@ -913,5 +974,29 @@ router.get('/reunioes-proximos-dias', verificarToken, verificarPerfil(['equipe_d
     res.status(500).json({ erro: 'Erro ao obter reuniões' });
   }
 });
+
+function normalizarMotivosImpedimentoServir(motivosRecebidos, outroMotivoRecebido) {
+  const motivos = Array.isArray(motivosRecebidos)
+    ? motivosRecebidos.map(item => String(item || '').trim()).filter(Boolean)
+    : [];
+  const motivosValidos = motivos.filter(item => MOTIVOS_IMPEDIMENTO_SERVIR.includes(item));
+  const motivosUnicos = Array.from(new Set(motivosValidos));
+  const outroMotivo = String(outroMotivoRecebido || '').trim();
+
+  if (!motivosUnicos.length) {
+    return { erro: 'Selecione ao menos um motivo' };
+  }
+
+  if (motivosUnicos.includes('Outros') && !outroMotivo) {
+    return { erro: 'Informe o motivo em Outros' };
+  }
+
+  return {
+    dados: {
+      motivos: motivosUnicos,
+      outro: motivosUnicos.includes('Outros') ? outroMotivo : ''
+    }
+  };
+}
 
 module.exports = router;

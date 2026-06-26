@@ -533,9 +533,18 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     }
 
     const usuario = await database.get(
-      'SELECT email, nome_completo, cpf, movimento_origem, equipe FROM usuarios WHERE id = ?',
+      'SELECT email, nome_completo, cpf, movimento_origem, equipe, perfil FROM usuarios WHERE id = ?',
       [usuario_id]
     );
+
+    if (tipo === 'taxa' && usuario?.perfil === 'equipe_dirigente') {
+      return res.status(200).json({
+        mensagem: 'Equipe dirigente não possui taxa de encontro',
+        id: null,
+        valor: 0,
+        status: 'isento'
+      });
+    }
 
     if (!usuario?.equipe || equipeSemEquipe(usuario.equipe)) {
       return res.status(201).json({
@@ -686,7 +695,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
 router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador']), async (req, res) => {
   try {
     const usuario_id = req.usuario.id;
-    const usuario = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT equipe, perfil FROM usuarios WHERE id = ?', [usuario_id]);
 
     if (!usuario?.equipe || equipeSemEquipe(usuario.equipe)) {
       return res.json({ pagamentos: [], blusas: [] });
@@ -698,8 +707,9 @@ router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador
               mercado_pago_sandbox_init_point, pix_qr_code, pix_qr_code_base64
        FROM pagamentos
        WHERE usuario_id = ?
+         AND NOT (? = 'equipe_dirigente' AND tipo = 'taxa')
        ORDER BY data_solicitacao DESC`,
-      [usuario_id]
+      [usuario_id, usuario?.perfil || '']
     );
 
     const blusas = await database.all(

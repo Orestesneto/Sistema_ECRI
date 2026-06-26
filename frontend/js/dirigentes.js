@@ -1,5 +1,5 @@
-﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
-const TAMANHO_MAXIMO_FOTO_MB = 2;
+const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
@@ -240,7 +240,7 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
     
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
-            mostrarAlerta('alertaDirigentes', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+            mostrarAlerta('alertaDirigentes', `A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
             return;
         }
 
@@ -1062,10 +1062,15 @@ function renderizarCarografo(usuarios) {
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
             : '';
         const removidoDoEncontro = pessoaRemovidaDoEncontro(u);
+        const pessoaImpedidaServir = Number(u.pessoa_impedida_servir || 0) === 1;
+        const motivoImpedimentoCard = pessoaImpedidaServir
+            ? `<div class="carografo-motivo-impedimento"><strong>Motivo:</strong> ${escapeHtml(formatarMotivoImpedimentoServirCard(u.pessoa_impedida_motivos))}</div>`
+            : '';
         const classesCard = [
             'carografo-item',
             destaqueMusical ? 'carografo-item-musical' : '',
-            removidoDoEncontro ? 'carografo-item-removido' : ''
+            removidoDoEncontro ? 'carografo-item-removido' : '',
+            pessoaImpedidaServir ? 'carografo-item-impedido' : ''
         ].filter(Boolean).join(' ');
 
         return `
@@ -1082,6 +1087,7 @@ function renderizarCarografo(usuarios) {
                     <div class="carografo-linha">${movimentoOrigem} - ${anoEncontro}</div>
                     <div class="carografo-linha">${telefone}</div>
                     <div class="carografo-equipe">Equipe: ${equipeAtual}</div>
+                    ${motivoImpedimentoCard}
                     <div class="carografo-status">${statusBadge}</div>
                 </div>
             </div>
@@ -1339,6 +1345,8 @@ function abrirModalResumoUsuário(usuarioId) {
     const fotoHtml = usuario.foto_perfil
         ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrande('${usuario.foto_perfil}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
+    const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+    const motivosImpedimentoHtml = renderizarMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
 
     titulo.textContent = 'Resumo do Usuário';
     corpo.className = 'modal-body';
@@ -1361,12 +1369,227 @@ function abrirModalResumoUsuário(usuarioId) {
                 <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
             </tbody>
         </table>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this)">
+            <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa imperdida de servir no encontro</label>
+        </div>
+        <div id="motivosImpedimentoServirResumoInfo">${motivosImpedimentoHtml}</div>
         <div class="text-end">
             <button type="button" class="btn btn-primary" onclick="abrirModalEscalar(${Number(usuario.id)}, true)">Escalar</button>
         </div>
     `;
 
     new bootstrap.Modal(modalEl).show();
+}
+
+async function atualizarPessoaImpedidaServir(usuarioId, checkbox) {
+    const marcado = Boolean(checkbox.checked);
+    if (!marcado) {
+        checkbox.checked = true;
+        mostrarAlerta('alertaDirigentes', 'Somente a área exclusiva pode desmarcar este impedimento.', 'warning');
+        return;
+    }
+
+    if (marcado) {
+        abrirModalMotivoImpedimentoServir(usuarioId, checkbox);
+        return;
+    }
+}
+
+function abrirModalMotivoImpedimentoServir(usuarioId, checkbox) {
+    const usuario = usuariosCache.find(item => Number(item.id) === Number(usuarioId)) || {};
+    const motivosSalvos = obterMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
+    const modalEl = obterModalMotivoImpedimentoServir();
+    const motivos = motivosSalvos.motivos || [];
+    const outroMarcado = motivos.includes('Outros');
+
+    modalEl.dataset.confirmado = 'false';
+    modalEl.dataset.usuarioId = String(usuarioId);
+    modalEl.querySelectorAll('input[name="motivoImpedimentoServir"]').forEach((input) => {
+        input.checked = motivos.includes(input.value);
+    });
+    const outroInput = modalEl.querySelector('#outroMotivoImpedimentoServir');
+    const outroCampo = modalEl.querySelector('#campoOutroMotivoImpedimentoServir');
+    outroInput.value = motivosSalvos.outro || '';
+    outroCampo.style.display = outroMarcado ? 'block' : 'none';
+
+    modalEl.querySelector('#btnSalvarMotivoImpedimentoServir').onclick = () => confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl);
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        if (modalEl.dataset.confirmado !== 'true') {
+            checkbox.checked = false;
+        }
+    }, { once: true });
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+function obterModalMotivoImpedimentoServir() {
+    let modalEl = document.getElementById('modalMotivoImpedimentoServir');
+    if (modalEl) return modalEl;
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="modalMotivoImpedimentoServir" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Motivo do impedimento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Qual motivo dessa pessoa não poder mais servir nos encontros?</p>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServir" id="motivoSeparacaoCasal" value="Separação do casal">
+                            <label class="form-check-label" for="motivoSeparacaoCasal">Separação do casal</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServir" id="motivoNaoMovimentos" value="Não faz parte dos movimentos">
+                            <label class="form-check-label" for="motivoNaoMovimentos">Não faz parte dos movimentos</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServir" id="motivoSemCasamentoIgreja" value="Não tem casamento na Igreja">
+                            <label class="form-check-label" for="motivoSemCasamentoIgreja">Não tem casamento na Igreja</label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServir" id="motivoOutros" value="Outros">
+                            <label class="form-check-label" for="motivoOutros">Outros.</label>
+                        </div>
+                        <div id="campoOutroMotivoImpedimentoServir" style="display:none;">
+                            <label class="form-label" for="outroMotivoImpedimentoServir">Informe o motivo</label>
+                            <textarea class="form-control" id="outroMotivoImpedimentoServir" rows="3"></textarea>
+                        </div>
+                        <div class="alert alert-warning mt-3 mb-0" id="alertaMotivoImpedimentoServir" style="display:none;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="btnSalvarMotivoImpedimentoServir">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+
+    modalEl = document.getElementById('modalMotivoImpedimentoServir');
+    modalEl.querySelector('#motivoOutros').addEventListener('change', (e) => {
+        modalEl.querySelector('#campoOutroMotivoImpedimentoServir').style.display = e.target.checked ? 'block' : 'none';
+    });
+    return modalEl;
+}
+
+async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
+    const motivos = Array.from(modalEl.querySelectorAll('input[name="motivoImpedimentoServir"]:checked'))
+        .map(input => input.value);
+    const outro = modalEl.querySelector('#outroMotivoImpedimentoServir').value.trim();
+    const alerta = modalEl.querySelector('#alertaMotivoImpedimentoServir');
+
+    if (!motivos.length) {
+        alerta.textContent = 'Selecione ao menos um motivo.';
+        alerta.style.display = 'block';
+        return;
+    }
+
+    if (motivos.includes('Outros') && !outro) {
+        alerta.textContent = 'Informe o motivo em Outros.';
+        alerta.style.display = 'block';
+        return;
+    }
+
+    alerta.style.display = 'none';
+    const sucesso = await salvarPessoaImpedidaServir(usuarioId, checkbox, {
+        pessoa_impedida_servir: true,
+        motivos_impedimento_servir: motivos,
+        outro_motivo_impedimento_servir: outro
+    });
+
+    if (sucesso) {
+        modalEl.dataset.confirmado = 'true';
+        bootstrap.Modal.getInstance(modalEl)?.hide();
+    }
+}
+
+async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload) {
+    const marcado = Boolean(payload.pessoa_impedida_servir);
+    checkbox.disabled = true;
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/usuarios/${usuarioId}/impedimento-servir`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            checkbox.checked = !marcado;
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao atualizar informação.', 'danger');
+            return false;
+        }
+
+        usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+            ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+            : usuario);
+        checkbox.checked = marcado;
+        const info = document.getElementById('motivosImpedimentoServirResumoInfo');
+        if (info) {
+            info.innerHTML = renderizarMotivosImpedimentoServir(data.pessoa_impedida_motivos);
+        }
+        mostrarAlerta('alertaDirigentes', 'Informação atualizada com sucesso!', 'success');
+        return true;
+    } catch (err) {
+        checkbox.checked = !marcado;
+        mostrarAlerta('alertaDirigentes', 'Erro ao atualizar informação.', 'danger');
+        console.error(err);
+        return false;
+    } finally {
+        checkbox.disabled = marcado;
+    }
+}
+
+function obterMotivosImpedimentoServir(valor) {
+    if (!valor) return { motivos: [], outro: '' };
+    if (typeof valor === 'object') {
+        return {
+            motivos: Array.isArray(valor.motivos) ? valor.motivos : [],
+            outro: valor.outro || '',
+            cadastrado_por_nome: valor.cadastrado_por_nome || ''
+        };
+    }
+
+    try {
+        const dados = JSON.parse(valor);
+        return {
+            motivos: Array.isArray(dados.motivos) ? dados.motivos : [],
+            outro: dados.outro || '',
+            cadastrado_por_nome: dados.cadastrado_por_nome || ''
+        };
+    } catch (err) {
+        return { motivos: [], outro: '' };
+    }
+}
+
+function renderizarMotivosImpedimentoServir(valor) {
+    const dados = obterMotivosImpedimentoServir(valor);
+    if (!dados.motivos.length && !dados.outro && !dados.cadastrado_por_nome) return '';
+
+    const motivos = [...dados.motivos];
+    if (dados.outro && motivos.includes('Outros')) {
+        motivos[motivos.indexOf('Outros')] = `Outros: ${dados.outro}`;
+    }
+
+    return `
+        <div class="border-top pt-2 mb-3 small">
+            <div><strong>Motivo:</strong> ${escapeHtml(motivos.join(', ') || '-')}</div>
+            <div><strong>Cadastrado por:</strong> ${escapeHtml(dados.cadastrado_por_nome || '-')}</div>
+        </div>
+    `;
+}
+
+function formatarMotivoImpedimentoServirCard(valor) {
+    const dados = obterMotivosImpedimentoServir(valor);
+    const motivos = [...dados.motivos];
+    if (dados.outro && motivos.includes('Outros')) {
+        motivos[motivos.indexOf('Outros')] = `Outros: ${dados.outro}`;
+    }
+    return motivos.join(', ') || '-';
 }
 
 function abrirModalFotoGrande(fotoSrc) {
@@ -1917,12 +2140,7 @@ function logout() {
 }
 
 function converterParaBase64(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivo);
-    });
+    return otimizarFotoPerfil(arquivo);
 }
 
 function marcarMovimentoOrigem(name, valor) {
@@ -1943,7 +2161,7 @@ function obterFotoPerfilPreview(id) {
 }
 
 function fotoDentroDoLimite(arquivo) {
-    return arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
+    return fotoPerfilTipoAceito(arquivo) && arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
 }
 
 async function lerErroResposta(response, mensagemPadrao) {

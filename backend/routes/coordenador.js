@@ -201,7 +201,7 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
     }
 
     const pagamento = await database.get(`
-      SELECT p.id, u.equipe
+      SELECT p.id, p.tipo, u.equipe, u.perfil
       FROM pagamentos p
       JOIN usuarios u ON p.usuario_id = u.id
       WHERE p.id = ?
@@ -209,6 +209,10 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
 
     if (!pagamento || !pagamento.equipe || equipeSemEquipe(pagamento.equipe)) {
       return res.status(400).json({ erro: 'Usuário sem equipe não possui cobrança' });
+    }
+
+    if (pagamento.tipo === 'taxa' && pagamento.perfil === 'equipe_dirigente') {
+      return res.status(400).json({ erro: 'Equipe dirigente não possui taxa de encontro' });
     }
 
     const coordenador = await database.get('SELECT perfil, equipe FROM usuarios WHERE id = ?', [usuario_id]);
@@ -590,13 +594,14 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
     const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
 
     const usuarios = await database.all(`
-      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.foto_perfil, u.movimento_origem, u.equipe,
+      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.foto_perfil, u.movimento_origem, u.equipe, u.perfil,
              p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento
       FROM usuarios u
       LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo = 'taxa'
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'
+        AND u.perfil <> 'equipe_dirigente'
         ${filtroEquipeSql}
       ORDER BY u.nome_completo ASC
     `, filtroEquipeParams);

@@ -1,5 +1,5 @@
-﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
-const TAMANHO_MAXIMO_FOTO_MB = 2;
+const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_EQUIPISTA_KEY = 'equipistaAbaAtual';
 const PERCENTUAL_TAXA_CARTAO = 0.08;
@@ -133,7 +133,7 @@ document.getElementById('formPerfil')?.addEventListener('submit', async (e) => {
     
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
-            mostrarAlerta('alertaEquipista', `A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
+            mostrarAlerta('alertaEquipista', `A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
             return;
         }
 
@@ -622,12 +622,7 @@ function escapeAttr(valor) {
 }
 
 function converterParaBase64(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivo);
-    });
+    return otimizarFotoPerfil(arquivo);
 }
 
 function marcarMovimentoOrigem(name, valor) {
@@ -648,7 +643,7 @@ function obterFotoPerfilPreview(id) {
 }
 
 function fotoDentroDoLimite(arquivo) {
-    return arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
+    return fotoPerfilTipoAceito(arquivo) && arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
 }
 
 function somenteNumeros(valor) {

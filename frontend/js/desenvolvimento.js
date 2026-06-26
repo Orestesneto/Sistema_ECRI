@@ -677,10 +677,15 @@ function renderizarCarografoDev(usuarios) {
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
             : '';
+        const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+        const motivoImpedimentoCard = pessoaImpedidaServir
+            ? `<div class="carografo-motivo-impedimento"><strong>Motivo:</strong> ${escapeHtml(formatarMotivoImpedimentoServirDevCard(usuario.pessoa_impedida_motivos))}</div>`
+            : '';
         const classesCard = [
             'carografo-item',
             destaqueMusical ? 'carografo-item-musical' : '',
-            usuarioRemovidoDoEncontroDev(usuario) ? 'carografo-item-removido' : ''
+            usuarioRemovidoDoEncontroDev(usuario) ? 'carografo-item-removido' : '',
+            pessoaImpedidaServir ? 'carografo-item-impedido' : ''
         ].filter(Boolean).join(' ');
 
         return `
@@ -697,6 +702,7 @@ function renderizarCarografoDev(usuarios) {
                     <div class="carografo-linha">${movimentoOrigem} - ${anoEncontro}</div>
                     <div class="carografo-linha">${telefone}</div>
                     <div class="carografo-equipe">Equipe: ${equipeAtual}</div>
+                    ${motivoImpedimentoCard}
                     <div class="carografo-status">${statusBadge}</div>
                 </div>
             </div>
@@ -780,9 +786,11 @@ function abrirModalResumoCarografoDev(usuarioId) {
     const fotoHtml = usuario.foto_perfil
         ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrandeDev('${escapeJsAttr(usuario.foto_perfil)}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
-    const botaoAcoes = usuario.perfil === 'equipe_dirigente'
-        ? `<button type="button" class="btn btn-outline-primary" onclick="abrirAcoesUsuarioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Ações deste usuário</button>`
+    const botaoAcoes = perfilDirigenteDev(usuario.perfil)
+        ? `<button type="button" class="btn btn-outline-primary" onclick="abrirAcoesUsuarioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Ações deste usuario</button>`
         : '';
+    const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+    const motivosImpedimentoHtml = renderizarMotivosImpedimentoServirDev(usuario.pessoa_impedida_motivos);
 
     corpo.innerHTML = `
         <div class="text-center">
@@ -805,6 +813,11 @@ function abrirModalResumoCarografoDev(usuarioId) {
                 <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
             </tbody>
         </table>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumoDev" ${pessoaImpedidaServir ? 'checked' : ''} onchange="atualizarPessoaImpedidaServirDev(${Number(usuario.id)}, this)">
+            <label class="form-check-label" for="pessoaImpedidaServirResumoDev">Pessoa imperdida de servir no encontro</label>
+        </div>
+        <div id="motivosImpedimentoServirResumoDevInfo">${motivosImpedimentoHtml}</div>
         <div class="d-flex justify-content-end gap-2 flex-wrap">
             ${botaoAcoes}
             <button type="button" class="btn btn-outline-dark" onclick="abrirHistóricoUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Histórico</button>
@@ -815,6 +828,216 @@ function abrirModalResumoCarografoDev(usuarioId) {
     `;
 
     new bootstrap.Modal(modalEl).show();
+}
+
+async function atualizarPessoaImpedidaServirDev(usuarioId, checkbox) {
+    const marcado = Boolean(checkbox.checked);
+    if (marcado) {
+        abrirModalMotivoImpedimentoServirDev(usuarioId, checkbox);
+        return;
+    }
+
+    await salvarPessoaImpedidaServirDev(usuarioId, checkbox, {
+        pessoa_impedida_servir: false,
+        motivos_impedimento_servir: [],
+        outro_motivo_impedimento_servir: ''
+    });
+}
+
+function abrirModalMotivoImpedimentoServirDev(usuarioId, checkbox) {
+    const usuario = carografoDevCache.find(item => Number(item.id) === Number(usuarioId)) || {};
+    const motivosSalvos = obterMotivosImpedimentoServirDev(usuario.pessoa_impedida_motivos);
+    const modalEl = obterModalMotivoImpedimentoServirDev();
+    const motivos = motivosSalvos.motivos || [];
+    const outroMarcado = motivos.includes('Outros');
+
+    modalEl.dataset.confirmado = 'false';
+    modalEl.dataset.usuarioId = String(usuarioId);
+    modalEl.querySelectorAll('input[name="motivoImpedimentoServirDev"]').forEach((input) => {
+        input.checked = motivos.includes(input.value);
+    });
+    const outroInput = modalEl.querySelector('#outroMotivoImpedimentoServirDev');
+    const outroCampo = modalEl.querySelector('#campoOutroMotivoImpedimentoServirDev');
+    outroInput.value = motivosSalvos.outro || '';
+    outroCampo.style.display = outroMarcado ? 'block' : 'none';
+
+    modalEl.querySelector('#btnSalvarMotivoImpedimentoServirDev').onclick = () => confirmarMotivoImpedimentoServirDev(usuarioId, checkbox, modalEl);
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        if (modalEl.dataset.confirmado !== 'true') {
+            checkbox.checked = false;
+        }
+    }, { once: true });
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+function obterModalMotivoImpedimentoServirDev() {
+    let modalEl = document.getElementById('modalMotivoImpedimentoServirDev');
+    if (modalEl) return modalEl;
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="modalMotivoImpedimentoServirDev" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Motivo do impedimento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Qual motivo dessa pessoa não poder mais servir nos encontros?</p>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServirDev" id="motivoSeparacaoCasalDev" value="Separação do casal">
+                            <label class="form-check-label" for="motivoSeparacaoCasalDev">Separação do casal</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServirDev" id="motivoNaoMovimentosDev" value="Não faz parte dos movimentos">
+                            <label class="form-check-label" for="motivoNaoMovimentosDev">Não faz parte dos movimentos</label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServirDev" id="motivoSemCasamentoIgrejaDev" value="Não tem casamento na Igreja">
+                            <label class="form-check-label" for="motivoSemCasamentoIgrejaDev">Não tem casamento na Igreja</label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" name="motivoImpedimentoServirDev" id="motivoOutrosDev" value="Outros">
+                            <label class="form-check-label" for="motivoOutrosDev">Outros.</label>
+                        </div>
+                        <div id="campoOutroMotivoImpedimentoServirDev" style="display:none;">
+                            <label class="form-label" for="outroMotivoImpedimentoServirDev">Informe o motivo</label>
+                            <textarea class="form-control" id="outroMotivoImpedimentoServirDev" rows="3"></textarea>
+                        </div>
+                        <div class="alert alert-warning mt-3 mb-0" id="alertaMotivoImpedimentoServirDev" style="display:none;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="btnSalvarMotivoImpedimentoServirDev">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+
+    modalEl = document.getElementById('modalMotivoImpedimentoServirDev');
+    modalEl.querySelector('#motivoOutrosDev').addEventListener('change', (e) => {
+        modalEl.querySelector('#campoOutroMotivoImpedimentoServirDev').style.display = e.target.checked ? 'block' : 'none';
+    });
+    return modalEl;
+}
+
+async function confirmarMotivoImpedimentoServirDev(usuarioId, checkbox, modalEl) {
+    const motivos = Array.from(modalEl.querySelectorAll('input[name="motivoImpedimentoServirDev"]:checked'))
+        .map(input => input.value);
+    const outro = modalEl.querySelector('#outroMotivoImpedimentoServirDev').value.trim();
+    const alerta = modalEl.querySelector('#alertaMotivoImpedimentoServirDev');
+
+    if (!motivos.length) {
+        alerta.textContent = 'Selecione ao menos um motivo.';
+        alerta.style.display = 'block';
+        return;
+    }
+
+    if (motivos.includes('Outros') && !outro) {
+        alerta.textContent = 'Informe o motivo em Outros.';
+        alerta.style.display = 'block';
+        return;
+    }
+
+    alerta.style.display = 'none';
+    const sucesso = await salvarPessoaImpedidaServirDev(usuarioId, checkbox, {
+        pessoa_impedida_servir: true,
+        motivos_impedimento_servir: motivos,
+        outro_motivo_impedimento_servir: outro
+    });
+
+    if (sucesso) {
+        modalEl.dataset.confirmado = 'true';
+        bootstrap.Modal.getInstance(modalEl)?.hide();
+    }
+}
+
+async function salvarPessoaImpedidaServirDev(usuarioId, checkbox, payload) {
+    const marcado = Boolean(payload.pessoa_impedida_servir);
+    checkbox.disabled = true;
+
+    try {
+        const response = await fetch(`${API_URL}/desenvolvimento/usuarios/${usuarioId}/impedimento-servir`, {
+            method: 'PUT',
+            headers: getHeadersDev(),
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            checkbox.checked = !marcado;
+            mostrarAlertaDev(data.erro || 'Erro ao atualizar informação.', 'danger');
+            return false;
+        }
+
+        carografoDevCache = carografoDevCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+            ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+            : usuario);
+        checkbox.checked = marcado;
+        const info = document.getElementById('motivosImpedimentoServirResumoDevInfo');
+        if (info) {
+            info.innerHTML = renderizarMotivosImpedimentoServirDev(data.pessoa_impedida_motivos);
+        }
+        mostrarAlertaDev('Informação atualizada com sucesso!', 'success');
+        return true;
+    } catch (err) {
+        checkbox.checked = !marcado;
+        mostrarAlertaDev('Erro ao atualizar informação.', 'danger');
+        console.error(err);
+        return false;
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+function obterMotivosImpedimentoServirDev(valor) {
+    if (!valor) return { motivos: [], outro: '' };
+    if (typeof valor === 'object') {
+        return {
+            motivos: Array.isArray(valor.motivos) ? valor.motivos : [],
+            outro: valor.outro || '',
+            cadastrado_por_nome: valor.cadastrado_por_nome || ''
+        };
+    }
+
+    try {
+        const dados = JSON.parse(valor);
+        return {
+            motivos: Array.isArray(dados.motivos) ? dados.motivos : [],
+            outro: dados.outro || '',
+            cadastrado_por_nome: dados.cadastrado_por_nome || ''
+        };
+    } catch (err) {
+        return { motivos: [], outro: '' };
+    }
+}
+
+function renderizarMotivosImpedimentoServirDev(valor) {
+    const dados = obterMotivosImpedimentoServirDev(valor);
+    if (!dados.motivos.length && !dados.outro && !dados.cadastrado_por_nome) return '';
+
+    const motivos = [...dados.motivos];
+    if (dados.outro && motivos.includes('Outros')) {
+        motivos[motivos.indexOf('Outros')] = `Outros: ${dados.outro}`;
+    }
+
+    return `
+        <div class="border-top pt-2 mb-3 small">
+            <div><strong>Motivo:</strong> ${escapeHtml(motivos.join(', ') || '-')}</div>
+            <div><strong>Cadastrado por:</strong> ${escapeHtml(dados.cadastrado_por_nome || '-')}</div>
+        </div>
+    `;
+}
+
+function formatarMotivoImpedimentoServirDevCard(valor) {
+    const dados = obterMotivosImpedimentoServirDev(valor);
+    const motivos = [...dados.motivos];
+    if (dados.outro && motivos.includes('Outros')) {
+        motivos[motivos.indexOf('Outros')] = `Outros: ${dados.outro}`;
+    }
+    return motivos.join(', ') || '-';
 }
 
 function abrirModalEditarUsuárioDev(usuarioId) {
@@ -1218,6 +1441,11 @@ function formatarPerfilAcesso(perfil) {
     };
 
     return mapa[perfil] || perfil || '';
+}
+
+function perfilDirigenteDev(perfil) {
+    const perfilNormalizado = normalizarTextoFiltroDev(perfil).replace(/[^A-Z0-9]/g, '');
+    return perfilNormalizado === 'EQUIPEDIRIGENTE' || perfilNormalizado === 'DIRIGENTE';
 }
 
 function nomeAbaExcel(nome, existentes) {

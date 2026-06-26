@@ -1,5 +1,5 @@
-﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
-const TAMANHO_MAXIMO_FOTO_MB = 2;
+const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 const params = new URLSearchParams(window.location.search);
@@ -22,8 +22,8 @@ document.getElementById('confirmacaoFoto')?.addEventListener('change', async (e)
     const arquivo = e.target.files[0];
     if (!arquivo) return;
 
-    if (arquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+    if (!fotoPerfilTipoAceito(arquivo) || arquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
+        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         e.target.value = '';
         return;
     }
@@ -94,8 +94,8 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         return;
     }
 
-    if (fotoArquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
-        mostrarAlerta(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
+    if (!fotoPerfilTipoAceito(fotoArquivo) || fotoArquivo.size > TAMANHO_MAXIMO_FOTO_BYTES) {
+        mostrarAlerta(`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`, 'warning');
         return;
     }
 
@@ -274,12 +274,7 @@ function mostrarAlerta(mensagem, tipo) {
 }
 
 function converterParaBase64(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivo);
-    });
+    return otimizarFotoPerfil(arquivo);
 }
 
 function somenteNumeros(valor) {

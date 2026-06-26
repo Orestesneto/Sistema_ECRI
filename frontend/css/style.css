@@ -124,6 +124,25 @@ body {
     border-color: #dc3545;
 }
 
+.carografo-item-impedido {
+    background: #050505;
+    border-color: #000;
+    color: #fff;
+}
+
+.carografo-item-impedido .carografo-linha,
+.carografo-item-impedido .carografo-equipe,
+.carografo-item-impedido .carografo-info strong {
+    color: #fff;
+}
+
+.carografo-motivo-impedimento {
+    color: #f8f9fa;
+    font-size: 0.9rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
 .carografo-foto {
     width: 82px;
     height: 82px;

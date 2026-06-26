@@ -190,7 +190,9 @@ async function initPostgres() {
       perfil TEXT NOT NULL DEFAULT 'equipista',
       status TEXT DEFAULT 'pendente',
       data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      equipe TEXT
+      equipe TEXT,
+      pessoa_impedida_servir INTEGER DEFAULT 0,
+      pessoa_impedida_motivos TEXT
     )
   `);
 
@@ -202,6 +204,8 @@ async function initPostgres() {
   await addColumnIfMissing('usuarios', 'canta TEXT');
   await addColumnIfMissing('usuarios', 'equipes_servidas TEXT');
   await addColumnIfMissing('usuarios', 'paroquia TEXT');
+  await addColumnIfMissing('usuarios', 'pessoa_impedida_servir INTEGER DEFAULT 0');
+  await addColumnIfMissing('usuarios', 'pessoa_impedida_motivos TEXT');
   await pgPool.query(`
     UPDATE usuarios u
     SET cpf = NULL
@@ -430,7 +434,9 @@ async function initSqlite() {
       perfil TEXT NOT NULL DEFAULT 'equipista',
       status TEXT DEFAULT 'pendente',
       data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP,
-      equipe TEXT
+      equipe TEXT,
+      pessoa_impedida_servir INTEGER DEFAULT 0,
+      pessoa_impedida_motivos TEXT
     )
   `);
 
@@ -442,6 +448,8 @@ async function initSqlite() {
   await addColumnIfMissing('usuarios', 'canta TEXT');
   await addColumnIfMissing('usuarios', 'equipes_servidas TEXT');
   await addColumnIfMissing('usuarios', 'paroquia TEXT');
+  await addColumnIfMissing('usuarios', 'pessoa_impedida_servir INTEGER DEFAULT 0');
+  await addColumnIfMissing('usuarios', 'pessoa_impedida_motivos TEXT');
 
   await executar(`CREATE TABLE IF NOT EXISTS configuracoes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL, data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP)`);
   await executar(`CREATE TABLE IF NOT EXISTS tokens_confirmacao_utilizados (jti TEXT PRIMARY KEY, tipo_cadastro TEXT NOT NULL, participante_id INTEGER NOT NULL, data_utilizacao DATETIME DEFAULT CURRENT_TIMESTAMP)`);

@@ -1,4 +1,5 @@
-const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 2 * 1024 * 1024;
+const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 700 * 1024;
+const TIPOS_FOTO_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
 
 function tamanhoFotoBase64Bytes(fotoPerfil) {
   const base64 = String(fotoPerfil || '').split(',')[1] || '';
@@ -13,11 +14,17 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   }
 
   if (typeof fotoPerfil !== 'string' || !fotoPerfil.startsWith('data:image/')) {
-    return { erro: 'Foto de perfil inválida' };
+    return { erro: 'Foto de perfil invalida' };
+  }
+
+  const separadorTipo = fotoPerfil.indexOf(';');
+  const tipo = separadorTipo > 5 ? fotoPerfil.slice(5, separadorTipo).toLowerCase() : '';
+  if (!TIPOS_FOTO_PERMITIDOS.includes(tipo)) {
+    return { erro: 'A foto deve ser JPG, JPEG, PNG ou WEBP' };
   }
 
   if (tamanhoFotoBase64Bytes(fotoPerfil) > TAMANHO_MAXIMO_FOTO_SALVA_BYTES) {
-    return { erro: 'A foto deve ter no máximo 2MB' };
+    return { erro: 'A foto deve ter no maximo 700KB apos a compressao' };
   }
 
   return { fotoPerfil };
@@ -25,5 +32,6 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
 
 module.exports = {
   TAMANHO_MAXIMO_FOTO_SALVA_BYTES,
+  TIPOS_FOTO_PERMITIDOS,
   normalizarFotoPerfil
 };

@@ -20,6 +20,12 @@ const {
 } = require('../utils/precoBlusa');
 
 const router = express.Router();
+const MOTIVOS_IMPEDIMENTO_SERVIR = [
+  'Separação do casal',
+  'Não faz parte dos movimentos',
+  'Não tem casamento na Igreja',
+  'Outros'
+];
 
 const DEV_USUARIO = process.env.DEV_USUARIO || (process.env.NODE_ENV === 'production' ? '' : 'orestes.pereira');
 const DEV_SENHA = process.env.DEV_SENHA || (process.env.NODE_ENV === 'production' ? '' : 'neto1991');
@@ -249,7 +255,7 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
-             perfil, status, equipe, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas
+             perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       ORDER BY nome_completo ASC
     `);
@@ -460,6 +466,56 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
   }
 });
 
+router.put('/usuarios/:usuario_id/impedimento-servir', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const usuario_id = Number(req.params.usuario_id);
+    const pessoaImpedidaServir = req.body.pessoa_impedida_servir ? 1 : 0;
+    const motivos = pessoaImpedidaServir
+      ? normalizarMotivosImpedimentoServir(req.body.motivos_impedimento_servir, req.body.outro_motivo_impedimento_servir)
+      : null;
+
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'Usuário inválido' });
+    }
+
+    if (pessoaImpedidaServir && motivos.erro) {
+      return res.status(400).json({ erro: motivos.erro });
+    }
+
+    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuario_id]);
+    if (!usuario) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const motivosComResponsavel = motivos
+      ? {
+          ...motivos.dados,
+          cadastrado_por_nome: req.dev.usuario
+        }
+      : null;
+
+    await database.run(
+      'UPDATE usuarios SET pessoa_impedida_servir = ?, pessoa_impedida_motivos = ? WHERE id = ?',
+      [pessoaImpedidaServir, motivosComResponsavel ? JSON.stringify(motivosComResponsavel) : null, usuario_id]
+    );
+
+    await registrarHistorico(usuario_id, 'impedimento_servir_atualizado_area_exclusiva', {
+      editado_por: req.dev.usuario,
+      pessoa_impedida_servir: Boolean(pessoaImpedidaServir),
+      pessoa_impedida_motivos: motivosComResponsavel
+    });
+
+    res.json({
+      mensagem: 'Informação atualizada com sucesso',
+      pessoa_impedida_servir: pessoaImpedidaServir,
+      pessoa_impedida_motivos: motivosComResponsavel ? JSON.stringify(motivosComResponsavel) : null
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar impedimento para servir' });
+  }
+});
+
 router.delete('/usuarios/:usuario_id', verificarTokenDesenvolvimento, async (req, res) => {
   try {
     const usuario_id = Number(req.params.usuario_id);
@@ -539,6 +595,30 @@ router.put('/escalar/:usuario_id', verificarTokenDesenvolvimento, async (req, re
     res.status(500).json({ erro: 'Erro ao escalar usuario' });
   }
 });
+
+function normalizarMotivosImpedimentoServir(motivosRecebidos, outroMotivoRecebido) {
+  const motivos = Array.isArray(motivosRecebidos)
+    ? motivosRecebidos.map(item => String(item || '').trim()).filter(Boolean)
+    : [];
+  const motivosValidos = motivos.filter(item => MOTIVOS_IMPEDIMENTO_SERVIR.includes(item));
+  const motivosUnicos = Array.from(new Set(motivosValidos));
+  const outroMotivo = String(outroMotivoRecebido || '').trim();
+
+  if (!motivosUnicos.length) {
+    return { erro: 'Selecione ao menos um motivo' };
+  }
+
+  if (motivosUnicos.includes('Outros') && !outroMotivo) {
+    return { erro: 'Informe o motivo em Outros' };
+  }
+
+  return {
+    dados: {
+      motivos: motivosUnicos,
+      outro: motivosUnicos.includes('Outros') ? outroMotivo : ''
+    }
+  };
+}
 
 function parseDetalhes(valor) {
   if (!valor) return {};

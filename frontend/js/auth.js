@@ -1,5 +1,5 @@
-﻿const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
-const TAMANHO_MAXIMO_FOTO_MB = 2;
+const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
+const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 // Login
@@ -93,7 +93,7 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     if (toca_instrumento === 'sim' && !instrumentos) pendencias.push('Informe quais instrumentos você toca.');
     if (!canta) pendencias.push('Informe se você canta.');
     if (!fotoPerfil) pendencias.push('Selecione uma foto de perfil.');
-    if (fotoPerfil && !fotoDentroDoLimite(fotoPerfil)) pendencias.push(`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`);
+    if (fotoPerfil && !fotoDentroDoLimite(fotoPerfil)) pendencias.push(`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`);
 
     if (pendencias.length) {
         mostrarModalErroRegistro('Não foi possível criar o cadastro ainda. Confira os itens abaixo:', pendencias);
@@ -312,7 +312,7 @@ document.getElementById('fotoPerfilRegistro')?.addEventListener('change', async 
     }
 
     if (!fotoDentroDoLimite(fotoPerfil)) {
-        mostrarModalErroRegistro('A foto selecionada não pode ser usada.', [`A foto deve ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`]);
+        mostrarModalErroRegistro('A foto selecionada não pode ser usada.', [`A foto deve ser JPG, JPEG, PNG ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`]);
         e.target.value = '';
         preview.src = '';
         preview.style.display = 'none';
@@ -332,16 +332,11 @@ document.getElementById('fotoPerfilRegistro')?.addEventListener('change', async 
 });
 
 function converterParaBase64(arquivo) {
-    return new Promise((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(leitor.result);
-        leitor.onerror = reject;
-        leitor.readAsDataURL(arquivo);
-    });
+    return otimizarFotoPerfil(arquivo);
 }
 
 function fotoDentroDoLimite(arquivo) {
-    return arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
+    return fotoPerfilTipoAceito(arquivo) && arquivo.size <= TAMANHO_MAXIMO_FOTO_BYTES;
 }
 
 function mostrarAlerta(elementId, mensagem, tipo) {
