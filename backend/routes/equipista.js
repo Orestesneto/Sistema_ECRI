@@ -412,7 +412,8 @@ router.put('/perfil', verificarToken, verificarPerfil(['equipista']), async (req
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
-           instrumentos = ?, canta = ?, equipes_servidas = ?
+           instrumentos = ?, canta = ?, equipes_servidas = ?,
+           status = CASE WHEN status = 'contato_errado' THEN 'pendente' ELSE status END
        WHERE id = ?`,
       [
         nome_cracha,

@@ -175,6 +175,7 @@ router.put('/:token', async (req, res) => {
       return res.status(400).json({ erro: fotoValidada.erro });
     }
     const fotoPerfil = fotoValidada.fotoPerfil;
+    const statusFinal = participanteAtual.status === 'contato_errado' ? 'pendente' : status;
 
     if (dadosToken.tipo === 'externo') {
       const cpfExistente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpfNumeros]);
@@ -211,13 +212,13 @@ router.put('/:token', async (req, res) => {
           canta,
           JSON.stringify(equipesServidas),
           'equipista',
-          status,
+          statusFinal,
           participanteAtual.equipe
         ]
       );
       await registrarHistorico(resultadoUsuario.lastID, 'participacao_confirmada', {
         origem: 'link_externo',
-        status
+        status: statusFinal
       });
 
       await database.run('DELETE FROM pessoas_externas WHERE id = ?', [dadosToken.id]);
@@ -243,14 +244,14 @@ router.put('/:token', async (req, res) => {
           instrumentosNormalizados,
           canta,
           JSON.stringify(equipesServidas),
-          status,
+          statusFinal,
           fotoPerfil,
           dadosToken.id
         ]
       );
       await registrarHistorico(dadosToken.id, 'participacao_confirmada', {
         origem: 'link_usuario',
-        status
+        status: statusFinal
       });
     }
 

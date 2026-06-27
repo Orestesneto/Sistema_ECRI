@@ -735,6 +735,7 @@ function renderizarPessoasExternas() {
         const fotoHtml = pessoa.foto_perfil
             ? `<img src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
             : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+        const statusHtml = obterStatusBadge(pessoa.status || 'pendente');
 
         return `
             <tr>
@@ -748,6 +749,7 @@ function renderizarPessoasExternas() {
                 <td>${escapeHtml(pessoa.telefone || '')}</td>
                 <td>${escapeHtml(pessoa.movimento_origem || '-')}</td>
                 <td>${escapeHtml(pessoa.equipe || '-')}</td>
+                <td>${statusHtml}</td>
                 <td>
                     <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${Number(pessoa.id)}, false, 'externo')">Escalar</button>
                     <button class="btn btn-sm btn-danger" onclick="excluirPessoaExterna(${pessoa.id}, '${escapeHtml(pessoa.nome_completo || '')}')">Excluir</button>
@@ -759,7 +761,7 @@ function renderizarPessoasExternas() {
     container.innerHTML = `
         <table class="table table-hover">
             <thead>
-                <tr><th>Foto</th><th>Nome</th><th>Telefone</th><th>Movimento</th><th>Equipe</th><th>Acao</th></tr>
+                <tr><th>Foto</th><th>Nome</th><th>Telefone</th><th>Movimento</th><th>Equipe</th><th>Status</th><th>Ação</th></tr>
             </thead>
             <tbody>${linhas}</tbody>
         </table>
@@ -1145,7 +1147,7 @@ function pessoaRemovidaDoEncontro(pessoa) {
 }
 
 function configurarFiltrosCarografo() {
-    ['filtroCarografoEquipe', 'filtroCarografoMovimento', 'filtroCarografoMusical', 'filtroCarografoParoquia'].forEach((id) => {
+    ['filtroCarografoEquipe', 'filtroCarografoMovimento', 'filtroCarografoMusical', 'filtroCarografoParoquia', 'filtroCarografoStatus'].forEach((id) => {
         document.getElementById(id)?.addEventListener('change', aplicarFiltrosCarografo);
     });
     document.getElementById('filtroCarografoNome')?.addEventListener('input', aplicarFiltrosCarografo);
@@ -1156,6 +1158,7 @@ function configurarFiltrosCarografo() {
         document.getElementById('filtroCarografoEquipe').value = '';
         document.getElementById('filtroCarografoMovimento').value = '';
         document.getElementById('filtroCarografoMusical').value = '';
+        document.getElementById('filtroCarografoStatus').value = '';
         aplicarFiltrosCarografo();
     });
 
@@ -1169,16 +1172,20 @@ function aplicarFiltrosCarografo() {
     const equipe = document.getElementById('filtroCarografoEquipe')?.value || '';
     const movimento = document.getElementById('filtroCarografoMovimento')?.value || '';
     const musical = document.getElementById('filtroCarografoMusical')?.value || '';
-    const pessoas = obterPessoasCarografo().filter((pessoa) => {
+    const status = document.getElementById('filtroCarografoStatus')?.value || '';
+    const todasPessoas = obterPessoasCarografo();
+    const pessoas = todasPessoas.filter((pessoa) => {
         const toca = pessoa.toca_instrumento === 'sim';
         const canta = pessoa.canta === 'sim';
         const nomePessoa = normalizarTextoFiltro(`${pessoa.nome_completo || ''} ${pessoa.nome_cracha || ''}`);
         const telefonePessoa = normalizarTelefoneFiltro(pessoa.telefone || '');
+        const statusPessoa = pessoa.status || 'pendente';
 
         if (termoBusca && !nomePessoa.includes(termoBusca) && !(telefoneBusca && telefonePessoa.includes(telefoneBusca))) return false;
         if (paroquia && !pessoaPertenceParoquiaFiltro(pessoa, paroquia)) return false;
         if (equipe && (pessoa.equipe || 'SEM EQUIPE') !== equipe) return false;
         if (movimento && pessoa.movimento_origem !== movimento) return false;
+        if (status && statusPessoa !== status) return false;
         if (musical === 'canta' && !canta) return false;
         if (musical === 'toca' && !toca) return false;
         if (musical === 'canta_toca' && (!canta || !toca)) return false;
@@ -1187,7 +1194,26 @@ function aplicarFiltrosCarografo() {
         return true;
     });
 
+    atualizarTotalCarografo(pessoas.length, todasPessoas.length);
     renderizarCarografo(pessoas);
+}
+
+function atualizarTotalCarografo(totalFiltrado, totalGeral) {
+    const painelTotal = document.getElementById('totalCarografo');
+    if (!painelTotal) return;
+
+    const existeFiltroAtivo = [
+        document.getElementById('filtroCarografoNome')?.value || '',
+        document.getElementById('filtroCarografoParoquia')?.value || '',
+        document.getElementById('filtroCarografoEquipe')?.value || '',
+        document.getElementById('filtroCarografoMovimento')?.value || '',
+        document.getElementById('filtroCarografoMusical')?.value || '',
+        document.getElementById('filtroCarografoStatus')?.value || ''
+    ].some(valor => String(valor).trim());
+
+    painelTotal.innerHTML = existeFiltroAtivo
+        ? `Total exibido: <span>${totalFiltrado}</span> de <span>${totalGeral}</span> usuarios`
+        : `Total de usuarios inseridos: <span>${totalGeral}</span>`;
 }
 
 function pessoaPertenceParoquiaFiltro(pessoa, filtro) {
@@ -1651,6 +1677,7 @@ function obterStatusBadge(status) {
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
+        contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };

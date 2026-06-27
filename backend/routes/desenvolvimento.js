@@ -382,7 +382,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
       status,
       equipe
     } = req.body;
-    const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
+    const statusPermitidos = ['pendente', 'confirmado', 'contato_errado', 'negou', 'desistiu'];
     const experiencia = normalizarExperienciaPerfil(req.body);
     const cpfNumeros = apenasNumeros(cpf);
     const dataNascimento = apenasNumeros(data_nascimento);
@@ -403,7 +403,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
       return res.status(400).json({ erro: 'Data de nascimento deve conter 8 números' });
     }
 
-    const usuario = await database.get('SELECT id, data_nascimento FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT id, data_nascimento, status FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
@@ -434,6 +434,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
       ? await bcrypt.hash(dataNascimento, 10)
       : null;
     const emailInterno = `${cpfNumeros}@cpf.ecri.local`;
+    const statusFinal = usuario.status === 'contato_errado' ? 'pendente' : status;
 
     await database.run(
       `UPDATE usuarios
@@ -455,7 +456,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
         restricao_medica || '',
         restricao_alimentar || '',
         restricao_medicacao || '',
-        status,
+        statusFinal,
         equipeNormalizada,
         experiencia.tocaInstrumento,
         experiencia.instrumentos,
@@ -468,7 +469,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
       editado_por: req.dev.usuario,
       paroquia: paroquiaNormalizada,
       equipe: equipeNormalizada,
-      status
+      status: statusFinal
     });
 
     res.json({ mensagem: 'Perfil atualizado com sucesso' });

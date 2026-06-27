@@ -1513,6 +1513,7 @@ function obterStatusBadge(status) {
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
+        contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };

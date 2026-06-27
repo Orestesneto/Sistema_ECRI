@@ -138,7 +138,8 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
-           instrumentos = ?, canta = ?, equipes_servidas = ?
+           instrumentos = ?, canta = ?, equipes_servidas = ?,
+           status = CASE WHEN status = 'contato_errado' THEN 'pendente' ELSE status END
        WHERE id = ?`,
       [
         nome_cracha,
@@ -372,7 +373,7 @@ router.put('/participantes/:usuario_id/status', verificarToken, verificarPerfil(
   try {
     const usuario_id = Number(req.params.usuario_id);
     const { status, tipo_cadastro } = req.body;
-    const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
+    const statusPermitidos = ['pendente', 'confirmado', 'contato_errado', 'negou', 'desistiu'];
 
     if (!usuario_id || !statusPermitidos.includes(status)) {
       return res.status(400).json({ erro: 'Status inválido' });

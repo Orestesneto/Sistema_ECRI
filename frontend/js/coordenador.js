@@ -949,11 +949,13 @@ function renderizarOpcoesStatusConfirmacao(statusAtual) {
     const opcoes = statusAtual === 'confirmado'
         ? [
             ['confirmado', 'Confirmado'],
+            ['contato_errado', 'Contato errado'],
             ['desistiu', 'Desistiu']
         ]
         : [
             ['pendente', 'Pendente'],
             ['confirmado', 'Confirmado'],
+            ['contato_errado', 'Contato errado'],
             ['negou', 'Negou'],
             ['desistiu', 'Desistiu']
         ];
@@ -1178,6 +1180,7 @@ function formatarStatusConfirmacao(status) {
     const mapa = {
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         confirmado: '<span class="badge bg-success">Confirmado</span>',
+        contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };
@@ -1641,6 +1644,7 @@ function obterStatusBadge(status) {
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
+        contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
         desistiu: '<span class="badge bg-secondary">Desistiu</span>'
     };

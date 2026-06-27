@@ -107,8 +107,8 @@ router.post('/registro', async (req, res) => {
       `INSERT INTO usuarios (
         email, senha, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
         foto_perfil, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, cpf, data_nascimento, toca_instrumento,
-        instrumentos, canta, equipes_servidas
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        instrumentos, canta, equipes_servidas, equipe
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emailInterno,
         senhaHash,
@@ -128,7 +128,8 @@ router.post('/registro', async (req, res) => {
         toca_instrumento,
         instrumentosNormalizados,
         canta,
-        JSON.stringify(equipesServidas)
+        JSON.stringify(equipesServidas),
+        'SEM EQUIPE'
       ]
     );
     await registrarHistorico(resultado.lastID, 'usuario_registrado', {

@@ -72,7 +72,8 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
            foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
-           instrumentos = ?, canta = ?, equipes_servidas = ?
+           instrumentos = ?, canta = ?, equipes_servidas = ?,
+           status = CASE WHEN status = 'contato_errado' THEN 'pendente' ELSE status END
        WHERE id = ?`,
       [
         nome_cracha,
@@ -205,7 +206,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
       status,
       equipe
     } = req.body;
-    const statusPermitidos = ['pendente', 'confirmado', 'negou', 'desistiu'];
+    const statusPermitidos = ['pendente', 'confirmado', 'contato_errado', 'negou', 'desistiu'];
     const experiencia = normalizarExperienciaPerfil(req.body);
     const nomeCompleto = String(nome_completo || '').trim().toUpperCase();
     const nomeCracha = String(nome_cracha || '').trim().toUpperCase();
@@ -220,7 +221,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
       return res.status(400).json({ erro: 'Preencha nome, crachá, telefone, paróquia, movimento, ano e status válidos' });
     }
 
-    const usuario = await database.get('SELECT id, cpf, data_nascimento FROM usuarios WHERE id = ?', [usuario_id]);
+    const usuario = await database.get('SELECT id, cpf, data_nascimento, status FROM usuarios WHERE id = ?', [usuario_id]);
     if (!usuario) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
@@ -247,7 +248,8 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
     if (equipeNormalizada && !equipeValida(equipeNormalizada)) {
       return res.status(400).json({ erro: 'Equipe inválida' });
     }
-    const regraEquipeStatus = aplicarRegraSemEquipe(equipeNormalizada, status);
+    const statusFinal = usuario.status === 'contato_errado' ? 'pendente' : status;
+    const regraEquipeStatus = aplicarRegraSemEquipe(equipeNormalizada, statusFinal);
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
@@ -582,7 +584,7 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
       return res.status(400).json({ erro: 'Movimento de origem inválido' });
     }
 
-    const pessoa = await database.get('SELECT id FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    const pessoa = await database.get('SELECT id, status FROM pessoas_externas WHERE id = ?', [pessoa_id]);
     if (!pessoa) {
       return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
     }
@@ -596,11 +598,12 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
     }
 
     const nomeNormalizado = String(nome_completo).trim().toUpperCase();
+    const statusFinal = pessoa.status === 'contato_errado' ? 'pendente' : pessoa.status;
     await database.run(
       `UPDATE pessoas_externas
-       SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?
+       SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?, status = COALESCE(?, status)
        WHERE id = ?`,
-      [nomeNormalizado, nomeNormalizado, telefone, movimentoOrigem, pessoa_id]
+      [nomeNormalizado, nomeNormalizado, telefone, movimentoOrigem, statusFinal, pessoa_id]
     );
 
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_editada', {

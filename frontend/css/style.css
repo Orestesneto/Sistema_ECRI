@@ -123,6 +123,23 @@ body {
     border-radius: 8px;
 }
 
+.carografo-total {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 14px;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    color: #212529;
+    font-weight: 600;
+}
+
+.carografo-total span {
+    color: #3b3494;
+}
+
 .carografo-item {
     display: flex;
     align-items: flex-start;
