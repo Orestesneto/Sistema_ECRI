@@ -670,10 +670,12 @@ function renderizarCarografoDev(usuarios) {
                 : ''
         ].join('');
         const destaqueMusical = usuario.toca_instrumento === 'sim' || usuario.canta === 'sim';
+        const tipoCadastroResumo = usuario.origem_cadastro === 'externo' ? 'externo' : 'usuario';
+        const idResumo = Number(usuario.id);
         const fotoHtml = usuario.foto_perfil
-            ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalResumoCarografoDev(${Number(usuario.id)})">`
-            : `<div class="carografo-foto carografo-foto-placeholder" onclick="abrirModalResumoCarografoDev(${Number(usuario.id)})">-</div>`;
-        const logoParoquia = obterLogoParoquiaDev(paroquiaValor);
+            ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
+            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquiaDev(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
             : '';
@@ -689,7 +691,7 @@ function renderizarCarografoDev(usuarios) {
         ].filter(Boolean).join(' ');
 
         return `
-            <div class="${classesCard}">
+            <div class="${classesCard}" role="button" tabindex="0" title="Clique para abrir o resumo" onclick="abrirModalResumoCarografoDev(${idResumo}, '${tipoCadastroResumo}')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); abrirModalResumoCarografoDev(${idResumo}, '${tipoCadastroResumo}'); }">
                 <div class="carografo-foto-coluna">
                     ${fotoHtml}
                     ${logoParoquiaHtml}
@@ -773,8 +775,11 @@ function normalizarTelefoneFiltroDev(valor) {
     return String(valor || '').replace(/\D/g, '');
 }
 
-function abrirModalResumoCarografoDev(usuarioId) {
-    const usuario = carografoDevCache.find(u => Number(u.id) === Number(usuarioId));
+function abrirModalResumoCarografoDev(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = carografoDevCache.find(u =>
+        Number(u.id) === Number(usuarioId) &&
+        ((u.origem_cadastro || 'usuario') === tipoCadastro)
+    );
     if (!usuario) return;
 
     const modalEl = document.getElementById('modalResumoCarografoDev');
@@ -786,11 +791,29 @@ function abrirModalResumoCarografoDev(usuarioId) {
     const fotoHtml = usuario.foto_perfil
         ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrandeDev('${escapeJsAttr(usuario.foto_perfil)}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
-    const botaoAcoes = perfilDirigenteDev(usuario.perfil)
+    const cadastroExterno = tipoCadastro === 'externo';
+    const botaoAcoes = !cadastroExterno && perfilDirigenteDev(usuario.perfil)
         ? `<button type="button" class="btn btn-outline-primary" onclick="abrirAcoesUsuarioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Ações deste usuario</button>`
         : '';
     const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
     const motivosImpedimentoHtml = renderizarMotivosImpedimentoServirDev(usuario.pessoa_impedida_motivos);
+    const impedimentoHtml = cadastroExterno ? '' : `
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumoDev" ${pessoaImpedidaServir ? 'checked' : ''} onchange="atualizarPessoaImpedidaServirDev(${Number(usuario.id)}, this)">
+            <label class="form-check-label" for="pessoaImpedidaServirResumoDev">Pessoa imperdida de servir no encontro</label>
+        </div>
+        <div id="motivosImpedimentoServirResumoDevInfo">${motivosImpedimentoHtml}</div>
+    `;
+    const acoesUsuarioHtml = cadastroExterno ? `
+            <button type="button" class="btn btn-primary" onclick="abrirModalEscalarDev(${Number(usuario.id)}, 'externo')">Escalar</button>
+            <button type="button" class="btn btn-danger" onclick="excluirUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}', 'externo')">Excluir</button>
+        ` : `
+            ${botaoAcoes}
+            <button type="button" class="btn btn-outline-dark" onclick="abrirHistóricoUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Histórico</button>
+            <button type="button" class="btn btn-secondary" onclick="abrirModalEditarUsuárioDev(${Number(usuario.id)})">Editar</button>
+            <button type="button" class="btn btn-primary" onclick="abrirModalEscalarDev(${Number(usuario.id)}, 'usuario')">Escalar</button>
+            <button type="button" class="btn btn-danger" onclick="excluirUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}', 'usuario')">Excluir</button>
+        `;
 
     corpo.innerHTML = `
         <div class="text-center">
@@ -813,17 +836,9 @@ function abrirModalResumoCarografoDev(usuarioId) {
                 <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
             </tbody>
         </table>
-        <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumoDev" ${pessoaImpedidaServir ? 'checked' : ''} onchange="atualizarPessoaImpedidaServirDev(${Number(usuario.id)}, this)">
-            <label class="form-check-label" for="pessoaImpedidaServirResumoDev">Pessoa imperdida de servir no encontro</label>
-        </div>
-        <div id="motivosImpedimentoServirResumoDevInfo">${motivosImpedimentoHtml}</div>
+        ${impedimentoHtml}
         <div class="d-flex justify-content-end gap-2 flex-wrap">
-            ${botaoAcoes}
-            <button type="button" class="btn btn-outline-dark" onclick="abrirHistóricoUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Histórico</button>
-            <button type="button" class="btn btn-secondary" onclick="abrirModalEditarUsuárioDev(${Number(usuario.id)})">Editar</button>
-            <button type="button" class="btn btn-primary" onclick="abrirModalEscalarDev(${Number(usuario.id)})">Escalar</button>
-            <button type="button" class="btn btn-danger" onclick="excluirUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Excluir</button>
+            ${acoesUsuarioHtml}
         </div>
     `;
 
@@ -1142,14 +1157,23 @@ async function salvarEdicaoUsuárioDev(e) {
     }
 }
 
-function abrirModalEscalarDev(usuarioId) {
-    const usuario = carografoDevCache.find(u => Number(u.id) === Number(usuarioId));
+function abrirModalEscalarDev(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = carografoDevCache.find(u =>
+        Number(u.id) === Number(usuarioId) &&
+        ((u.origem_cadastro || 'usuario') === tipoCadastro)
+    );
     if (!usuario) return;
 
     document.getElementById('formEscalarDev').reset();
     document.getElementById('escalarDevUsuárioId').value = usuario.id;
+    document.getElementById('escalarDevTipoCadastro').value = tipoCadastro;
     document.getElementById('escalarDevPerfil').value = '';
     document.getElementById('escalarDevEquipe').value = '';
+    document.getElementById('escalarDevEquipe').required = tipoCadastro === 'externo';
+    document.getElementById('escalarDevPerfil').closest('.mb-3').style.display = tipoCadastro === 'externo' ? 'none' : '';
+    document.querySelector('#modalEscalarDev .modal-title').textContent = tipoCadastro === 'externo'
+        ? 'Escalar pessoa sem cadastro'
+        : 'Escalar Usuário';
 
     const resumo = bootstrap.Modal.getInstance(document.getElementById('modalResumoCarografoDev'));
     if (resumo) resumo.hide();
@@ -1163,19 +1187,31 @@ async function salvarEscalaUsuárioDev(e) {
     e.preventDefault();
 
     const usuarioId = document.getElementById('escalarDevUsuárioId').value;
+    const tipoCadastro = document.getElementById('escalarDevTipoCadastro')?.value || 'usuario';
     const perfil = document.getElementById('escalarDevPerfil').value;
     const equipe = document.getElementById('escalarDevEquipe').value;
 
-    if (!perfil && !equipe) {
+    if (tipoCadastro === 'externo' && !equipe) {
+        mostrarAlertaDev('Selecione uma equipe para escalar.', 'warning');
+        return;
+    }
+
+    if (tipoCadastro !== 'externo' && !perfil && !equipe) {
         mostrarAlertaDev('Selecione um perfil ou uma equipe para escalar.', 'warning');
         return;
     }
 
     try {
-        const response = await fetch(`${API_URL}/desenvolvimento/escalar/${usuarioId}`, {
+        const url = tipoCadastro === 'externo'
+            ? `${API_URL}/desenvolvimento/pessoas-externas/${usuarioId}/equipe`
+            : `${API_URL}/desenvolvimento/escalar/${usuarioId}`;
+        const body = tipoCadastro === 'externo'
+            ? { equipe }
+            : { perfil, equipe };
+        const response = await fetch(url, {
             method: 'PUT',
             headers: getHeadersDev(),
-            body: JSON.stringify({ perfil, equipe })
+            body: JSON.stringify(body)
         });
         const data = await response.json();
 
@@ -1184,7 +1220,7 @@ async function salvarEscalaUsuárioDev(e) {
             return;
         }
 
-        mostrarAlertaDev('Usuário escalado com sucesso!', 'success');
+        mostrarAlertaDev(tipoCadastro === 'externo' ? 'Pessoa sem cadastro escalada com sucesso!' : 'Usuário escalado com sucesso!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('modalEscalarDev'))?.hide();
         await carregarCarografoDev();
         await carregarLogsDev();
@@ -1194,12 +1230,16 @@ async function salvarEscalaUsuárioDev(e) {
     }
 }
 
-async function excluirUsuárioDev(usuarioId, nomeUsuário) {
-    const confirmado = confirm(`Tem certeza que deseja excluir o usuario ${nomeUsuário}? Essa acao não pode ser desfeita.`);
+async function excluirUsuárioDev(usuarioId, nomeUsuário, tipoCadastro = 'usuario') {
+    const cadastroExterno = tipoCadastro === 'externo';
+    const confirmado = confirm(`Tem certeza que deseja excluir ${cadastroExterno ? 'a pessoa sem cadastro' : 'o usuario'} ${nomeUsuário}? Essa acao não pode ser desfeita.`);
     if (!confirmado) return;
 
     try {
-        const response = await fetch(`${API_URL}/desenvolvimento/usuarios/${usuarioId}`, {
+        const url = cadastroExterno
+            ? `${API_URL}/desenvolvimento/pessoas-externas/${usuarioId}`
+            : `${API_URL}/desenvolvimento/usuarios/${usuarioId}`;
+        const response = await fetch(url, {
             method: 'DELETE',
             headers: getHeadersDev()
         });
@@ -1210,11 +1250,13 @@ async function excluirUsuárioDev(usuarioId, nomeUsuário) {
             return;
         }
 
-        mostrarAlertaDev('Usuário excluido com sucesso!', 'success');
+        mostrarAlertaDev(cadastroExterno ? 'Pessoa sem cadastro excluida com sucesso!' : 'Usuário excluido com sucesso!', 'success');
         bootstrap.Modal.getInstance(document.getElementById('modalResumoCarografoDev'))?.hide();
         await carregarCarografoDev();
         await carregarLogsDev();
-        await carregarExcluidosDev();
+        if (!cadastroExterno) {
+            await carregarExcluidosDev();
+        }
     } catch (err) {
         mostrarAlertaDev('Erro ao excluir usuario', 'danger');
         console.error(err);

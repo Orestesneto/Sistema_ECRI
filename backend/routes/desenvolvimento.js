@@ -255,12 +255,24 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
-             perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas
+             perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas,
+             'usuario' AS origem_cadastro
       FROM usuarios
       ORDER BY nome_completo ASC
     `);
 
-    res.json(usuarios);
+    const pessoasExternas = await database.all(`
+      SELECT id, NULL AS email, nome_completo, nome_cracha, telefone, NULL AS cpf, NULL AS data_nascimento,
+             movimento_origem, ano_encontro, paroquia, NULL AS restricao_medica, NULL AS restricao_alimentar,
+             NULL AS restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe, 0 AS pessoa_impedida_servir,
+             NULL AS pessoa_impedida_motivos, foto_perfil, 'nao' AS toca_instrumento, '' AS instrumentos,
+             'nao' AS canta, NULL AS equipes_servidas, 'externo' AS origem_cadastro
+      FROM pessoas_externas
+    `);
+
+    res.json([...usuarios, ...pessoasExternas].sort((a, b) =>
+      String(a.nome_completo || '').localeCompare(String(b.nome_completo || ''), 'pt-BR', { sensitivity: 'base' })
+    ));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar carografo' });
@@ -593,6 +605,77 @@ router.put('/escalar/:usuario_id', verificarTokenDesenvolvimento, async (req, re
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao escalar usuario' });
+  }
+});
+
+router.put('/pessoas-externas/:pessoa_id/equipe', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const pessoa_id = Number(req.params.pessoa_id);
+    const { equipe } = req.body;
+
+    if (!pessoa_id) {
+      return res.status(400).json({ erro: 'Pessoa inválida' });
+    }
+
+    if (!equipe) {
+      return res.status(400).json({ erro: 'Equipe é obrigatória' });
+    }
+
+    const equipeNormalizada = normalizarEquipe(equipe);
+    if (!equipeValida(equipeNormalizada)) {
+      return res.status(400).json({ erro: 'Equipe inválida' });
+    }
+
+    const pessoa = await database.get('SELECT id, nome_completo FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    await database.run(
+      'UPDATE pessoas_externas SET equipe = ? WHERE id = ?',
+      [equipeNormalizada, pessoa_id]
+    );
+
+    await registrarHistorico(null, 'pessoa_sem_cadastro_escalada_area_exclusiva', {
+      alterado_por: req.dev.usuario,
+      pessoa_id,
+      nome_completo: pessoa.nome_completo,
+      equipe: equipeNormalizada
+    });
+
+    res.json({ mensagem: 'Pessoa sem cadastro escalada com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao escalar pessoa sem cadastro' });
+  }
+});
+
+router.delete('/pessoas-externas/:pessoa_id', verificarTokenDesenvolvimento, async (req, res) => {
+  try {
+    const pessoa_id = Number(req.params.pessoa_id);
+
+    if (!pessoa_id) {
+      return res.status(400).json({ erro: 'Pessoa inválida' });
+    }
+
+    const pessoa = await database.get('SELECT id, nome_completo, equipe FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    await database.run('DELETE FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+
+    await registrarHistorico(null, 'pessoa_sem_cadastro_excluida_area_exclusiva', {
+      excluido_por: req.dev.usuario,
+      pessoa_id,
+      nome_completo: pessoa.nome_completo,
+      equipe: pessoa.equipe
+    });
+
+    res.json({ mensagem: 'Pessoa sem cadastro excluída com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao excluir pessoa sem cadastro' });
   }
 });
 

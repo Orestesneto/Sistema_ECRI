@@ -4,8 +4,6 @@ const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
 const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas'];
-let chartPerfis = null;
-let chartStatus = null;
 let usuariosCache = [];
 let pessoasExternasCache = [];
 let eventosCache = [];
@@ -378,42 +376,6 @@ async function carregarRelatorio() {
         document.getElementById('totalEscaladosEquipes').textContent = data.stats.totalEscaladosEquipes || 0;
         document.getElementById('totalPonderadoEquipes').textContent = data.stats.totalPonderadoEquipes || 0;
         renderizarResumoEquipes(data.equipesResumo || []);
-        
-        // Gráfico de Perfis
-        const ctxPerfis = document.getElementById('graficoPerfis').getContext('2d');
-        if (chartPerfis) chartPerfis.destroy();
-        chartPerfis = new Chart(ctxPerfis, {
-            type: 'doughnut',
-            data: {
-                labels: ['Equipistas', 'Coordenadores', 'Dirigentes'],
-                datasets: [{
-                    data: [data.stats.equipistas, data.stats.coordenadores, data.stats.dirigentes],
-                    backgroundColor: ['#0d6efd', '#198754', '#fd7e14']
-                }]
-            }
-        });
-        
-        // Gráfico de Status
-        const ctxStatus = document.getElementById('graficoStatus').getContext('2d');
-        if (chartStatus) chartStatus.destroy();
-        chartStatus = new Chart(ctxStatus, {
-            type: 'bar',
-            data: {
-                labels: ['Confirmados', 'Pendentes'],
-                datasets: [{
-                    label: 'Quantidade',
-                    data: [data.stats.confirmados, data.stats.pendentes],
-                    backgroundColor: ['#198754', '#ffc107']
-                }]
-            },
-            options: {
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
     } catch (err) {
         console.error(err);
     }
@@ -777,7 +739,12 @@ function renderizarPessoasExternas() {
         return `
             <tr>
                 <td>${fotoHtml}</td>
-                <td>${escapeHtml(pessoa.nome_completo || '')}</td>
+                <td>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span>${escapeHtml(pessoa.nome_completo || '')}</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="abrirModalEditarPessoaExterna(${Number(pessoa.id)})">Editar</button>
+                    </div>
+                </td>
                 <td>${escapeHtml(pessoa.telefone || '')}</td>
                 <td>${escapeHtml(pessoa.movimento_origem || '-')}</td>
                 <td>${escapeHtml(pessoa.equipe || '-')}</td>
@@ -826,6 +793,50 @@ document.getElementById('formPessoaExterna')?.addEventListener('submit', async (
         }
     } catch (err) {
         mostrarAlerta('alertaDirigentes', 'Erro ao adicionar pessoa', 'danger');
+        console.error(err);
+    }
+});
+
+function abrirModalEditarPessoaExterna(pessoaId) {
+    const pessoa = pessoasExternasCache.find(item => Number(item.id) === Number(pessoaId));
+    if (!pessoa) return;
+
+    document.getElementById('editarPessoaExternaId').value = pessoa.id;
+    document.getElementById('editarPessoaExternaNome').value = pessoa.nome_completo || '';
+    document.getElementById('editarPessoaExternaTelefone').value = pessoa.telefone || '';
+    document.getElementById('editarPessoaExternaMovimento').value = pessoa.movimento_origem || '';
+
+    new bootstrap.Modal(document.getElementById('modalEditarPessoaExterna')).show();
+}
+
+document.getElementById('formEditarPessoaExterna')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const pessoaId = document.getElementById('editarPessoaExternaId').value;
+    const body = {
+        nome_completo: document.getElementById('editarPessoaExternaNome').value,
+        telefone: document.getElementById('editarPessoaExternaTelefone').value,
+        movimento_origem: document.getElementById('editarPessoaExternaMovimento').value
+    };
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/pessoas-externas/${pessoaId}`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao atualizar pessoa sem cadastro', 'danger');
+            return;
+        }
+
+        mostrarAlerta('alertaDirigentes', 'Pessoa sem cadastro atualizada com sucesso!', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('modalEditarPessoaExterna'))?.hide();
+        await carregarPessoasExternas();
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao atualizar pessoa sem cadastro', 'danger');
         console.error(err);
     }
 });
@@ -1065,10 +1076,12 @@ function renderizarCarografo(usuarios) {
                 : ''
         ].join('');
         const destaqueMusical = u.toca_instrumento === 'sim' || u.canta === 'sim';
+        const tipoCadastroResumo = u.origem_cadastro === 'externo' ? 'externo' : 'usuario';
+        const idResumo = Number(u.id);
         const fotoHtml = u.foto_perfil
-            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalResumoUsuário(${Number(u.id)})">`
-            : `<div class="carografo-foto carografo-foto-placeholder" onclick="abrirModalResumoUsuário(${Number(u.id)})">-</div>`;
-        const logoParoquia = obterLogoParoquia(paroquiaValor);
+            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto">`
+            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquia(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
             : '';
@@ -1085,7 +1098,7 @@ function renderizarCarografo(usuarios) {
         ].filter(Boolean).join(' ');
 
         return `
-            <div class="${classesCard}">
+            <div class="${classesCard}" role="button" tabindex="0" title="Clique para abrir o resumo" onclick="abrirModalResumoUsuário(${idResumo}, '${tipoCadastroResumo}')" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); abrirModalResumoUsuário(${idResumo}, '${tipoCadastroResumo}'); }">
                 <div class="carografo-foto-coluna">
                     ${fotoHtml}
                     ${logoParoquiaHtml}
@@ -1342,8 +1355,10 @@ function sanitizarImagemPerfil(src) {
     return String(src || '').startsWith('data:image/') ? src : '';
 }
 
-function abrirModalResumoUsuário(usuarioId) {
-    const usuario = usuariosCache.find(u => Number(u.id) === Number(usuarioId));
+function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = tipoCadastro === 'externo'
+        ? pessoasExternasCache.find(u => Number(u.id) === Number(usuarioId))
+        : usuariosCache.find(u => Number(u.id) === Number(usuarioId));
     if (!usuario) return;
 
     const modalEl = document.getElementById('modalFoto');
@@ -1386,7 +1401,7 @@ function abrirModalResumoUsuário(usuarioId) {
         </div>
         <div id="motivosImpedimentoServirResumoInfo">${motivosImpedimentoHtml}</div>
         <div class="text-end">
-            <button type="button" class="btn btn-primary" onclick="abrirModalEscalar(${Number(usuario.id)}, true)">Escalar</button>
+            <button type="button" class="btn btn-primary" onclick="abrirModalEscalar(${Number(usuario.id)}, true, '${tipoCadastro}')">Escalar</button>
         </div>
     `;
 

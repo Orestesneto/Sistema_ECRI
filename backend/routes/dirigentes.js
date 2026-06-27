@@ -565,6 +565,57 @@ router.delete('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['
   }
 });
 
+router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const pessoa_id = Number(req.params.pessoa_id);
+    const { nome_completo, telefone, movimento_origem } = req.body;
+
+    if (!pessoa_id) {
+      return res.status(400).json({ erro: 'Pessoa inválida' });
+    }
+
+    if (!nome_completo || !telefone || !movimento_origem) {
+      return res.status(400).json({ erro: 'Nome completo, telefone e movimento são obrigatórios' });
+    }
+
+    if (!movimentoOrigemValido(movimento_origem)) {
+      return res.status(400).json({ erro: 'Movimento de origem inválido' });
+    }
+
+    const pessoa = await database.get('SELECT id FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
+    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
+      ignorarPessoaExternaId: pessoa_id
+    });
+    if (!telefoneUnico.valido) {
+      return res.status(400).json({ erro: telefoneUnico.erro });
+    }
+
+    const nomeNormalizado = String(nome_completo).trim().toUpperCase();
+    await database.run(
+      `UPDATE pessoas_externas
+       SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?
+       WHERE id = ?`,
+      [nomeNormalizado, nomeNormalizado, telefone, movimentoOrigem, pessoa_id]
+    );
+
+    await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_editada', {
+      pessoa_id,
+      nome_completo: nomeNormalizado,
+      movimento_origem: movimentoOrigem
+    });
+
+    res.json({ mensagem: 'Pessoa sem cadastro atualizada com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar pessoa sem cadastro' });
+  }
+});
+
 router.put('/pessoas-externas/:pessoa_id/equipe', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const pessoa_id = Number(req.params.pessoa_id);
