@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
     renderizarCamposExperiencia('camposExperienciaEditarUsuário', 'editarUsuário');
     configurarCampoParoquia('paroquiaDirigente', 'campoOutraParoquiaDirigente');
     configurarCampoParoquia('editarParoquia', 'campoOutraParoquiaEditar');
+    configurarRestricaoSimNao('temRestricaoMedicaDirigente', 'campoRestricaoMedicaDirigente', 'restricaoMedicaDirigente');
+    configurarRestricaoSimNao('temRestricaoAlimentarDirigente', 'campoRestricaoAlimentarDirigente', 'restricaoAlimentarDirigente');
+    configurarRestricaoSimNao('temRestricaoMedicacaoDirigente', 'campoRestricaoMedicacaoDirigente', 'restricaoMedicacaoDirigente');
     configurarConfiguraçõesDirigente();
     configurarFormularioConfiguracoesEncontroDirigente();
     document.getElementById('anoEncontroDirigente')?.addEventListener('input', limitarCampoNumerico);
@@ -122,6 +125,9 @@ async function carregarPerfilDirigente() {
         }
         marcarMovimentoOrigem('movimentoDirigente', usuario.movimento_origem);
         document.getElementById('anoEncontroDirigente').value = usuario.ano_encontro || '';
+        preencherRestricaoSimNao('temRestricaoMedicaDirigente', 'campoRestricaoMedicaDirigente', 'restricaoMedicaDirigente', usuario.restricao_medica || '');
+        preencherRestricaoSimNao('temRestricaoAlimentarDirigente', 'campoRestricaoAlimentarDirigente', 'restricaoAlimentarDirigente', usuario.restricao_alimentar || '');
+        preencherRestricaoSimNao('temRestricaoMedicacaoDirigente', 'campoRestricaoMedicacaoDirigente', 'restricaoMedicacaoDirigente', usuario.restricao_medicacao || '');
         carregarExperienciaPerfil('dirigente', usuario);
         
         if (usuario.foto_perfil) {
@@ -221,9 +227,9 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
     const paroquia = obterParoquia('paroquiaDirigente', 'outraParoquiaDirigente');
     const movimento = obterMovimentoOrigem('movimentoDirigente');
     const anoEncontro = somenteNumeros(document.getElementById('anoEncontroDirigente').value);
-    const restricaoMedica = '';
-    const restricaoAlimentar = '';
-    const restricaoMedicacao = '';
+    const restricaoMedica = obterRestricaoSimNao('temRestricaoMedicaDirigente', 'restricaoMedicaDirigente', 'restrição médica');
+    const restricaoAlimentar = obterRestricaoSimNao('temRestricaoAlimentarDirigente', 'restricaoAlimentarDirigente', 'restrição alimentar');
+    const restricaoMedicacao = obterRestricaoSimNao('temRestricaoMedicacaoDirigente', 'restricaoMedicacaoDirigente', 'restrição à medicação');
     const fotoPerfil = document.getElementById('fotoPerfilDirigente').files[0];
     
     let fotoBase64 = null;
@@ -238,6 +244,11 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
         return;
     }
     
+    if (restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro) {
+        mostrarAlerta('alertaDirigentes', restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro, 'warning');
+        return;
+    }
+
     if (fotoPerfil) {
         if (!fotoDentroDoLimite(fotoPerfil)) {
             mostrarAlerta('alertaDirigentes', `A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB`, 'warning');
@@ -263,9 +274,9 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
                 paroquia,
                 movimento_origem: movimento,
                 ano_encontro: anoEncontro,
-                restricao_medica: restricaoMedica,
-                restricao_alimentar: restricaoAlimentar,
-                restricao_medicacao: restricaoMedicacao,
+                restricao_medica: restricaoMedica.valor,
+                restricao_alimentar: restricaoAlimentar.valor,
+                restricao_medicacao: restricaoMedicacao.valor,
                 foto_perfil: fotoBase64,
                 ...obterExperienciaPerfil('dirigente')
             })

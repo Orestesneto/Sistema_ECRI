@@ -11,6 +11,23 @@ document.getElementById('confirmacaoMovimento')?.addEventListener('change', atua
 document.getElementById('confirmacaoNomeIndividual')?.addEventListener('input', atualizarNomeConfirmacao);
 document.getElementById('confirmacaoNomeMarido')?.addEventListener('input', atualizarNomeConfirmacao);
 document.getElementById('confirmacaoNomeEsposa')?.addEventListener('input', atualizarNomeConfirmacao);
+document.getElementById('confirmacaoNomeCracha')?.addEventListener('input', atualizarCampoCrachaConfirmacao);
+configurarCampoParoquia('paroquiaConfirmacao', 'campoOutraParoquiaConfirmacao');
+document.getElementById('confirmacaoInstrumentos')?.addEventListener('input', (e) => {
+    e.target.value = paraCaixaAlta(e.target.value);
+});
+document.querySelectorAll('input[name="confirmacaoTocaInstrumento"]').forEach((radio) => {
+    radio.addEventListener('change', atualizarCampoInstrumentosConfirmacao);
+});
+[
+    ['confirmacaoTemRestricaoMedica', 'campoConfirmacaoRestricaoMedica', 'confirmacaoRestricaoMedica'],
+    ['confirmacaoTemRestricaoAlimentar', 'campoConfirmacaoRestricaoAlimentar', 'confirmacaoRestricaoAlimentar'],
+    ['confirmacaoTemRestricaoMedicacao', 'campoConfirmacaoRestricaoMedicacao', 'confirmacaoRestricaoMedicacao']
+].forEach(([name, campoId, inputId]) => {
+    document.querySelectorAll(`input[name="${name}"]`).forEach((radio) => {
+        radio.addEventListener('change', () => atualizarCampoRestricaoConfirmacao(name, campoId, inputId));
+    });
+});
 
 ['confirmacaoCpf', 'confirmacaoDataNascimento', 'confirmacaoAnoEncontro'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', (e) => {
@@ -60,9 +77,16 @@ async function carregarConfirmacao() {
         preencherNomeConfirmacao(participante.nome_completo || '', participante.movimento_origem || '');
         preencherTelefoneConfirmacao(participante.telefone || '', participante.movimento_origem || '');
         document.getElementById('confirmacaoAnoEncontro').value = somenteNumeros(participante.ano_encontro || '');
-        document.getElementById('confirmacaoRestricaoMedica').value = participante.restricao_medica || '';
-        document.getElementById('confirmacaoRestricaoAlimentar').value = participante.restricao_alimentar || '';
-        document.getElementById('confirmacaoRestricaoMedicacao').value = participante.restricao_medicacao || '';
+        preencherRestricaoConfirmacao('confirmacaoTemRestricaoMedica', 'campoConfirmacaoRestricaoMedica', 'confirmacaoRestricaoMedica', participante.restricao_medica || '');
+        preencherRestricaoConfirmacao('confirmacaoTemRestricaoAlimentar', 'campoConfirmacaoRestricaoAlimentar', 'confirmacaoRestricaoAlimentar', participante.restricao_alimentar || '');
+        preencherRestricaoConfirmacao('confirmacaoTemRestricaoMedicacao', 'campoConfirmacaoRestricaoMedicacao', 'confirmacaoRestricaoMedicacao', participante.restricao_medicacao || '');
+        document.getElementById('confirmacaoNomeCracha').value = participante.nome_cracha || participante.nome_completo || '';
+        preencherParoquia('paroquiaConfirmacao', 'outraParoquiaConfirmacao', 'campoOutraParoquiaConfirmacao', participante.paroquia || '');
+        marcarRadioConfirmacao('confirmacaoTocaInstrumento', participante.toca_instrumento || '');
+        document.getElementById('confirmacaoInstrumentos').value = participante.instrumentos || '';
+        marcarRadioConfirmacao('confirmacaoCanta', participante.canta || '');
+        preencherEquipesServidasConfirmacao(participante.equipes_servidas);
+        atualizarCampoInstrumentosConfirmacao();
         tipoCadastro = participante.tipo_cadastro || '';
 
         if (tipoCadastro === 'externo') {
@@ -113,6 +137,15 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
     const isCasal = movimentoOrigemCasal(movimentoOrigem);
     const telefoneEsposa = document.getElementById('confirmacaoTelefoneEsposa')?.value.trim() || '';
     const telefoneMarido = document.getElementById('confirmacaoTelefoneMarido')?.value.trim() || '';
+    const nomeCracha = paraCaixaAlta(document.getElementById('confirmacaoNomeCracha').value.trim());
+    const paroquia = obterParoquia('paroquiaConfirmacao', 'outraParoquiaConfirmacao');
+    const tocaInstrumento = document.querySelector('input[name="confirmacaoTocaInstrumento"]:checked')?.value || '';
+    const instrumentos = tocaInstrumento === 'sim'
+        ? paraCaixaAlta(document.getElementById('confirmacaoInstrumentos').value.trim())
+        : '';
+    const canta = document.querySelector('input[name="confirmacaoCanta"]:checked')?.value || '';
+    const equipesServidas = Array.from(document.querySelectorAll('input[name="confirmacaoEquipesServidas"]:checked'))
+        .map((checkbox) => checkbox.value);
     atualizarNomeConfirmacao();
 
     const nomeCompleto = document.getElementById('confirmacaoNome').value.trim();
@@ -140,6 +173,11 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         return;
     }
 
+    if (!nomeCracha) {
+        mostrarAlerta('Informe o nome para o crachá.', 'warning');
+        return;
+    }
+
     if (isCasal && (!telefoneEsposa || !telefoneMarido)) {
         mostrarAlerta('Informe o WhatsApp da esposa e o WhatsApp do marido.', 'warning');
         return;
@@ -150,16 +188,60 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         return;
     }
 
+    if (!paroquiaValida(paroquia)) {
+        mostrarAlerta('Informe a paróquia à qual você pertence.', 'warning');
+        return;
+    }
+
+    if (!tocaInstrumento) {
+        mostrarAlerta('Informe se você toca algum instrumento.', 'warning');
+        return;
+    }
+
+    if (tocaInstrumento === 'sim' && !instrumentos) {
+        mostrarAlerta('Informe quais instrumentos você toca.', 'warning');
+        return;
+    }
+
+    if (!canta) {
+        mostrarAlerta('Informe se você canta.', 'warning');
+        return;
+    }
+
+    const restricaoMedica = obterRestricaoConfirmacao('confirmacaoTemRestricaoMedica', 'confirmacaoRestricaoMedica', 'restrição médica');
+    if (restricaoMedica.erro) {
+        mostrarAlerta(restricaoMedica.erro, 'warning');
+        return;
+    }
+
+    const restricaoAlimentar = obterRestricaoConfirmacao('confirmacaoTemRestricaoAlimentar', 'confirmacaoRestricaoAlimentar', 'restrição alimentar');
+    if (restricaoAlimentar.erro) {
+        mostrarAlerta(restricaoAlimentar.erro, 'warning');
+        return;
+    }
+
+    const restricaoMedicacao = obterRestricaoConfirmacao('confirmacaoTemRestricaoMedicacao', 'confirmacaoRestricaoMedicacao', 'restrição à medicação');
+    if (restricaoMedicacao.erro) {
+        mostrarAlerta(restricaoMedicacao.erro, 'warning');
+        return;
+    }
+
     const body = {
         nome_completo: nomeCompleto,
+        nome_cracha: nomeCracha,
         telefone,
         cpf,
         data_nascimento: dataNascimento,
         movimento_origem: movimentoOrigem,
         ano_encontro: anoEncontro,
-        restricao_medica: document.getElementById('confirmacaoRestricaoMedica').value,
-        restricao_alimentar: document.getElementById('confirmacaoRestricaoAlimentar').value,
-        restricao_medicacao: document.getElementById('confirmacaoRestricaoMedicacao').value,
+        paroquia,
+        restricao_medica: restricaoMedica.valor,
+        restricao_alimentar: restricaoAlimentar.valor,
+        restricao_medicacao: restricaoMedicacao.valor,
+        toca_instrumento: tocaInstrumento,
+        instrumentos,
+        canta,
+        equipes_servidas: equipesServidas,
         status: document.getElementById('confirmacaoStatus').value,
         foto_perfil: fotoPerfil
     };
@@ -209,6 +291,7 @@ function atualizarModoConfirmacao() {
     nomeEsposa.required = isCasal;
     telefoneEsposa.required = isCasal;
     telefoneMarido.required = isCasal;
+    document.getElementById('confirmacaoNomeCracha').readOnly = isCasal;
 
     atualizarNomeConfirmacao();
 }
@@ -222,13 +305,16 @@ function atualizarNomeConfirmacao() {
         const nomeEsposa = paraCaixaAlta(document.getElementById('confirmacaoNomeEsposa')?.value || '');
         document.getElementById('confirmacaoNomeMarido').value = nomeMarido;
         document.getElementById('confirmacaoNomeEsposa').value = nomeEsposa;
-        document.getElementById('confirmacaoNome').value = nomeMarido && nomeEsposa ? `${nomeMarido} E ${nomeEsposa}` : '';
+        const nomeCasal = nomeMarido && nomeEsposa ? `${nomeMarido} E ${nomeEsposa}` : '';
+        document.getElementById('confirmacaoNome').value = nomeCasal;
+        document.getElementById('confirmacaoNomeCracha').value = nomeCasal;
         return;
     }
 
     const nomeIndividual = paraCaixaAlta(document.getElementById('confirmacaoNomeIndividual')?.value || '');
     document.getElementById('confirmacaoNomeIndividual').value = nomeIndividual;
     document.getElementById('confirmacaoNome').value = nomeIndividual;
+    document.getElementById('confirmacaoNomeCracha').value = paraCaixaAlta(document.getElementById('confirmacaoNomeCracha')?.value || '');
 }
 
 function preencherNomeConfirmacao(nome, movimento) {
@@ -256,6 +342,81 @@ function preencherTelefoneConfirmacao(telefone, movimento) {
     } else {
         document.getElementById('confirmacaoTelefone').value = telefoneTexto;
     }
+}
+
+function atualizarCampoCrachaConfirmacao(e) {
+    e.target.value = paraCaixaAlta(e.target.value);
+    atualizarNomeConfirmacao();
+}
+
+function atualizarCampoInstrumentosConfirmacao() {
+    const tocaInstrumento = document.querySelector('input[name="confirmacaoTocaInstrumento"]:checked')?.value || '';
+    const campoInstrumentos = document.getElementById('campoInstrumentosConfirmacao');
+    const inputInstrumentos = document.getElementById('confirmacaoInstrumentos');
+    const deveMostrar = tocaInstrumento === 'sim';
+
+    campoInstrumentos.style.display = deveMostrar ? 'block' : 'none';
+    inputInstrumentos.required = deveMostrar;
+
+    if (!deveMostrar) {
+        inputInstrumentos.value = '';
+    }
+}
+
+function marcarRadioConfirmacao(name, valor) {
+    const radio = document.querySelector(`input[name="${name}"][value="${String(valor || '').toLowerCase()}"]`);
+    if (radio) radio.checked = true;
+}
+
+function preencherEquipesServidasConfirmacao(valor) {
+    let equipes = [];
+    try {
+        equipes = Array.isArray(valor) ? valor : JSON.parse(valor || '[]');
+    } catch (err) {
+        equipes = [];
+    }
+
+    document.querySelectorAll('input[name="confirmacaoEquipesServidas"]').forEach((checkbox) => {
+        checkbox.checked = equipes.includes(checkbox.value);
+    });
+}
+
+function atualizarCampoRestricaoConfirmacao(name, campoId, inputId) {
+    const resposta = document.querySelector(`input[name="${name}"]:checked`)?.value || '';
+    const campo = document.getElementById(campoId);
+    const input = document.getElementById(inputId);
+    const deveMostrar = resposta === 'sim';
+
+    campo.style.display = deveMostrar ? 'block' : 'none';
+    input.required = deveMostrar;
+
+    if (!deveMostrar) {
+        input.value = '';
+    }
+}
+
+function preencherRestricaoConfirmacao(name, campoId, inputId, valor) {
+    const texto = String(valor || '').trim();
+    const temRestricao = texto && texto.toLocaleLowerCase('pt-BR') !== 'não' && texto.toLocaleLowerCase('pt-BR') !== 'nao';
+    const radio = document.querySelector(`input[name="${name}"][value="${temRestricao ? 'sim' : 'nao'}"]`);
+    if (radio) radio.checked = true;
+    document.getElementById(inputId).value = temRestricao ? texto : '';
+    atualizarCampoRestricaoConfirmacao(name, campoId, inputId);
+}
+
+function obterRestricaoConfirmacao(name, inputId, rotulo) {
+    const resposta = document.querySelector(`input[name="${name}"]:checked`)?.value || '';
+    const texto = document.getElementById(inputId).value.trim();
+
+    if (!resposta) {
+        return { erro: `Informe se possui ${rotulo}.` };
+    }
+
+    if (resposta === 'sim' && !texto) {
+        return { erro: `Descreva qual é a ${rotulo}.` };
+    }
+
+    return { valor: resposta === 'sim' ? texto : 'Não' };
 }
 
 function movimentoOrigemCasal(movimento) {

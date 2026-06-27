@@ -76,6 +76,9 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     const canta = document.querySelector('input[name="canta"]:checked')?.value || '';
     const equipes_servidas = Array.from(document.querySelectorAll('input[name="equipesServidas"]:checked'))
         .map((checkbox) => checkbox.value);
+    const restricaoMedica = obterRestricaoSimNao('temRestricaoMedicaRegistro', 'restricaoMedicaRegistro', 'restrição médica');
+    const restricaoAlimentar = obterRestricaoSimNao('temRestricaoAlimentarRegistro', 'restricaoAlimentarRegistro', 'restrição alimentar');
+    const restricaoMedicacao = obterRestricaoSimNao('temRestricaoMedicacaoRegistro', 'restricaoMedicacaoRegistro', 'restrição à medicação');
 
     const pendencias = [];
 
@@ -92,6 +95,9 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     if (!toca_instrumento) pendencias.push('Informe se você toca algum instrumento.');
     if (toca_instrumento === 'sim' && !instrumentos) pendencias.push('Informe quais instrumentos você toca.');
     if (!canta) pendencias.push('Informe se você canta.');
+    if (restricaoMedica.erro) pendencias.push(restricaoMedica.erro);
+    if (restricaoAlimentar.erro) pendencias.push(restricaoAlimentar.erro);
+    if (restricaoMedicacao.erro) pendencias.push(restricaoMedicacao.erro);
     if (!fotoPerfil) pendencias.push('Selecione uma foto de perfil.');
     if (fotoPerfil && !fotoDentroDoLimite(fotoPerfil)) pendencias.push(`A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`);
 
@@ -122,6 +128,9 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
                 movimento_origem,
                 ano_encontro,
                 foto_perfil,
+                restricao_medica: restricaoMedica.valor,
+                restricao_alimentar: restricaoAlimentar.valor,
+                restricao_medicacao: restricaoMedicacao.valor,
                 toca_instrumento,
                 instrumentos,
                 canta,
@@ -145,6 +154,9 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
             document.getElementById('instrumentosRegistro').required = false;
             document.getElementById('campoOutraParoquiaRegistro').style.display = 'none';
             document.getElementById('outraParoquiaRegistro').required = false;
+            preencherRestricaoSimNao('temRestricaoMedicaRegistro', 'campoRestricaoMedicaRegistro', 'restricaoMedicaRegistro', '');
+            preencherRestricaoSimNao('temRestricaoAlimentarRegistro', 'campoRestricaoAlimentarRegistro', 'restricaoAlimentarRegistro', '');
+            preencherRestricaoSimNao('temRestricaoMedicacaoRegistro', 'campoRestricaoMedicacaoRegistro', 'restricaoMedicacaoRegistro', '');
             document.getElementById('fotoPreviewRegistro').src = '';
             document.getElementById('fotoPreviewRegistro').style.display = 'none';
             
@@ -177,6 +189,9 @@ document.getElementById('cpfRegistro')?.addEventListener('input', limitarCampoNu
 document.getElementById('dataNascimentoRegistro')?.addEventListener('input', limitarCampoNumerico);
 document.getElementById('anoEncontroRegistro')?.addEventListener('input', limitarCampoNumerico);
 configurarCampoParoquia('paroquiaRegistro', 'campoOutraParoquiaRegistro');
+configurarRestricaoSimNao('temRestricaoMedicaRegistro', 'campoRestricaoMedicaRegistro', 'restricaoMedicaRegistro');
+configurarRestricaoSimNao('temRestricaoAlimentarRegistro', 'campoRestricaoAlimentarRegistro', 'restricaoAlimentarRegistro');
+configurarRestricaoSimNao('temRestricaoMedicacaoRegistro', 'campoRestricaoMedicacaoRegistro', 'restricaoMedicacaoRegistro');
 document.getElementById('instrumentosRegistro')?.addEventListener('input', (e) => {
     e.target.value = paraCaixaAlta(e.target.value);
 });

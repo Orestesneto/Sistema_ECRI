@@ -25,6 +25,9 @@ router.post('/registro', async (req, res) => {
       movimento_origem,
       ano_encontro,
       foto_perfil,
+      restricao_medica,
+      restricao_alimentar,
+      restricao_medicacao,
       toca_instrumento,
       instrumentos,
       canta,
@@ -33,7 +36,7 @@ router.post('/registro', async (req, res) => {
     const cpfNumeros = apenasNumeros(cpf);
     const dataNascimento = apenasNumeros(data_nascimento);
 
-    if (!cpfNumeros || !dataNascimento || !nome_completo || !nome_cracha || !telefone || !paroquia || !movimento_origem || !ano_encontro || !foto_perfil || !toca_instrumento || !canta) {
+    if (!cpfNumeros || !dataNascimento || !nome_completo || !nome_cracha || !telefone || !paroquia || !movimento_origem || !ano_encontro || !foto_perfil || !restricao_medica || !restricao_alimentar || !restricao_medicacao || !toca_instrumento || !canta) {
       return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
     }
 
@@ -103,9 +106,9 @@ router.post('/registro', async (req, res) => {
     const resultado = await database.run(
       `INSERT INTO usuarios (
         email, senha, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
-        foto_perfil, perfil, cpf, data_nascimento, toca_instrumento,
+        foto_perfil, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, cpf, data_nascimento, toca_instrumento,
         instrumentos, canta, equipes_servidas
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emailInterno,
         senhaHash,
@@ -116,6 +119,9 @@ router.post('/registro', async (req, res) => {
         movimentoOrigem,
         anoEncontro,
         fotoPerfil,
+        restricao_medica || '',
+        restricao_alimentar || '',
+        restricao_medicacao || '',
         'equipista',
         cpfNumeros,
         dataNascimento,

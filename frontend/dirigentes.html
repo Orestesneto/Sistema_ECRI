@@ -139,6 +139,54 @@
                             <button type="submit" class="btn btn-primary">Salvar Alterações</button>
                         </form>
                     </div>
+                    <div class="col-md-6">
+                        <h3>Restrições e Informações Médicas</h3>
+                        <div class="mb-3">
+                            <label class="form-label d-block">Possui restrição médica?</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoMedicaDirigente" id="temRestricaoMedicaDirigenteSim" value="sim" required>
+                                <label class="form-check-label" for="temRestricaoMedicaDirigenteSim">Sim</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoMedicaDirigente" id="temRestricaoMedicaDirigenteNao" value="nao" required>
+                                <label class="form-check-label" for="temRestricaoMedicaDirigenteNao">Não</label>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="campoRestricaoMedicaDirigente" style="display:none;">
+                            <label class="form-label">Qual restrição médica?</label>
+                            <input type="text" class="form-control" id="restricaoMedicaDirigente" placeholder="Ex: Alergia, Diabetes...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label d-block">Possui restrição alimentar?</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoAlimentarDirigente" id="temRestricaoAlimentarDirigenteSim" value="sim" required>
+                                <label class="form-check-label" for="temRestricaoAlimentarDirigenteSim">Sim</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoAlimentarDirigente" id="temRestricaoAlimentarDirigenteNao" value="nao" required>
+                                <label class="form-check-label" for="temRestricaoAlimentarDirigenteNao">Não</label>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="campoRestricaoAlimentarDirigente" style="display:none;">
+                            <label class="form-label">Qual restrição alimentar?</label>
+                            <input type="text" class="form-control" id="restricaoAlimentarDirigente" placeholder="Ex: Vegetariano, Alérgico...">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label d-block">Possui restrição à medicação?</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoMedicacaoDirigente" id="temRestricaoMedicacaoDirigenteSim" value="sim" required>
+                                <label class="form-check-label" for="temRestricaoMedicacaoDirigenteSim">Sim</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="temRestricaoMedicacaoDirigente" id="temRestricaoMedicacaoDirigenteNao" value="nao" required>
+                                <label class="form-check-label" for="temRestricaoMedicacaoDirigenteNao">Não</label>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="campoRestricaoMedicacaoDirigente" style="display:none;">
+                            <label class="form-label">Qual restrição à medicação?</label>
+                            <input type="text" class="form-control" id="restricaoMedicacaoDirigente" placeholder="Ex: Alérgico a Penicilina...">
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -609,6 +657,7 @@
     <script src="js/perfil-experiencia.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
     <script src="js/foto-perfil.js?v=20260626-300kb-proporcional"></script>
-    <script src="js/dirigentes.js"></script>
+    <script src="js/restricoes-sim-nao.js?v=20260626"></script>
+    <script src="js/dirigentes.js?v=20260626-restricoes"></script>
 </body>
 </html>

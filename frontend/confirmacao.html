@@ -63,6 +63,11 @@
                 </div>
             </div>
 
+            <div class="mb-3">
+                <label class="form-label">Nome para o Crachá</label>
+                <input type="text" class="form-control" id="confirmacaoNomeCracha" required>
+            </div>
+
             <div class="mb-3" id="confirmacaoTelefoneIndividual">
                 <label class="form-label">Telefone WhatsApp</label>
                 <input type="tel" class="form-control" id="confirmacaoTelefone" required>
@@ -88,17 +93,121 @@
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restrição médica</label>
+                <label class="form-label d-block">A qual paróquia você pertence?</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="paroquiaConfirmacao" id="paroquiaConfirmacaoGuia" value="NOSSA SENHORA DA GUIA" required>
+                    <label class="form-check-label" for="paroquiaConfirmacaoGuia">Nossa Senhora da Guia</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="paroquiaConfirmacao" id="paroquiaConfirmacaoPedroPaulo" value="SAO PEDRO E SAO PAULO" required>
+                    <label class="form-check-label" for="paroquiaConfirmacaoPedroPaulo">São Pedro e São Paulo</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="paroquiaConfirmacao" id="paroquiaConfirmacaoOutras" value="OUTRAS" required>
+                    <label class="form-check-label" for="paroquiaConfirmacaoOutras">Outras. Qual?</label>
+                </div>
+            </div>
+            <div class="mb-3" id="campoOutraParoquiaConfirmacao" style="display:none;">
+                <label class="form-label">Nome da paróquia</label>
+                <input type="text" class="form-control" id="outraParoquiaConfirmacao">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label d-block">Você toca algum instrumento?</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTocaInstrumento" id="confirmacaoTocaInstrumentoSim" value="sim" required>
+                    <label class="form-check-label" for="confirmacaoTocaInstrumentoSim">Sim</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTocaInstrumento" id="confirmacaoTocaInstrumentoNao" value="nao" required>
+                    <label class="form-check-label" for="confirmacaoTocaInstrumentoNao">Não</label>
+                </div>
+            </div>
+            <div class="mb-3" id="campoInstrumentosConfirmacao" style="display:none;">
+                <label class="form-label">Qual instrumentos?</label>
+                <input type="text" class="form-control" id="confirmacaoInstrumentos">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label d-block">Você canta?</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoCanta" id="confirmacaoCantaSim" value="sim" required>
+                    <label class="form-check-label" for="confirmacaoCantaSim">Sim</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoCanta" id="confirmacaoCantaNao" value="nao" required>
+                    <label class="form-check-label" for="confirmacaoCantaNao">Não</label>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label d-block">Quais dessas equipes você já serviu?</label>
+                <div class="row g-2">
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaApresentadores" value="APRESENTADORES"><label class="form-check-label" for="confirmacaoEquipeServidaApresentadores">Apresentadores</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaCirculos" value="CIRCULOS/ ARCOS / GRUPOS"><label class="form-check-label" for="confirmacaoEquipeServidaCirculos">Circulos/ Arcos / Grupos</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaEcrishop" value="ECRISHOP/ MINI BOX / BODEGA"><label class="form-check-label" for="confirmacaoEquipeServidaEcrishop">ECRISHOP/ Mini box / bodega</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaBandinha" value="BANDINHA"><label class="form-check-label" for="confirmacaoEquipeServidaBandinha">Bandinha</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaBoaAcao" value="BOA ACAO / BOA VONTADE / BEM ESTAR"><label class="form-check-label" for="confirmacaoEquipeServidaBoaAcao">Boa Ação / Boa Vontade / Bem estar</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaLiturgia" value="LIRTUGIA"><label class="form-check-label" for="confirmacaoEquipeServidaLiturgia">Liturgia</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaSecretaria" value="SECRETARIA / PAPELARIA / ESCRITA"><label class="form-check-label" for="confirmacaoEquipeServidaSecretaria">Secretaria / papelaria / Escrita</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaTeatro" value="TRANSITO E SOCIODRAMA / TEATRO/ TEATRINHO"><label class="form-check-label" for="confirmacaoEquipeServidaTeatro">Transito e Sociodrama / Teatro/ Teatrinho</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaAlegria" value="ANJOS DA ALEGRIA"><label class="form-check-label" for="confirmacaoEquipeServidaAlegria">Anjos da Alegria</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaGuarda" value="ANJOS DA GUARDA"><label class="form-check-label" for="confirmacaoEquipeServidaGuarda">Anjos da Guarda</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaOrdem" value="ORDEM / VASSOURINHA"><label class="form-check-label" for="confirmacaoEquipeServidaOrdem">Ordem / vassourinha</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaLanchinho" value="LANCHINHO/ PAPA LANCHE"><label class="form-check-label" for="confirmacaoEquipeServidaLanchinho">Lanchinho/ Papa Lanche</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaCozinha" value="COZINHA / RANGUINHO"><label class="form-check-label" for="confirmacaoEquipeServidaCozinha">Cozinha / Ranguinho</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaSom" value="SOM E ILUMINACAO"><label class="form-check-label" for="confirmacaoEquipeServidaSom">Som e Iluminação</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaCompras" value="COMPRAS"><label class="form-check-label" for="confirmacaoEquipeServidaCompras">Compras</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaRecepcao" value="RECPCAO AOS PALESTRANTES"><label class="form-check-label" for="confirmacaoEquipeServidaRecepcao">Recepção aos palestrantes</label></div></div>
+                    <div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" name="confirmacaoEquipesServidas" id="confirmacaoEquipeServidaVisitacao" value="VISITACAO E EXTERNA/ COMUNICACAO E INFORMACAO"><label class="form-check-label" for="confirmacaoEquipeServidaVisitacao">Visitação e Externa/ Comunicação e Informação</label></div></div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label d-block">Possui restrição médica?</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoMedica" id="confirmacaoTemRestricaoMedicaSim" value="sim" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoMedicaSim">Sim</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoMedica" id="confirmacaoTemRestricaoMedicaNao" value="nao" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoMedicaNao">Não</label>
+                </div>
+            </div>
+            <div class="mb-3" id="campoConfirmacaoRestricaoMedica" style="display:none;">
+                <label class="form-label">Qual restrição médica?</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoMedica">
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restrição alimentar</label>
+                <label class="form-label d-block">Possui restrição alimentar?</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoAlimentar" id="confirmacaoTemRestricaoAlimentarSim" value="sim" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoAlimentarSim">Sim</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoAlimentar" id="confirmacaoTemRestricaoAlimentarNao" value="nao" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoAlimentarNao">Não</label>
+                </div>
+            </div>
+            <div class="mb-3" id="campoConfirmacaoRestricaoAlimentar" style="display:none;">
+                <label class="form-label">Qual restrição alimentar?</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoAlimentar">
             </div>
 
             <div class="mb-3">
-                <label class="form-label">Restrição à medicação</label>
+                <label class="form-label d-block">Possui restrição à medicação?</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoMedicacao" id="confirmacaoTemRestricaoMedicacaoSim" value="sim" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoMedicacaoSim">Sim</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="confirmacaoTemRestricaoMedicacao" id="confirmacaoTemRestricaoMedicacaoNao" value="nao" required>
+                    <label class="form-check-label" for="confirmacaoTemRestricaoMedicacaoNao">Não</label>
+                </div>
+            </div>
+            <div class="mb-3" id="campoConfirmacaoRestricaoMedicacao" style="display:none;">
+                <label class="form-label">Qual restrição à medicação?</label>
                 <input type="text" class="form-control" id="confirmacaoRestricaoMedicacao">
             </div>
 
@@ -121,7 +230,8 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script src="js/paroquia.js"></script>
     <script src="js/foto-perfil.js?v=20260626-300kb-proporcional"></script>
-    <script src="js/confirmacao.js"></script>
+    <script src="js/confirmacao.js?v=20260626-restricoes-sim-nao"></script>
 </body>
 </html>

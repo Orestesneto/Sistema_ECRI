@@ -27,6 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('nomeUsuário').textContent = usuario.nome_completo;
     renderizarCamposExperiencia('camposExperienciaEquipista', 'equipista');
     configurarCampoParoquia('paroquia', 'campoOutraParoquia');
+    configurarRestricaoSimNao('temRestricaoMedica', 'campoRestricaoMedica', 'restricaoMedica');
+    configurarRestricaoSimNao('temRestricaoAlimentar', 'campoRestricaoAlimentar', 'restricaoAlimentar');
+    configurarRestricaoSimNao('temRestricaoMedicacao', 'campoRestricaoMedicacao', 'restricaoMedicacao');
     configurarPersistenciaAbas(ABA_ATUAL_EQUIPISTA_KEY);
     
     carregarPerfil();
@@ -60,9 +63,9 @@ async function carregarPerfil() {
         movimentoOrigemUsuário = usuario.movimento_origem || '';
         marcarMovimentoOrigem('movimento', usuario.movimento_origem);
         document.getElementById('anoEncontro').value = usuario.ano_encontro || '';
-        document.getElementById('restricaoMedica').value = usuario.restricao_medica || '';
-        document.getElementById('restricaoAlimentar').value = usuario.restricao_alimentar || '';
-        document.getElementById('restricaoMedicacao').value = usuario.restricao_medicacao || '';
+        preencherRestricaoSimNao('temRestricaoMedica', 'campoRestricaoMedica', 'restricaoMedica', usuario.restricao_medica || '');
+        preencherRestricaoSimNao('temRestricaoAlimentar', 'campoRestricaoAlimentar', 'restricaoAlimentar', usuario.restricao_alimentar || '');
+        preencherRestricaoSimNao('temRestricaoMedicacao', 'campoRestricaoMedicacao', 'restricaoMedicacao', usuario.restricao_medicacao || '');
         carregarExperienciaPerfil('equipista', usuario);
         atualizarValorPagamento();
         
@@ -114,9 +117,14 @@ document.getElementById('formPerfil')?.addEventListener('submit', async (e) => {
     const paroquia = obterParoquia('paroquia', 'outraParoquia');
     const movimento = obterMovimentoOrigem('movimento');
     const anoEncontro = somenteNumeros(document.getElementById('anoEncontro').value);
-    const restricaoMedica = document.getElementById('restricaoMedica').value;
-    const restricaoAlimentar = document.getElementById('restricaoAlimentar').value;
-    const restricaoMedicacao = document.getElementById('restricaoMedicacao').value;
+    const restricaoMedica = obterRestricaoSimNao('temRestricaoMedica', 'restricaoMedica', 'restrição médica');
+    const restricaoAlimentar = obterRestricaoSimNao('temRestricaoAlimentar', 'restricaoAlimentar', 'restrição alimentar');
+    const restricaoMedicacao = obterRestricaoSimNao('temRestricaoMedicacao', 'restricaoMedicacao', 'restrição à medicação');
+
+    if (restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro) {
+        mostrarAlerta('alertaEquipista', restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro, 'warning');
+        return;
+    }
     const fotoPerfil = document.getElementById('fotoPerfil').files[0];
     
     let fotoBase64 = null;
@@ -156,9 +164,9 @@ document.getElementById('formPerfil')?.addEventListener('submit', async (e) => {
                 paroquia,
                 movimento_origem: movimento,
                 ano_encontro: anoEncontro,
-                restricao_medica: restricaoMedica,
-                restricao_alimentar: restricaoAlimentar,
-                restricao_medicacao: restricaoMedicacao,
+                restricao_medica: restricaoMedica.valor,
+                restricao_alimentar: restricaoAlimentar.valor,
+                restricao_medicacao: restricaoMedicacao.valor,
                 foto_perfil: fotoBase64,
                 ...obterExperienciaPerfil('equipista')
             })

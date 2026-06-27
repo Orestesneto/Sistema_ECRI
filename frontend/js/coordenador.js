@@ -25,6 +25,9 @@ if (!getToken()) {
 document.addEventListener('DOMContentLoaded', async () => {
     renderizarCamposExperiencia('camposExperienciaCoordenador', 'coordenador');
     configurarCampoParoquia('paroquiaCoordenador', 'campoOutraParoquiaCoordenador');
+    configurarRestricaoSimNao('temRestricaoMedicaCoord', 'campoRestricaoMedicaCoord', 'restricaoMedicaCoord');
+    configurarRestricaoSimNao('temRestricaoAlimentarCoord', 'campoRestricaoAlimentarCoord', 'restricaoAlimentarCoord');
+    configurarRestricaoSimNao('temRestricaoMedicacaoCoord', 'campoRestricaoMedicacaoCoord', 'restricaoMedicacaoCoord');
     document.getElementById('anoEncontroCoordenador')?.addEventListener('input', limitarCampoNumerico);
     configurarPersistenciaAbas(ABA_ATUAL_COORDENADOR_KEY);
     configurarFiltrosCarografoEscrita();
@@ -137,9 +140,9 @@ async function carregarPerfilCoordenador() {
         document.getElementById('equipeCoordenador').value = usuario.equipe || 'Não escalado';
         marcarMovimentoOrigem('movimentoCoordenador', usuario.movimento_origem);
         document.getElementById('anoEncontroCoordenador').value = usuario.ano_encontro || '';
-        document.getElementById('restricaoMedicaCoord').value = usuario.restricao_medica || '';
-        document.getElementById('restricaoAlimentarCoord').value = usuario.restricao_alimentar || '';
-        document.getElementById('restricaoMedicacaoCoord').value = usuario.restricao_medicacao || '';
+        preencherRestricaoSimNao('temRestricaoMedicaCoord', 'campoRestricaoMedicaCoord', 'restricaoMedicaCoord', usuario.restricao_medica || '');
+        preencherRestricaoSimNao('temRestricaoAlimentarCoord', 'campoRestricaoAlimentarCoord', 'restricaoAlimentarCoord', usuario.restricao_alimentar || '');
+        preencherRestricaoSimNao('temRestricaoMedicacaoCoord', 'campoRestricaoMedicacaoCoord', 'restricaoMedicacaoCoord', usuario.restricao_medicacao || '');
         carregarExperienciaPerfil('coordenador', usuario);
         configurarAbaCarografoEscrita(usuario.equipe);
         configurarAbaRestricaoAlimentar(usuario.equipe);
@@ -161,9 +164,14 @@ document.getElementById('formPerfilCoordenador')?.addEventListener('submit', asy
     const paroquia = obterParoquia('paroquiaCoordenador', 'outraParoquiaCoordenador');
     const movimento = obterMovimentoOrigem('movimentoCoordenador');
     const anoEncontro = somenteNumeros(document.getElementById('anoEncontroCoordenador').value);
-    const restricaoMedica = document.getElementById('restricaoMedicaCoord').value;
-    const restricaoAlimentar = document.getElementById('restricaoAlimentarCoord').value;
-    const restricaoMedicacao = document.getElementById('restricaoMedicacaoCoord').value;
+    const restricaoMedica = obterRestricaoSimNao('temRestricaoMedicaCoord', 'restricaoMedicaCoord', 'restrição médica');
+    const restricaoAlimentar = obterRestricaoSimNao('temRestricaoAlimentarCoord', 'restricaoAlimentarCoord', 'restrição alimentar');
+    const restricaoMedicacao = obterRestricaoSimNao('temRestricaoMedicacaoCoord', 'restricaoMedicacaoCoord', 'restrição à medicação');
+
+    if (restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro) {
+        mostrarAlerta('alertaCoordenador', restricaoMedica.erro || restricaoAlimentar.erro || restricaoMedicacao.erro, 'warning');
+        return;
+    }
     const fotoPerfil = document.getElementById('fotoPerfilCoordenador').files[0];
     
     let fotoBase64 = null;
@@ -203,9 +211,9 @@ document.getElementById('formPerfilCoordenador')?.addEventListener('submit', asy
                 paroquia,
                 movimento_origem: movimento,
                 ano_encontro: anoEncontro,
-                restricao_medica: restricaoMedica,
-                restricao_alimentar: restricaoAlimentar,
-                restricao_medicacao: restricaoMedicacao,
+                restricao_medica: restricaoMedica.valor,
+                restricao_alimentar: restricaoAlimentar.valor,
+                restricao_medicacao: restricaoMedicacao.valor,
                 foto_perfil: fotoBase64,
                 ...obterExperienciaPerfil('coordenador')
             })

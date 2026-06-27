@@ -7,6 +7,7 @@ const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico } = require('../utils/telefone');
+const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
@@ -46,11 +47,13 @@ router.get('/:token', async (req, res) => {
       return res.status(400).json({ erro: 'Link inválido' });
     }
 
-    const camposExternos = dadosToken.tipo === 'externo' ? ', cpf, data_nascimento' : '';
+    const camposExtras = dadosToken.tipo === 'externo'
+      ? ', cpf, data_nascimento, NULL AS toca_instrumento, NULL AS instrumentos, NULL AS canta, NULL AS equipes_servidas'
+      : ', cpf, data_nascimento, toca_instrumento, instrumentos, canta, equipes_servidas';
     const participante = await database.get(
       `SELECT id, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, foto_perfil,
-              restricao_medica, restricao_alimentar, restricao_medicacao, status, equipe
-              ${camposExternos}
+              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, status, equipe
+              ${camposExtras}
        FROM ${tabela}
        WHERE id = ?`,
       [dadosToken.id]
@@ -78,20 +81,50 @@ router.put('/:token', async (req, res) => {
   try {
     const dadosToken = lerToken(req.params.token);
     const tabela = dadosToken.tipo === 'externo' ? 'pessoas_externas' : 'usuarios';
-    const { nome_completo, telefone, movimento_origem, ano_encontro, restricao_medica, restricao_alimentar, restricao_medicacao, status, foto_perfil, cpf, data_nascimento } = req.body;
+    const {
+      nome_completo,
+      nome_cracha,
+      telefone,
+      paroquia,
+      movimento_origem,
+      ano_encontro,
+      restricao_medica,
+      restricao_alimentar,
+      restricao_medicacao,
+      toca_instrumento,
+      instrumentos,
+      canta,
+      equipes_servidas,
+      status,
+      foto_perfil,
+      cpf,
+      data_nascimento
+    } = req.body;
     const statusPermitidos = ['confirmado', 'negou', 'desistiu'];
 
     if (!['externo', 'usuario'].includes(dadosToken.tipo)) {
       return res.status(400).json({ erro: 'Link inválido' });
     }
 
-    if (!nome_completo || !telefone || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
-      return res.status(400).json({ erro: 'Preencha nome, telefone, movimento, ano do encontro e status válidos' });
+    if (!nome_completo || !nome_cracha || !telefone || !paroquia || !toca_instrumento || !canta || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
+      return res.status(400).json({ erro: 'Preencha nome, crachá, telefone, paróquia, instrumento, canto, movimento, ano do encontro e status válidos' });
+    }
+
+    if (!['sim', 'nao'].includes(toca_instrumento) || !['sim', 'nao'].includes(canta)) {
+      return res.status(400).json({ erro: 'Informe sim ou não para instrumento e canto' });
     }
 
     const nomeCompleto = String(nome_completo).trim().toUpperCase();
+    const nomeCracha = String(nome_cracha).trim().toUpperCase();
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
+    const paroquiaNormalizada = normalizarParoquia(paroquia);
+    const instrumentosNormalizados = toca_instrumento === 'sim'
+      ? String(instrumentos || '').trim().toUpperCase()
+      : '';
+    const equipesServidas = Array.isArray(equipes_servidas)
+      ? equipes_servidas.map(item => String(item || '').trim().toUpperCase()).filter(Boolean)
+      : [];
     const cpfNumeros = apenasNumeros(cpf);
     const nascimentoNumeros = apenasNumeros(data_nascimento);
 
@@ -103,8 +136,16 @@ router.put('/:token', async (req, res) => {
       return res.status(400).json({ erro: 'CPF inválido' });
     }
 
-    if (movimentoOrigemCasal(movimentoOrigem) && !nomeCompleto.includes(' E ')) {
-      return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa' });
+    if (!paroquiaValida(paroquiaNormalizada)) {
+      return res.status(400).json({ erro: 'Paróquia inválida' });
+    }
+
+    if (toca_instrumento === 'sim' && !instrumentosNormalizados) {
+      return res.status(400).json({ erro: 'Informe quais instrumentos você toca' });
+    }
+
+    if (movimentoOrigemCasal(movimentoOrigem) && (!nomeCompleto.includes(' E ') || nomeCracha !== nomeCompleto)) {
+      return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa. O cracha deve ficar MARIDO E ESPOSA' });
     }
 
     const participanteAtual = await database.get(`SELECT status, equipe FROM ${tabela} WHERE id = ?`, [dadosToken.id]);
@@ -146,16 +187,17 @@ router.put('/:token', async (req, res) => {
 
       const resultadoUsuario = await database.run(
         `INSERT INTO usuarios (
-          email, senha, nome_completo, nome_cracha, telefone, cpf, data_nascimento,
+          email, senha, nome_completo, nome_cracha, telefone, paroquia, cpf, data_nascimento,
           movimento_origem, ano_encontro, foto_perfil, restricao_medica, restricao_alimentar,
-          restricao_medicacao, perfil, status, equipe
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          restricao_medicacao, toca_instrumento, instrumentos, canta, equipes_servidas, perfil, status, equipe
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           emailTemporario,
           senhaHash,
           nomeCompleto,
-          nomeCompleto,
+          nomeCracha,
           telefone,
+          paroquiaNormalizada,
           cpfNumeros,
           nascimentoNumeros,
           movimentoOrigem,
@@ -164,6 +206,10 @@ router.put('/:token', async (req, res) => {
           restricao_medica || '',
           restricao_alimentar || '',
           restricao_medicacao || '',
+          toca_instrumento,
+          instrumentosNormalizados,
+          canta,
+          JSON.stringify(equipesServidas),
           'equipista',
           status,
           participanteAtual.equipe
@@ -178,18 +224,25 @@ router.put('/:token', async (req, res) => {
     } else {
       await database.run(
         `UPDATE usuarios
-         SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?,
-             ano_encontro = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?, status = ?, foto_perfil = ?
+         SET nome_completo = ?, nome_cracha = ?, telefone = ?, paroquia = ?, movimento_origem = ?,
+             ano_encontro = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
+             toca_instrumento = ?, instrumentos = ?, canta = ?, equipes_servidas = ?,
+             status = ?, foto_perfil = ?
          WHERE id = ?`,
         [
           nomeCompleto,
-          nomeCompleto,
+          nomeCracha,
           telefone,
+          paroquiaNormalizada,
           movimentoOrigem,
           anoEncontro,
           restricao_medica || '',
           restricao_alimentar || '',
           restricao_medicacao || '',
+          toca_instrumento,
+          instrumentosNormalizados,
+          canta,
+          JSON.stringify(equipesServidas),
           status,
           fotoPerfil,
           dadosToken.id
