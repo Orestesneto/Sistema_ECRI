@@ -9,6 +9,10 @@ function duplicidadePermitidaPorMovimento(movimentoA, movimentoB) {
 function normalizarTelefoneCelular(valor) {
   const telefone = apenasNumeros(valor);
 
+  if (telefone.startsWith('9')) {
+    return telefone;
+  }
+
   if (telefone.length === 10) {
     return `${telefone.slice(0, 2)}9${telefone.slice(2)}`;
   }
@@ -16,16 +20,42 @@ function normalizarTelefoneCelular(valor) {
   return telefone;
 }
 
-async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes = {}) {
-  const telefoneNumeros = normalizarTelefoneCelular(telefone);
-  const movimentoNovo = normalizarMovimentoOrigem(movimentoOrigem);
+function extrairTelefonesContato(valor) {
+  const texto = String(valor || '');
+  const esposa = texto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim();
+  const marido = texto.match(/Marido:\s*(.+)$/i)?.[1]?.trim();
 
-  if (telefoneNumeros.startsWith('9') && telefoneNumeros.length < 11) {
-    return { valido: false, erro: 'Faltou o DDD' };
+  if (esposa || marido) {
+    return [esposa, marido].filter(Boolean);
   }
 
-  if (telefoneNumeros.length !== 11) {
-    return { valido: false, erro: 'Informe o telefone com DDD e 9 dígitos. Exemplo: 83999999999' };
+  return [texto];
+}
+
+function normalizarCampoTelefoneContato(valor) {
+  const texto = String(valor || '');
+  const esposa = texto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim();
+  const marido = texto.match(/Marido:\s*(.+)$/i)?.[1]?.trim();
+
+  if (esposa || marido) {
+    return `Esposa: ${normalizarTelefoneCelular(esposa)} | Marido: ${normalizarTelefoneCelular(marido)}`;
+  }
+
+  return normalizarTelefoneCelular(texto);
+}
+
+async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes = {}) {
+  const telefonesNumeros = extrairTelefonesContato(telefone).map(normalizarTelefoneCelular);
+  const movimentoNovo = normalizarMovimentoOrigem(movimentoOrigem);
+
+  for (const telefoneNumeros of telefonesNumeros) {
+    if (telefoneNumeros.startsWith('9')) {
+      return { valido: false, erro: 'Faltou o DDD' };
+    }
+
+    if (telefoneNumeros.length !== 11) {
+      return { valido: false, erro: 'Informe o telefone com DDD e 9 dígitos. Exemplo: 83999999999' };
+    }
   }
 
   const usuarios = await database.all(`
@@ -46,7 +76,8 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
       return false;
     }
 
-    return normalizarTelefoneCelular(registro.telefone) === telefoneNumeros;
+    const telefonesRegistro = extrairTelefonesContato(registro.telefone).map(normalizarTelefoneCelular);
+    return telefonesRegistro.some((telefoneRegistro) => telefonesNumeros.includes(telefoneRegistro));
   });
 
   if (!conflitos.length) {
@@ -69,5 +100,6 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
 
 module.exports = {
   validarTelefoneUnico,
-  normalizarTelefoneCelular
+  normalizarTelefoneCelular,
+  normalizarCampoTelefoneContato
 };

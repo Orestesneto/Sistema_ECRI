@@ -6,7 +6,7 @@ const { normalizarMovimentoOrigem, movimentoOrigemValido, movimentoOrigemCasal }
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
-const { validarTelefoneUnico } = require('../utils/telefone');
+const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 
@@ -117,6 +117,7 @@ router.put('/:token', async (req, res) => {
     const nomeCompleto = String(nome_completo).trim().toUpperCase();
     const nomeCracha = String(nome_cracha).trim().toUpperCase();
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
+    const telefoneNormalizado = normalizarCampoTelefoneContato(telefone);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
     const instrumentosNormalizados = toca_instrumento === 'sim'
@@ -162,7 +163,7 @@ router.put('/:token', async (req, res) => {
       return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
     }
 
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem, {
       ignorarUsuarioId: dadosToken.tipo === 'usuario' ? dadosToken.id : null,
       ignorarPessoaExternaId: dadosToken.tipo === 'externo' ? dadosToken.id : null
     });
@@ -197,7 +198,7 @@ router.put('/:token', async (req, res) => {
           senhaHash,
           nomeCompleto,
           nomeCracha,
-          telefone,
+          telefoneNormalizado,
           paroquiaNormalizada,
           cpfNumeros,
           nascimentoNumeros,
@@ -233,7 +234,7 @@ router.put('/:token', async (req, res) => {
         [
           nomeCompleto,
           nomeCracha,
-          telefone,
+          telefoneNormalizado,
           paroquiaNormalizada,
           movimentoOrigem,
           anoEncontro,

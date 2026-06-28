@@ -1,6 +1,10 @@
 const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api';
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
+const CHAVE_LOGIN_EM = 'loginEm';
+const TEMPO_SESSAO_MS = 10 * 24 * 60 * 60 * 1000;
+
+redirecionarSeJaEstiverLogado();
 
 // Login
 document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
@@ -31,15 +35,9 @@ document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
         if (response.ok) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('usuario', JSON.stringify(data.usuario));
-            
-            // Redirecionar baseado no perfil
-            if (data.usuario.perfil === 'equipista') {
-                window.location.href = 'equipista.html';
-            } else if (data.usuario.perfil === 'coordenador') {
-                window.location.href = 'coordenador.html';
-            } else if (data.usuario.perfil === 'equipe_dirigente') {
-                window.location.href = 'dirigentes.html';
-            }
+            localStorage.setItem(CHAVE_LOGIN_EM, String(Date.now()));
+
+            redirecionarPorPerfil(data.usuario);
         } else {
             mostrarAlerta('alertaLogin', data.erro, 'danger');
         }
@@ -63,11 +61,18 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     const movimentoSelecionado = document.querySelector('input[name="movimento"]:checked');
     const movimento_origem = movimentoSelecionado ? movimentoSelecionado.value : '';
     const isCasal = movimentoOrigemCasal(movimento_origem);
-    const telefoneEsposa = document.getElementById('telefoneEsposa')?.value.trim() || '';
-    const telefoneMarido = document.getElementById('telefoneMarido')?.value.trim() || '';
+    const telefoneEsposaValidacao = validarTelefoneContatoValor(document.getElementById('telefoneEsposa')?.value || '', isCasal);
+    const telefoneMaridoValidacao = validarTelefoneContatoValor(document.getElementById('telefoneMarido')?.value || '', isCasal);
+    const telefoneIndividualValidacao = validarTelefoneContatoValor(document.getElementById('telefone')?.value || '', !isCasal);
+    const telefoneEsposa = telefoneEsposaValidacao.telefone;
+    const telefoneMarido = telefoneMaridoValidacao.telefone;
+    const telefoneIndividual = telefoneIndividualValidacao.telefone;
+    if (document.getElementById('telefoneEsposa')) document.getElementById('telefoneEsposa').value = telefoneEsposa;
+    if (document.getElementById('telefoneMarido')) document.getElementById('telefoneMarido').value = telefoneMarido;
+    if (document.getElementById('telefone')) document.getElementById('telefone').value = telefoneIndividual;
     const telefone = isCasal
         ? `Esposa: ${telefoneEsposa} | Marido: ${telefoneMarido}`
-        : document.getElementById('telefone').value.trim();
+        : telefoneIndividual;
     const ano_encontro = somenteNumeros(document.getElementById('anoEncontroRegistro').value);
     const toca_instrumento = document.querySelector('input[name="tocaInstrumento"]:checked')?.value || '';
     const instrumentos = toca_instrumento === 'sim'
@@ -90,6 +95,9 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     if (!nome_cracha) pendencias.push('Informe o nome para o crachá.');
     if (isCasal && (!telefoneEsposa || !telefoneMarido)) pendencias.push('Informe o WhatsApp da esposa e o WhatsApp do marido.');
     if (!isCasal && !telefone) pendencias.push('Informe o telefone WhatsApp.');
+    if (isCasal && telefoneEsposa && !telefoneEsposaValidacao.valido) pendencias.push(`WhatsApp da esposa: ${telefoneEsposaValidacao.erro}`);
+    if (isCasal && telefoneMarido && !telefoneMaridoValidacao.valido) pendencias.push(`WhatsApp do marido: ${telefoneMaridoValidacao.erro}`);
+    if (!isCasal && telefone && !telefoneIndividualValidacao.valido) pendencias.push(telefoneIndividualValidacao.erro);
     if (!anoEncontroValido(ano_encontro)) pendencias.push('Informe um ano do encontro válido.');
     if (!paroquiaValida(paroquia)) pendencias.push('Informe a paróquia à qual você pertence.');
     if (!toca_instrumento) pendencias.push('Informe se você toca algum instrumento.');
@@ -102,6 +110,11 @@ document.getElementById('formRegistro')?.addEventListener('submit', async (e) =>
     if (fotoPerfil && !fotoDentroDoLimite(fotoPerfil)) pendencias.push(`A foto deve ser JPG, JPEG, PNG, HEIF ou WEBP e ter no máximo ${TAMANHO_MAXIMO_FOTO_MB}MB.`);
 
     if (pendencias.length) {
+        const erroTelefone = pendencias.find((item) => item.includes('Faltou o DDD') || item.includes('Informe o telefone com DDD'));
+        if (erroTelefone) {
+            mostrarModalTelefoneContato(erroTelefone);
+            return;
+        }
         mostrarModalErroRegistro('Não foi possível criar o cadastro ainda. Confira os itens abaixo:', pendencias);
         return;
     }
@@ -188,6 +201,9 @@ document.getElementById('dataNascimentoLogin')?.addEventListener('input', limita
 document.getElementById('cpfRegistro')?.addEventListener('input', limitarCampoNumerico);
 document.getElementById('dataNascimentoRegistro')?.addEventListener('input', limitarCampoNumerico);
 document.getElementById('anoEncontroRegistro')?.addEventListener('input', limitarCampoNumerico);
+configurarCampoTelefoneContato('telefone');
+configurarCampoTelefoneContato('telefoneEsposa');
+configurarCampoTelefoneContato('telefoneMarido');
 configurarCampoParoquia('paroquiaRegistro', 'campoOutraParoquiaRegistro');
 configurarRestricaoSimNao('temRestricaoMedicaRegistro', 'campoRestricaoMedicaRegistro', 'restricaoMedicaRegistro');
 configurarRestricaoSimNao('temRestricaoAlimentarRegistro', 'campoRestricaoAlimentarRegistro', 'restricaoAlimentarRegistro');
@@ -392,7 +408,56 @@ function escapeHtml(valor) {
 function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('usuario');
+    localStorage.removeItem(CHAVE_LOGIN_EM);
     window.location.href = 'index.html';
+}
+
+function redirecionarSeJaEstiverLogado() {
+    const token = localStorage.getItem('token');
+    const usuario = obterUsuarioLogado();
+
+    if (!token || !usuario) {
+        limparSessaoExpirada();
+        return;
+    }
+
+    const loginEm = Number(localStorage.getItem(CHAVE_LOGIN_EM) || 0);
+    if (!loginEm) {
+        localStorage.setItem(CHAVE_LOGIN_EM, String(Date.now()));
+        redirecionarPorPerfil(usuario);
+        return;
+    }
+
+    if (Date.now() - loginEm > TEMPO_SESSAO_MS) {
+        limparSessaoExpirada();
+        return;
+    }
+
+    redirecionarPorPerfil(usuario);
+}
+
+function obterUsuarioLogado() {
+    try {
+        return JSON.parse(localStorage.getItem('usuario') || 'null');
+    } catch (err) {
+        return null;
+    }
+}
+
+function limparSessaoExpirada() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
+    localStorage.removeItem(CHAVE_LOGIN_EM);
+}
+
+function redirecionarPorPerfil(usuario) {
+    if (usuario?.perfil === 'equipista') {
+        window.location.href = 'equipista.html';
+    } else if (usuario?.perfil === 'coordenador') {
+        window.location.href = 'coordenador.html';
+    } else if (usuario?.perfil === 'equipe_dirigente') {
+        window.location.href = 'dirigentes.html';
+    }
 }
 
 function getToken() {

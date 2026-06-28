@@ -7,7 +7,7 @@ const { EQUIPES, normalizarEquipe, equipeValida, equipeSemEquipe, aplicarRegraSe
 const { normalizarExperienciaPerfil } = require('../utils/experienciaPerfil');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
-const { validarTelefoneUnico, normalizarTelefoneCelular } = require('../utils/telefone');
+const { validarTelefoneUnico, normalizarTelefoneCelular, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
@@ -257,7 +257,8 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
       return res.status(400).json({ erro: 'Paróquia inválida' });
     }
 
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
+    const telefoneNormalizado = normalizarCampoTelefoneContato(telefone);
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem, {
       ignorarUsuarioId: usuario_id
     });
     if (!telefoneUnico.valido) {
@@ -283,7 +284,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
         nomeCracha,
         cpfNumeros,
         dataNascimento,
-        telefone,
+        telefoneNormalizado,
         paroquiaNormalizada,
         movimentoOrigem,
         normalizarAnoEncontro(ano_encontro),

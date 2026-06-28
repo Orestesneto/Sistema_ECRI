@@ -6,7 +6,7 @@ const { normalizarMovimentoOrigem, movimentoOrigemValido, movimentoOrigemCasal }
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
-const { validarTelefoneUnico } = require('../utils/telefone');
+const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 
@@ -62,6 +62,7 @@ router.post('/registro', async (req, res) => {
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
+    const telefoneNormalizado = normalizarCampoTelefoneContato(telefone);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
     const nomeCompleto = String(nome_completo).trim().toUpperCase();
     const nomeCracha = String(nome_cracha).trim().toUpperCase();
@@ -84,7 +85,7 @@ router.post('/registro', async (req, res) => {
       return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa. O cracha deve ficar MARIDO E ESPOSA' });
     }
 
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem);
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem);
     if (!telefoneUnico.valido) {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
@@ -114,7 +115,7 @@ router.post('/registro', async (req, res) => {
         senhaHash,
         nomeCompleto,
         nomeCracha,
-        telefone,
+        telefoneNormalizado,
         paroquiaNormalizada,
         movimentoOrigem,
         anoEncontro,
@@ -176,7 +177,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: usuario.id, email: usuario.email, perfil: usuario.perfil },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '10d' }
     );
 
     res.json({

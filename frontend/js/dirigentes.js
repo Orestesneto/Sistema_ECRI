@@ -638,10 +638,15 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
         return;
     }
 
+    const telefoneValidacao = validarCampoTelefoneContato('editarTelefone', { obrigatorio: true });
+    if (!telefoneValidacao.valido) {
+        return;
+    }
+
     const body = {
         nome_completo: document.getElementById('editarNomeCompleto').value,
         nome_cracha: document.getElementById('editarNomeCracha').value,
-        telefone: document.getElementById('editarTelefone').value,
+        telefone: telefoneValidacao.telefone,
         paroquia,
         movimento_origem: document.getElementById('editarMovimento').value,
         ano_encontro: anoEncontro,
@@ -836,21 +841,9 @@ function telefoneComecaComNoveSemDdd(telefone) {
     return String(telefone || '').startsWith('9') && String(telefone || '').length < 11;
 }
 
-function configurarCampoTelefonePessoaExterna(campoId) {
-    const campo = document.getElementById(campoId);
-    if (!campo) return;
-
-    campo.addEventListener('input', () => {
-        campo.value = String(campo.value || '').replace(/\D/g, '').slice(0, 11);
-    });
-
-    campo.addEventListener('blur', () => {
-        campo.value = normalizarTelefonePessoaExterna(campo.value);
-    });
-}
-
-configurarCampoTelefonePessoaExterna('pessoaExternaTelefone');
-configurarCampoTelefonePessoaExterna('editarPessoaExternaTelefone');
+configurarCampoTelefoneContato('pessoaExternaTelefone');
+configurarCampoTelefoneContato('editarPessoaExternaTelefone');
+configurarCampoTelefoneContato('editarTelefone');
 
 function mostrarModalMensagemDirigente(titulo, mensagem, tipo = 'info') {
     const modalExistente = document.getElementById('modalMensagemDirigente');

@@ -30,6 +30,7 @@ const EQUIPES_SERVIDAS_DEV = [
 document.addEventListener('DOMContentLoaded', () => {
     configurarPersistenciaAbas(ABA_ATUAL_DEV_KEY);
     configurarCampoParoquia('editarDevParoquia', 'campoOutraParoquiaEditarDev');
+    configurarCampoTelefoneContato('editarDevTelefone');
     configurarFiltrosCarografoDev();
     validarSessaoDev();
 });
@@ -1115,11 +1116,16 @@ async function salvarEdicaoUsuárioDev(e) {
         return;
     }
 
+    const telefoneValidacao = validarCampoTelefoneContato('editarDevTelefone', { obrigatorio: true });
+    if (!telefoneValidacao.valido) {
+        return;
+    }
+
     const body = {
         nome_cracha: document.getElementById('editarDevNomeCracha').value,
         cpf,
         data_nascimento: dataNascimento,
-        telefone: document.getElementById('editarDevTelefone').value,
+        telefone: telefoneValidacao.telefone,
         paroquia,
         movimento_origem: document.getElementById('editarDevMovimento').value,
         ano_encontro: anoEncontro,

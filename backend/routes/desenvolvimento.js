@@ -7,7 +7,7 @@ const { EQUIPES, normalizarEquipe, equipeValida } = require('../utils/equipes');
 const { normalizarExperienciaPerfil } = require('../utils/experienciaPerfil');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
-const { validarTelefoneUnico } = require('../utils/telefone');
+const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
@@ -423,7 +423,8 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
     if (!paroquiaValida(paroquiaNormalizada)) {
       return res.status(400).json({ erro: 'Paróquia inválida' });
     }
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
+    const telefoneNormalizado = normalizarCampoTelefoneContato(telefone);
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem, {
       ignorarUsuarioId: usuario_id
     });
     if (!telefoneUnico.valido) {
@@ -449,7 +450,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarTokenDesenvolvimento, async 
         String(nome_cracha).trim().toUpperCase(),
         cpfNumeros,
         dataNascimento,
-        telefone,
+        telefoneNormalizado,
         paroquiaNormalizada,
         movimentoOrigem,
         normalizarAnoEncontro(ano_encontro),
