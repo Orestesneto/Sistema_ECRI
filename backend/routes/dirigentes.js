@@ -7,7 +7,7 @@ const { EQUIPES, normalizarEquipe, equipeValida, equipeSemEquipe, aplicarRegraSe
 const { normalizarExperienciaPerfil } = require('../utils/experienciaPerfil');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
 const { registrarHistorico } = require('../utils/historico');
-const { validarTelefoneUnico } = require('../utils/telefone');
+const { validarTelefoneUnico, normalizarTelefoneCelular } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
@@ -512,7 +512,8 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem);
+    const telefoneNormalizado = normalizarTelefoneCelular(telefone);
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem);
     if (!telefoneUnico.valido) {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
@@ -529,7 +530,7 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
       [
         String(nome_completo).trim().toUpperCase(),
         String(nome_completo).trim().toUpperCase(),
-        telefone,
+        telefoneNormalizado,
         movimentoOrigem,
         anoEncontroNormalizado,
         equipeNormalizada,
@@ -590,7 +591,8 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
-    const telefoneUnico = await validarTelefoneUnico(database, telefone, movimentoOrigem, {
+    const telefoneNormalizado = normalizarTelefoneCelular(telefone);
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem, {
       ignorarPessoaExternaId: pessoa_id
     });
     if (!telefoneUnico.valido) {
@@ -603,7 +605,7 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
       `UPDATE pessoas_externas
        SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?, status = COALESCE(?, status)
        WHERE id = ?`,
-      [nomeNormalizado, nomeNormalizado, telefone, movimentoOrigem, statusFinal, pessoa_id]
+      [nomeNormalizado, nomeNormalizado, telefoneNormalizado, movimentoOrigem, statusFinal, pessoa_id]
     );
 
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_editada', {

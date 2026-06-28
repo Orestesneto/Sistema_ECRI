@@ -889,6 +889,7 @@ async function carregarConfirmacoes() {
                 : '<span class="badge bg-primary">Cadastrado</span>';
             const opcoesStatus = renderizarOpcoesStatusConfirmacao(usuario.status);
             const linkConfirmacao = renderizarAcaoLinkConfirmacao(usuario);
+            const botaoCopiarLink = renderizarBotaoCopiarLinkConfirmacao(usuario);
 
             return `
                 <tr>
@@ -898,7 +899,10 @@ async function carregarConfirmacoes() {
                         </button>
                     </td>
                     <td>
-                        <strong>${escapeHtml(usuario.nome_completo || '')}</strong><br>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <strong>${escapeHtml(usuario.nome_completo || '')}</strong>
+                            ${botaoCopiarLink}
+                        </div>
                         <small class="text-muted">${escapeHtml(usuario.nome_cracha || '')}</small><br>
                         ${tipoCadastro}
                     </td>
@@ -968,6 +972,11 @@ function renderizarOpcoesStatusConfirmacao(statusAtual) {
 function renderizarAcaoLinkConfirmacao(usuario) {
     if (usuario.foto_perfil) return '-';
     return `<button type="button" class="btn btn-sm btn-success" onclick="enviarConfirmacaoWhatsApp(${Number(usuario.id)}, '${usuario.tipo_cadastro || 'usuario'}')">Confirmar participação</button>`;
+}
+
+function renderizarBotaoCopiarLinkConfirmacao(usuario) {
+    if (usuario.foto_perfil) return '';
+    return `<button type="button" class="btn btn-sm btn-outline-primary" onclick="copiarLinkConfirmacao(${Number(usuario.id)}, '${usuario.tipo_cadastro || 'usuario'}')">Copiar link</button>`;
 }
 
 document.addEventListener('change', async (e) => {
@@ -1146,6 +1155,144 @@ Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
     abrirWhatsAppComJanela(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
+}
+
+async function gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = participantesEquipeCache.find(item => Number(item.id) === Number(usuarioId) && (item.tipo_cadastro || 'usuario') === tipoCadastro);
+    const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+    const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${Number(usuarioId)}/token-confirmacao`, {
+        method: 'POST',
+        headers: getHeaders()
+    });
+    const data = await response.json();
+
+    if (!response.ok || !data.token_confirmacao) {
+        throw new Error(data.erro || 'Erro ao gerar link de confirmaÃ§Ã£o.');
+    }
+
+    if (usuario) {
+        usuario.token_confirmacao = data.token_confirmacao;
+    }
+
+    return data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
+}
+
+async function copiarLinkConfirmacao(usuarioId, tipoCadastro = 'usuario') {
+    let linkConfirmacao = '';
+    try {
+        linkConfirmacao = await gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro);
+        await copiarTextoParaAreaTransferencia(linkConfirmacao);
+        mostrarAlerta('alertaCoordenador', 'Link de confirmaÃ§Ã£o copiado!', 'success');
+    } catch (err) {
+        if (linkConfirmacao) {
+            mostrarLinkParaCopiaManual(linkConfirmacao);
+            mostrarAlerta('alertaCoordenador', 'O navegador bloqueou a cÃ³pia automÃ¡tica. O link foi selecionado para copiar manualmente.', 'warning');
+        } else {
+            mostrarAlerta('alertaCoordenador', err.message || 'Erro ao copiar link de confirmaÃ§Ã£o.', 'danger');
+        }
+        console.error(err);
+    }
+}
+
+async function copiarTextoParaAreaTransferencia(texto) {
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(texto);
+            return;
+        } catch (err) {
+            // Safari/iOS pode bloquear quando o texto vem de uma chamada assíncrona.
+        }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = texto;
+    textarea.readOnly = false;
+    textarea.contentEditable = true;
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.width = '1px';
+    textarea.style.height = '1px';
+    textarea.style.opacity = '0.01';
+    textarea.style.fontSize = '16px';
+    textarea.style.zIndex = '-1';
+    document.body.appendChild(textarea);
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(textarea);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    textarea.focus();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    const copiado = document.execCommand('copy');
+    selection.removeAllRanges();
+    textarea.remove();
+
+    if (!copiado) {
+        throw new Error('CÃ³pia automÃ¡tica bloqueada pelo navegador.');
+    }
+}
+
+function mostrarLinkParaCopiaManual(linkConfirmacao) {
+    const modalExistente = document.getElementById('modalCopiarLinkConfirmacao');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    const modalHtml = `
+        <div class="modal fade" id="modalCopiarLinkConfirmacao" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Copiar link de confirmaÃ§Ã£o</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label" for="campoLinkConfirmacaoManual">Link de confirmaÃ§Ã£o</label>
+                        <input type="text" class="form-control" id="campoLinkConfirmacaoManual" value="${escapeAttr(linkConfirmacao)}" readonly>
+                        <small class="text-muted d-block mt-2">No iPhone, toque no campo e escolha Copiar se o botÃ£o nÃ£o copiar automaticamente.</small>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                        <button type="button" class="btn btn-primary" id="btnCopiarLinkConfirmacaoManual">Copiar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modalEl = document.getElementById('modalCopiarLinkConfirmacao');
+    const campo = document.getElementById('campoLinkConfirmacaoManual');
+    const botaoCopiar = document.getElementById('btnCopiarLinkConfirmacaoManual');
+    const modal = new bootstrap.Modal(modalEl);
+
+    modalEl.addEventListener('shown.bs.modal', () => {
+        campo.focus();
+        campo.select();
+        campo.setSelectionRange(0, campo.value.length);
+    }, { once: true });
+
+    modalEl.addEventListener('hidden.bs.modal', () => {
+        modalEl.remove();
+    }, { once: true });
+
+    botaoCopiar.addEventListener('click', async () => {
+        campo.focus();
+        campo.select();
+        campo.setSelectionRange(0, campo.value.length);
+        try {
+            await copiarTextoParaAreaTransferencia(campo.value);
+            mostrarAlerta('alertaCoordenador', 'Link de confirmaÃ§Ã£o copiado!', 'success');
+            bootstrap.Modal.getInstance(modalEl)?.hide();
+        } catch (err) {
+            mostrarAlerta('alertaCoordenador', 'Toque no campo selecionado e escolha Copiar.', 'warning');
+        }
+    });
+
+    modal.show();
 }
 
 function abrirJanelaWhatsAppPendente() {

@@ -771,9 +771,25 @@ function renderizarPessoasExternas() {
 document.getElementById('formPessoaExterna')?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const telefoneCampo = document.getElementById('pessoaExternaTelefone');
+    const telefoneNormalizado = normalizarTelefonePessoaExterna(telefoneCampo.value);
+    telefoneCampo.value = telefoneNormalizado;
+
+    if (telefoneComecaComNoveSemDdd(telefoneNormalizado)) {
+        mostrarModalMensagemDirigente('Faltou o DDD', 'Faltou o DDD', 'warning');
+        telefoneCampo.focus();
+        return;
+    }
+
+    if (telefoneNormalizado.length !== 11) {
+        mostrarModalMensagemDirigente('Telefone invalido', 'Informe o telefone com DDD e 9 digitos. Exemplo: 83999999999.', 'warning');
+        telefoneCampo.focus();
+        return;
+    }
+
     const body = {
         nome_completo: document.getElementById('pessoaExternaNome').value,
-        telefone: document.getElementById('pessoaExternaTelefone').value,
+        telefone: telefoneNormalizado,
         movimento_origem: document.getElementById('pessoaExternaMovimento').value,
         equipe: document.getElementById('pessoaExternaEquipe').value
     };
@@ -786,18 +802,92 @@ document.getElementById('formPessoaExterna')?.addEventListener('submit', async (
         });
 
         if (response.ok) {
-            mostrarAlerta('alertaDirigentes', 'Pessoa adicionada a equipe com sucesso!', 'success');
+            mostrarModalMensagemDirigente('Contato salvo', 'Contato salvo com sucesso.', 'success');
             document.getElementById('formPessoaExterna').reset();
             carregarPessoasExternas();
         } else {
             const erro = await response.json();
-            mostrarAlerta('alertaDirigentes', erro.erro || 'Erro ao adicionar pessoa', 'danger');
+            mostrarModalMensagemDirigente('Contato não salvo', formatarMensagemErroPessoaExterna(erro.erro), 'danger');
         }
     } catch (err) {
-        mostrarAlerta('alertaDirigentes', 'Erro ao adicionar pessoa', 'danger');
+        mostrarModalMensagemDirigente('Contato não salvo', 'Erro ao adicionar pessoa.', 'danger');
         console.error(err);
     }
 });
+
+function formatarMensagemErroPessoaExterna(mensagem) {
+    const texto = mensagem || 'Erro ao adicionar pessoa.';
+    const telefoneDuplicado = texto.match(/^Telefone já cadastrado para (.+)$/i);
+    if (telefoneDuplicado) {
+        return `O número informado já foi cadastrado e pertence a ${telefoneDuplicado[1]}.`;
+    }
+    return texto;
+}
+
+function normalizarTelefonePessoaExterna(valor) {
+    const telefone = String(valor || '').replace(/\D/g, '');
+    if (telefone.length === 10) {
+        return `${telefone.slice(0, 2)}9${telefone.slice(2)}`;
+    }
+    return telefone.slice(0, 11);
+}
+
+function telefoneComecaComNoveSemDdd(telefone) {
+    return String(telefone || '').startsWith('9') && String(telefone || '').length < 11;
+}
+
+function configurarCampoTelefonePessoaExterna(campoId) {
+    const campo = document.getElementById(campoId);
+    if (!campo) return;
+
+    campo.addEventListener('input', () => {
+        campo.value = String(campo.value || '').replace(/\D/g, '').slice(0, 11);
+    });
+
+    campo.addEventListener('blur', () => {
+        campo.value = normalizarTelefonePessoaExterna(campo.value);
+    });
+}
+
+configurarCampoTelefonePessoaExterna('pessoaExternaTelefone');
+configurarCampoTelefonePessoaExterna('editarPessoaExternaTelefone');
+
+function mostrarModalMensagemDirigente(titulo, mensagem, tipo = 'info') {
+    const modalExistente = document.getElementById('modalMensagemDirigente');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    const classeTitulo = {
+        success: 'text-success',
+        danger: 'text-danger',
+        warning: 'text-warning'
+    }[tipo] || 'text-primary';
+
+    const modalHtml = `
+        <div class="modal fade" id="modalMensagemDirigente" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title ${classeTitulo}">${escapeHtml(titulo)}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-0">${escapeHtml(mensagem)}</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const modalEl = document.getElementById('modalMensagemDirigente');
+    modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove(), { once: true });
+    new bootstrap.Modal(modalEl).show();
+}
 
 function abrirModalEditarPessoaExterna(pessoaId) {
     const pessoa = pessoasExternasCache.find(item => Number(item.id) === Number(pessoaId));
@@ -815,9 +905,25 @@ document.getElementById('formEditarPessoaExterna')?.addEventListener('submit', a
     e.preventDefault();
 
     const pessoaId = document.getElementById('editarPessoaExternaId').value;
+    const telefoneCampo = document.getElementById('editarPessoaExternaTelefone');
+    const telefoneNormalizado = normalizarTelefonePessoaExterna(telefoneCampo.value);
+    telefoneCampo.value = telefoneNormalizado;
+
+    if (telefoneComecaComNoveSemDdd(telefoneNormalizado)) {
+        mostrarModalMensagemDirigente('Faltou o DDD', 'Faltou o DDD', 'warning');
+        telefoneCampo.focus();
+        return;
+    }
+
+    if (telefoneNormalizado.length !== 11) {
+        mostrarModalMensagemDirigente('Telefone invalido', 'Informe o telefone com DDD e 9 digitos. Exemplo: 83999999999.', 'warning');
+        telefoneCampo.focus();
+        return;
+    }
+
     const body = {
         nome_completo: document.getElementById('editarPessoaExternaNome').value,
-        telefone: document.getElementById('editarPessoaExternaTelefone').value,
+        telefone: telefoneNormalizado,
         movimento_origem: document.getElementById('editarPessoaExternaMovimento').value
     };
 

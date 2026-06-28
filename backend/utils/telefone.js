@@ -6,12 +6,26 @@ function duplicidadePermitidaPorMovimento(movimentoA, movimentoB) {
   return movimentos[0] === 'ECC' && movimentos[1] === 'ECRI';
 }
 
+function normalizarTelefoneCelular(valor) {
+  const telefone = apenasNumeros(valor);
+
+  if (telefone.length === 10) {
+    return `${telefone.slice(0, 2)}9${telefone.slice(2)}`;
+  }
+
+  return telefone;
+}
+
 async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes = {}) {
-  const telefoneNumeros = apenasNumeros(telefone);
+  const telefoneNumeros = normalizarTelefoneCelular(telefone);
   const movimentoNovo = normalizarMovimentoOrigem(movimentoOrigem);
 
-  if (!telefoneNumeros) {
-    return { valido: false, erro: 'Telefone inválido' };
+  if (telefoneNumeros.startsWith('9') && telefoneNumeros.length < 11) {
+    return { valido: false, erro: 'Faltou o DDD' };
+  }
+
+  if (telefoneNumeros.length !== 11) {
+    return { valido: false, erro: 'Informe o telefone com DDD e 9 dígitos. Exemplo: 83999999999' };
   }
 
   const usuarios = await database.all(`
@@ -32,7 +46,7 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
       return false;
     }
 
-    return apenasNumeros(registro.telefone) === telefoneNumeros;
+    return normalizarTelefoneCelular(registro.telefone) === telefoneNumeros;
   });
 
   if (!conflitos.length) {
@@ -54,5 +68,6 @@ async function validarTelefoneUnico(database, telefone, movimentoOrigem, opcoes 
 }
 
 module.exports = {
-  validarTelefoneUnico
+  validarTelefoneUnico,
+  normalizarTelefoneCelular
 };
