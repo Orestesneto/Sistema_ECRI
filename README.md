@@ -438,15 +438,6 @@ Verificar producao:
 https://sistema-ecri.vercel.app/api/health
 ```
 
-## Publicacao no GitHub
-
-Antes de tornar o repositorio publico:
-
-- Verifique se `.env` nao esta versionado.
-- Rode busca por CPF, tokens e senhas reais.
-- Nao publique dumps SQL com dados reais.
-- Evite commitar bancos SQLite locais.
-
 Busca util:
 
 ```bash
