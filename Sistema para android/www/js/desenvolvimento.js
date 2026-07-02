@@ -1,4 +1,4 @@
-﻿const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api');
+const API_URL = 'https://sistema-ecri.vercel.app/api';
 const TOKEN_KEY = 'devToken';
 const ABA_ATUAL_DEV_KEY = 'desenvolvimentoAbaAtual';
 

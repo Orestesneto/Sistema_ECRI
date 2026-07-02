@@ -1,9 +1,9 @@
-const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'https://sistema-ecri.vercel.app/api' : window.location.origin + '/api');
+const API_URL = 'https://sistema-ecri.vercel.app/api';
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
-const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas'];
+const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'enviarNotificacao'];
 const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 5000;
 const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 5000;
 const ABAS_DIRIGENTE_TEMPO_REAL = ['relatorio', 'situacao', 'acompanhamentoFaltas'];
@@ -50,6 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
     configurarRestricaoSimNao('temRestricaoMedicacaoDirigente', 'campoRestricaoMedicacaoDirigente', 'restricaoMedicacaoDirigente');
     configurarConfiguraçõesDirigente();
     configurarFormularioConfiguracoesEncontroDirigente();
+    configurarFormularioEnviarNotificacaoDirigente();
+    configurarExclusaoUsuarioNoModalEditar();
     document.getElementById('anoEncontroDirigente')?.addEventListener('input', limitarCampoNumerico);
     document.getElementById('editarAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
     configurarFiltrosUsuarios();
@@ -87,6 +89,114 @@ function configurarConfiguraçõesDirigente() {
         abrirAbaDirigente(abaInicial);
         mostrarAlerta('alertaDirigentes', 'Configurações salvas com sucesso!', 'success');
     });
+}
+
+function configurarExclusaoUsuarioNoModalEditar() {
+    document.getElementById('btnExcluirUsuarioEditar')?.addEventListener('click', excluirUsuarioAbertoNoModalEditar);
+}
+
+async function excluirUsuarioAbertoNoModalEditar() {
+    const usuarioId = document.getElementById('editarUsu\u00e1rioId')?.value;
+    const nomeUsuario = document.getElementById('editarNomeCompleto')?.value || 'este usu\u00e1rio';
+    if (!usuarioId) return;
+
+    const confirmado = confirm(`Tem certeza que deseja excluir ${nomeUsuario}? Essa a\u00e7\u00e3o n\u00e3o pode ser desfeita.`);
+    if (!confirmado) return;
+
+    const botao = document.getElementById('btnExcluirUsuarioEditar');
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Excluindo...';
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/usuarios/${usuarioId}`, {
+            method: 'DELETE',
+            headers: getHeaders()
+        });
+
+        if (!response.ok) {
+            const erro = await response.json().catch(() => ({}));
+            mostrarAlerta('alertaDirigentes', erro.erro || 'Erro ao excluir usu\u00e1rio', 'danger');
+            return;
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('modalEditarUsu\u00e1rio'))?.hide();
+        usuariosCache = usuariosCache.filter(usuario => Number(usuario.id) !== Number(usuarioId));
+        renderizarTabelaUsuarios();
+        aplicarFiltrosCarografo();
+        mostrarAlerta('alertaDirigentes', 'Usu\u00e1rio exclu\u00eddo com sucesso!', 'success');
+        carregarEventos();
+        carregarRelatorio();
+        carregarSituacao();
+        carregarReunioes();
+        carregarAcompanhamentoFaltas();
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao excluir usu\u00e1rio', 'danger');
+        console.error(err);
+    } finally {
+        if (botao) {
+            botao.disabled = false;
+            botao.textContent = 'Excluir usu\u00e1rio';
+        }
+    }
+}
+
+function configurarFormularioEnviarNotificacaoDirigente() {
+    document.getElementById('formEnviarNotificacaoDirigente')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await enviarNotificacaoDirigente();
+    });
+}
+
+async function enviarNotificacaoDirigente() {
+    const tituloInput = document.getElementById('tituloNotificacaoDirigente');
+    const mensagemInput = document.getElementById('mensagemNotificacaoDirigente');
+    const botao = document.getElementById('btnEnviarNotificacaoDirigente');
+    const titulo = tituloInput?.value.trim() || '';
+    const mensagem = mensagemInput?.value.trim() || '';
+
+    if (titulo.length < 3) {
+        mostrarAlerta('alertaDirigentes', 'Informe um t\u00edtulo para a notifica\u00e7\u00e3o', 'warning');
+        tituloInput?.focus();
+        return;
+    }
+
+    if (mensagem.length < 3) {
+        mostrarAlerta('alertaDirigentes', 'Informe a mensagem da notifica\u00e7\u00e3o', 'warning');
+        mensagemInput?.focus();
+        return;
+    }
+
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Enviando...';
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/notificacoes/equipes`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ titulo, mensagem })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao enviar notifica\u00e7\u00e3o', 'danger');
+            return;
+        }
+
+        document.getElementById('formEnviarNotificacaoDirigente')?.reset();
+        mostrarAlerta('alertaDirigentes', `Notifica\u00e7\u00e3o enviada para ${data.total_destinatarios || 0} usu\u00e1rio(s) com equipe.`, 'success');
+    } catch (err) {
+        mostrarAlerta('alertaDirigentes', 'Erro ao enviar notifica\u00e7\u00e3o', 'danger');
+        console.error(err);
+    } finally {
+        if (botao) {
+            botao.disabled = false;
+            botao.textContent = 'Enviar notifica\u00e7\u00e3o';
+        }
+    }
 }
 
 function obterAbaInicialDirigente() {
@@ -296,7 +406,7 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
             preencherParoquia('paroquiaDirigente', 'outraParoquiaDirigente', 'campoOutraParoquiaDirigente', paroquiaSalva);
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
             await carregarPerfilDirigente();
-            await carregarUsuários();
+        await window['carregarUsu\u00c3\u00a1rios']?.();
             carregarRelatorio();
         } else {
             const mensagem = await lerErroResposta(response, 'Erro ao atualizar perfil');
@@ -682,7 +792,7 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
             aplicarFiltrosCarografo();
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEditarUsuário')).hide();
-            await carregarUsuários();
+        await window['carregarUsu\u00c3\u00a1rios']?.();
             carregarRelatorio();
         } else {
             const erro = await response.json();
@@ -2466,7 +2576,7 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
         if (response.ok) {
             mostrarAlerta('alertaDirigentes', tipoCadastro === 'externo' ? 'Pessoa sem cadastro escalada com sucesso!' : 'Usuário escalado com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEscalar')).hide();
-            await carregarUsuários();
+        await window['carregarUsu\u00c3\u00a1rios']?.();
             await carregarPessoasExternas();
             carregarRelatorio();
             carregarSituacao();
@@ -2543,7 +2653,7 @@ async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCa
             return;
         }
 
-        const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+        const origem = (['file:', 'capacitor:', 'ionic:'].includes(window.location.protocol) || window.location.hostname === 'localhost') ? 'https://sistema-ecri.vercel.app' : window.location.origin;
         const linkConfirmacao = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
         const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
 Ficamos muito felizes pelo seu sim!

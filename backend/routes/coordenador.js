@@ -12,6 +12,7 @@ const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('..
 const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
 const { normalizarFotoPerfil } = require('../utils/foto');
+const { criarNotificacao, criarNotificacoesParaEquipe } = require('../utils/notificacoes');
 
 const router = express.Router();
 const TAXAS_POR_MOVIMENTO = {
@@ -41,6 +42,40 @@ function obterBaseUrl(req) {
 function usuarioPodeGerenciarReuniao(req, reuniao) {
   if (req.usuario.perfil === 'equipe_dirigente') return true;
   return Number(reuniao.criada_por) === Number(req.usuario.id);
+}
+
+function obterDataHoraReuniao(reuniao) {
+  const data = String(reuniao?.data_reuniao || '').slice(0, 10);
+  const hora = String(reuniao?.horario_inicio || '00:00').slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) {
+    return null;
+  }
+
+  const dataHora = new Date(`${data}T${hora}:00-03:00`);
+  return Number.isNaN(dataHora.getTime()) ? null : dataHora;
+}
+
+function prazoAcoesReuniaoEncerrado(reuniao, agora = new Date()) {
+  const dataHora = obterDataHoraReuniao(reuniao);
+  if (!dataHora) return false;
+
+  return agora.getTime() >= dataHora.getTime() + (24 * 60 * 60 * 1000);
+}
+
+function respostaPrazoReuniaoEncerrado(res) {
+  return res.status(403).json({
+    erro: 'O prazo para chamada, edicao ou cancelamento desta reuniao encerrou 24 horas apos o horario da reuniao'
+  });
+}
+
+function formatarDataReuniaoNotificacao(valor) {
+  const partes = String(valor || '').slice(0, 10).split('-');
+  if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  return String(valor || '');
+}
+
+function formatarHoraReuniaoNotificacao(valor) {
+  return String(valor || '').slice(0, 5);
 }
 
 async function obterIdsMensagensChamadaPendentes(reuniaoId, candidatos, tipoMensagem) {
@@ -713,8 +748,17 @@ router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe
     const resultado = await database.run(
       `INSERT INTO reunioes (criada_por, titulo, descricao, data_reuniao, horario_inicio, horario_fim, local) 
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [criada_por, titulo, descricao || '', data_reuniao, horario_inicio, '', local]
+      [criada_por, titulo, descricao || '', data_reuniao, horario_inicio, null, local]
     );
+
+    const criador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [criada_por]);
+    await criarNotificacoesParaEquipe(criador?.equipe, {
+      titulo: 'Nova reunião agendada',
+      mensagem: `${titulo} foi agendada para ${formatarDataReuniaoNotificacao(data_reuniao)} às ${formatarHoraReuniaoNotificacao(horario_inicio)} em ${local}.`,
+      tipo: 'reuniao_agendada',
+      referencia_tipo: 'reuniao',
+      referencia_id: resultado.lastID
+    }, { excluirIds: [criada_por] });
 
     res.status(201).json({
       mensagem: 'Reunião agendada com sucesso',
@@ -736,7 +780,10 @@ router.get('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe_
       [usuario_id]
     );
 
-    res.json(reunioes);
+    res.json(reunioes.map(reuniao => ({
+      ...reuniao,
+      prazo_acoes_encerrado: prazoAcoesReuniaoEncerrado(reuniao)
+    })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter reuniões' });
@@ -748,13 +795,17 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     const reuniao_id = req.params.id;
     const usuario_id = req.usuario.id;
 
-    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reuniao_id]);
+    const reuniao = await database.get('SELECT criada_por, titulo, data_reuniao, horario_inicio, local FROM reunioes WHERE id = ?', [reuniao_id]);
     if (!reuniao) {
       return res.status(404).json({ erro: 'Reuniao nao encontrada' });
     }
 
     if (!usuarioPodeGerenciarReuniao(req, reuniao)) {
       return res.status(403).json({ erro: 'Você não tem permissão para acessar esta chamada' });
+    }
+
+    if (prazoAcoesReuniaoEncerrado(reuniao)) {
+      return respostaPrazoReuniaoEncerrado(res);
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
@@ -789,13 +840,17 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     const usuario_id = req.usuario.id;
     const { presencas } = req.body;
 
-    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reuniao_id]);
+    const reuniao = await database.get('SELECT criada_por, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reuniao_id]);
     if (!reuniao) {
       return res.status(404).json({ erro: 'Reuniao nao encontrada' });
     }
 
     if (req.usuario.perfil !== 'equipe_dirigente' && Number(reuniao.criada_por) !== Number(usuario_id)) {
       return res.status(403).json({ erro: 'Você não tem permissão para salvar esta chamada' });
+    }
+
+    if (prazoAcoesReuniaoEncerrado(reuniao)) {
+      return respostaPrazoReuniaoEncerrado(res);
     }
 
     if (!Array.isArray(presencas)) {
@@ -811,6 +866,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
 
     const idsComFalta = [];
     const idsComFaltaJustificada = [];
+    const idsComPresenca = [];
 
     for (const presenca of presencas) {
       const equipista_id = Number(presenca.usuario_id);
@@ -836,8 +892,38 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
         [reuniao_id, equipista_id, status, observacao, usuario_id]
       );
 
+      if (status === 'presente') idsComPresenca.push(equipista_id);
       if (status === 'falta') idsComFalta.push(equipista_id);
       if (status === 'falta_justificada') idsComFaltaJustificada.push(equipista_id);
+    }
+
+    const detalhesReuniao = `${reuniao.titulo || 'Reunião'} de ${formatarDataReuniaoNotificacao(reuniao.data_reuniao)} às ${formatarHoraReuniaoNotificacao(reuniao.horario_inicio)}`;
+    for (const usuarioIdPresente of idsComPresenca) {
+      await criarNotificacao(usuarioIdPresente, {
+        titulo: 'Presença registrada',
+        mensagem: `Sua presença foi registrada na chamada: ${detalhesReuniao}.`,
+        tipo: 'chamada_presente',
+        referencia_tipo: 'reuniao',
+        referencia_id: reuniao_id
+      });
+    }
+    for (const usuarioIdFaltaJustificada of idsComFaltaJustificada) {
+      await criarNotificacao(usuarioIdFaltaJustificada, {
+        titulo: 'Falta justificada',
+        mensagem: `Sua falta foi justificada na chamada: ${detalhesReuniao}.`,
+        tipo: 'chamada_falta_justificada',
+        referencia_tipo: 'reuniao',
+        referencia_id: reuniao_id
+      });
+    }
+    for (const usuarioIdFalta of idsComFalta) {
+      await criarNotificacao(usuarioIdFalta, {
+        titulo: 'Falta registrada',
+        mensagem: `Foi registrada falta para você na chamada: ${detalhesReuniao}.`,
+        tipo: 'chamada_falta',
+        referencia_tipo: 'reuniao',
+        referencia_id: reuniao_id
+      });
     }
 
     const mensagensPendentes = {
@@ -865,13 +951,17 @@ router.post('/reunioes/:id/mensagens-chamada/:usuarioId', verificarToken, verifi
       return res.status(400).json({ erro: 'Mensagem invalida' });
     }
 
-    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reuniao_id]);
+    const reuniao = await database.get('SELECT criada_por, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reuniao_id]);
     if (!reuniao) {
       return res.status(404).json({ erro: 'Reuniao nao encontrada' });
     }
 
     if (!usuarioPodeGerenciarReuniao(req, reuniao)) {
       return res.status(403).json({ erro: 'Sem permissao para registrar esta mensagem' });
+    }
+
+    if (prazoAcoesReuniaoEncerrado(reuniao)) {
+      return respostaPrazoReuniaoEncerrado(res);
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
@@ -899,14 +989,18 @@ router.put('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', 'equ
     const { titulo, descricao, data_reuniao, horario_inicio, local, status } = req.body;
 
     // Verificar se é o criador
-    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reunion_id]);
-    if (!reuniao || reuniao.criada_por !== usuario_id) {
+    const reuniao = await database.get('SELECT criada_por, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reunion_id]);
+    if (!reuniao || Number(reuniao.criada_por) !== Number(usuario_id)) {
       return res.status(403).json({ erro: 'Você não tem permissão para editar esta reunião' });
+    }
+
+    if (prazoAcoesReuniaoEncerrado(reuniao)) {
+      return respostaPrazoReuniaoEncerrado(res);
     }
 
     await database.run(
       `UPDATE reunioes SET titulo = ?, descricao = ?, data_reuniao = ?, horario_inicio = ?, horario_fim = ?, local = ?, status = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = ?`,
-      [titulo, descricao || '', data_reuniao, horario_inicio, '', local, status || 'agendada', reunion_id]
+      [titulo, descricao || '', data_reuniao, horario_inicio, null, local, status || 'agendada', reunion_id]
     );
 
     res.json({ mensagem: 'Reunião atualizada com sucesso' });
@@ -923,9 +1017,13 @@ router.delete('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', '
     const usuario_id = req.usuario.id;
 
     // Verificar se é o criador
-    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reunion_id]);
-    if (!reuniao || reuniao.criada_por !== usuario_id) {
+    const reuniao = await database.get('SELECT criada_por, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reunion_id]);
+    if (!reuniao || Number(reuniao.criada_por) !== Number(usuario_id)) {
       return res.status(403).json({ erro: 'Você não tem permissão para deletar esta reunião' });
+    }
+
+    if (prazoAcoesReuniaoEncerrado(reuniao)) {
+      return respostaPrazoReuniaoEncerrado(res);
     }
 
     await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id = ?', [reunion_id]);

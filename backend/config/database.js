@@ -417,6 +417,32 @@ async function initPostgres() {
     )
   `);
 
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS notificacoes (
+      id SERIAL PRIMARY KEY,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      titulo TEXT NOT NULL,
+      mensagem TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      referencia_tipo TEXT,
+      referencia_id INTEGER,
+      lida INTEGER DEFAULT 0,
+      data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS dispositivos_push (
+      id SERIAL PRIMARY KEY,
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      token TEXT UNIQUE NOT NULL,
+      plataforma TEXT,
+      ativo INTEGER DEFAULT 1,
+      data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      data_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   await seedDirigenteInicial();
   console.log('Tabelas do banco PostgreSQL criadas/verificadas');
 }
@@ -566,6 +592,8 @@ async function initSqlite() {
   await addColumnIfMissing('pessoas_externas', 'paroquia TEXT');
   await executar(`CREATE TABLE IF NOT EXISTS presencas_reuniao (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')), observacao TEXT, registrada_por INTEGER NOT NULL, data_registro DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(registrada_por) REFERENCES usuarios(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS mensagens_chamada_enviadas (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, tipo_mensagem TEXT NOT NULL, enviada_por INTEGER NOT NULL, data_envio DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id, tipo_mensagem), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(enviada_por) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS notificacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, tipo TEXT NOT NULL, referencia_tipo TEXT, referencia_id INTEGER, lida INTEGER DEFAULT 0, data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(usuario_id) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS dispositivos_push (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, plataforma TEXT, ativo INTEGER DEFAULT 1, data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP, data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(usuario_id) REFERENCES usuarios(id))`);
 
   await seedDirigenteInicial();
   console.log('Tabelas do banco SQLite criadas/verificadas');
@@ -633,6 +661,7 @@ async function ensureReady() {
 
 module.exports = {
   db: sqlite || pgPool,
+  usingPostgres,
   initDb,
   run: async (sql, params = []) => {
     await ensureReady();

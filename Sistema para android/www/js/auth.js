@@ -1,8 +1,7 @@
-const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api');
+const API_URL = 'https://sistema-ecri.vercel.app/api';
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const CHAVE_LOGIN_EM = 'loginEm';
-const TEMPO_SESSAO_MS = 10 * 24 * 60 * 60 * 1000;
 
 redirecionarSeJaEstiverLogado();
 
@@ -425,11 +424,6 @@ function redirecionarSeJaEstiverLogado() {
     if (!loginEm) {
         localStorage.setItem(CHAVE_LOGIN_EM, String(Date.now()));
         redirecionarPorPerfil(usuario);
-        return;
-    }
-
-    if (Date.now() - loginEm > TEMPO_SESSAO_MS) {
-        limparSessaoExpirada();
         return;
     }
 

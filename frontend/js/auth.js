@@ -2,7 +2,6 @@ const API_URL = window.location.protocol === 'file:' ? 'http://localhost:5000/ap
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const CHAVE_LOGIN_EM = 'loginEm';
-const TEMPO_SESSAO_MS = 10 * 24 * 60 * 60 * 1000;
 
 redirecionarSeJaEstiverLogado();
 
@@ -425,11 +424,6 @@ function redirecionarSeJaEstiverLogado() {
     if (!loginEm) {
         localStorage.setItem(CHAVE_LOGIN_EM, String(Date.now()));
         redirecionarPorPerfil(usuario);
-        return;
-    }
-
-    if (Date.now() - loginEm > TEMPO_SESSAO_MS) {
-        limparSessaoExpirada();
         return;
     }
 

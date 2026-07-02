@@ -1,4 +1,4 @@
-const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'https://sistema-ecri.vercel.app/api' : window.location.origin + '/api');
+const API_URL = 'https://sistema-ecri.vercel.app/api';
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_COORDENADOR_KEY = 'coordenadorAbaAtual';
@@ -1375,7 +1375,7 @@ async function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
     }
 
     const janelaWhatsApp = abrirJanelaWhatsAppPendente();
-    const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+    const origem = (['file:', 'capacitor:', 'ionic:'].includes(window.location.protocol) || window.location.hostname === 'localhost') ? 'https://sistema-ecri.vercel.app' : window.location.origin;
     let tokenConfirmacao = '';
     let linkConfirmacao = '';
 
@@ -1429,7 +1429,7 @@ async function gerarUrlAtualizacaoDesistenciaWhatsApp(usuarioId, tipoCadastro = 
         return '';
     }
 
-    const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+    const origem = (['file:', 'capacitor:', 'ionic:'].includes(window.location.protocol) || window.location.hostname === 'localhost') ? 'https://sistema-ecri.vercel.app' : window.location.origin;
     let tokenConfirmacao = '';
     let linkConfirmacao = '';
 
@@ -1473,7 +1473,7 @@ Link: ${linkConfirmacao}`;
 
 async function gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro = 'usuario') {
     const usuario = participantesEquipeCache.find(item => Number(item.id) === Number(usuarioId) && (item.tipo_cadastro || 'usuario') === tipoCadastro);
-    const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+    const origem = (['file:', 'capacitor:', 'ionic:'].includes(window.location.protocol) || window.location.hostname === 'localhost') ? 'https://sistema-ecri.vercel.app' : window.location.origin;
     const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${Number(usuarioId)}/token-confirmacao`, {
         method: 'POST',
         headers: getHeaders()
@@ -2193,6 +2193,9 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
+        } else {
+            const data = await response.json().catch(() => ({}));
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao agendar reuniao', 'danger');
         }
     } catch (err) {
         mostrarAlerta('alertaCoordenador', 'Erro ao agendar reunião', 'danger');
@@ -2217,9 +2220,19 @@ async function carregarReunioes() {
         let html = '';
         reunioes.forEach(r => {
             const data = formatarDataReuniao(r.data_reuniao);
+            const prazoEncerrado = reuniaoComPrazoEncerrado(r);
             const statusBadge = r.status === 'agendada' 
                 ? '<span class="badge bg-info">Agendada</span>' 
                 : `<span class="badge bg-success">${r.status}</span>`;
+            const acoesHtml = prazoEncerrado
+                ? '<div class="alert alert-warning py-2 mb-0">Prazo encerrado: chamada, edição e cancelamento ficam bloqueados 24 horas após a reunião.</div>'
+                : `
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-primary" onclick="abrirModalEditar(${r.id}, '${r.titulo}', '${r.descricao}', '${String(r.data_reuniao || '').slice(0, 10)}', '${r.horario_inicio}', '${r.local}')">Editar</button>
+                            <button type="button" class="btn btn-sm btn-success btn-abrir-chamada" data-reuniao-id="${r.id}">Chamada</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletarReuniao(${r.id})">Cancelar</button>
+                        </div>
+                    `;
             
             html += `
                 <div class="card mb-3">
@@ -2235,11 +2248,7 @@ async function carregarReunioes() {
                                 <td colspan="2"><strong>Local:</strong> ${r.local}</td>
                             </tr>
                         </table>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-primary" onclick="abrirModalEditar(${r.id}, '${r.titulo}', '${r.descricao}', '${String(r.data_reuniao || '').slice(0, 10)}', '${r.horario_inicio}', '${r.local}')">Editar</button>
-                            <button type="button" class="btn btn-sm btn-success btn-abrir-chamada" data-reuniao-id="${r.id}">Chamada</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletarReuniao(${r.id})">Cancelar</button>
-                        </div>
+                        ${acoesHtml}
                         <div id="chamadaReuniao${r.id}" class="mt-3" style="display:none;"></div>
                     </div>
                 </div>
@@ -2253,6 +2262,11 @@ async function carregarReunioes() {
 }
 
 async function abrirChamada(reuniaoId) {
+    if (reuniaoComPrazoEncerradoPorId(reuniaoId)) {
+        mostrarAlerta('alertaCoordenador', 'Prazo encerrado: a chamada só pode ser realizada até 24 horas após a reunião.', 'warning');
+        return;
+    }
+
     const container = document.getElementById(`chamadaReuniao${reuniaoId}`);
     if (!container) return;
 
@@ -2324,6 +2338,11 @@ async function abrirChamada(reuniaoId) {
 }
 
 async function salvarChamada(reuniaoId) {
+    if (reuniaoComPrazoEncerradoPorId(reuniaoId)) {
+        mostrarAlerta('alertaCoordenador', 'Prazo encerrado: a chamada só pode ser salva até 24 horas após a reunião.', 'warning');
+        return;
+    }
+
     const statusCampos = Array.from(document.querySelectorAll(`.presenca-status[data-reuniao-id="${reuniaoId}"]`));
     const usuariosComFalta = [];
     const usuariosComFaltaJustificada = [];
@@ -2615,11 +2634,43 @@ function formatarDataReuniao(valor) {
     return String(valor);
 }
 
+function obterDataHoraReuniao(reuniao) {
+    const data = String(reuniao?.data_reuniao || '').slice(0, 10);
+    const hora = String(reuniao?.horario_inicio || '00:00').slice(0, 5);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) {
+        return null;
+    }
+
+    const [ano, mes, dia] = data.split('-').map(Number);
+    const [horas, minutos] = hora.split(':').map(Number);
+    const dataHora = new Date(ano, mes - 1, dia, horas, minutos, 0, 0);
+    return Number.isNaN(dataHora.getTime()) ? null : dataHora;
+}
+
+function reuniaoComPrazoEncerrado(reuniao) {
+    if (reuniao?.prazo_acoes_encerrado) return true;
+
+    const dataHora = obterDataHoraReuniao(reuniao);
+    if (!dataHora) return false;
+
+    return Date.now() >= dataHora.getTime() + (24 * 60 * 60 * 1000);
+}
+
+function reuniaoComPrazoEncerradoPorId(reuniaoId) {
+    const reuniao = reunioesCoordenadorCache.find(item => Number(item.id) === Number(reuniaoId));
+    return reuniaoComPrazoEncerrado(reuniao);
+}
+
 function formatarHoraReuniao(valor) {
     return String(valor || '').slice(0, 5) || '-';
 }
 
 function abrirModalEditar(id, titulo, descricao, data, horarioInicio, local) {
+    if (reuniaoComPrazoEncerradoPorId(id)) {
+        mostrarAlerta('alertaCoordenador', 'Prazo encerrado: a reunião só pode ser editada até 24 horas após acontecer.', 'warning');
+        return;
+    }
+
     document.getElementById('reuniaoIdEditar').value = id;
     document.getElementById('tituloReuniao2').value = titulo;
     document.getElementById('descricaoReuniao2').value = descricao;
@@ -2662,6 +2713,11 @@ document.getElementById('formEditarReuniao')?.addEventListener('submit', async (
 });
 
 async function deletarReuniao(id) {
+    if (reuniaoComPrazoEncerradoPorId(id)) {
+        mostrarAlerta('alertaCoordenador', 'Prazo encerrado: a reunião só pode ser cancelada até 24 horas após acontecer.', 'warning');
+        return;
+    }
+
     if (!confirm('Tem certeza que deseja cancelar essa reunião?')) return;
     
     try {

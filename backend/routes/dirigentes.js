@@ -12,6 +12,7 @@ const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
+const { criarNotificacoesParaUsuarios } = require('../utils/notificacoes');
 
 const router = express.Router();
 const MOTIVOS_IMPEDIMENTO_SERVIR = [
@@ -20,6 +21,85 @@ const MOTIVOS_IMPEDIMENTO_SERVIR = [
   'Não tem casamento na Igreja',
   'Outros'
 ];
+
+async function obterUsuariosRelacionadosParaExclusao(usuario) {
+  const cpf = usuario?.cpf || '__cpf_inexistente__';
+  const email = usuario?.email || '__email_inexistente__';
+  const telefone = usuario?.telefone || '__telefone_inexistente__';
+
+  return database.all(
+    `SELECT *
+     FROM usuarios
+     WHERE id = ?
+        OR (cpf IS NOT NULL AND cpf <> '' AND cpf = ?)
+        OR (email IS NOT NULL AND email <> '' AND email = ?)
+        OR (telefone IS NOT NULL AND telefone <> '' AND telefone = ?)`,
+    [usuario.id, cpf, email, telefone]
+  );
+}
+
+async function registrarUsuarioExcluidoSeNecessario(usuario, excluidoPor, origem) {
+  const existente = await database.get(
+    'SELECT id FROM usuarios_excluidos WHERE usuario_id = ? LIMIT 1',
+    [usuario.id]
+  );
+  if (existente) return;
+
+  await database.run(
+    `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
+     VALUES (?, ?, ?, ?)`,
+    [usuario.id, JSON.stringify(usuario), excluidoPor, origem]
+  );
+}
+
+async function apagarUsuarioAtivo(usuarioId) {
+  await database.run('UPDATE pagamentos SET confirmado_por = NULL WHERE confirmado_por = ?', [usuarioId]);
+  await database.run('UPDATE solicitacoes_blusa SET confirmado_por = NULL WHERE confirmado_por = ?', [usuarioId]);
+  await database.run('DELETE FROM dispositivos_push WHERE usuario_id = ?', [usuarioId]);
+  await database.run('DELETE FROM notificacoes WHERE usuario_id = ?', [usuarioId]);
+  await database.run('DELETE FROM pagamentos WHERE usuario_id = ?', [usuarioId]);
+  await database.run('DELETE FROM solicitacoes_blusa WHERE usuario_id = ?', [usuarioId]);
+  await database.run('DELETE FROM mensagens_chamada_enviadas WHERE usuario_id = ? OR enviada_por = ?', [usuarioId, usuarioId]);
+  await database.run('DELETE FROM presencas_reuniao WHERE usuario_id = ? OR registrada_por = ?', [usuarioId, usuarioId]);
+  await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id IN (SELECT id FROM reunioes WHERE criada_por = ?)', [usuarioId]);
+  await database.run('DELETE FROM mensagens_chamada_enviadas WHERE reuniao_id IN (SELECT id FROM reunioes WHERE criada_por = ?)', [usuarioId]);
+  await database.run('DELETE FROM reunioes WHERE criada_por = ?', [usuarioId]);
+  await database.run('DELETE FROM evento_usuarios WHERE usuario_id = ?', [usuarioId]);
+  await database.run('DELETE FROM evento_usuarios WHERE evento_id IN (SELECT id FROM eventos WHERE criado_por = ?)', [usuarioId]);
+  await database.run('DELETE FROM eventos WHERE criado_por = ?', [usuarioId]);
+  await database.run('DELETE FROM usuarios WHERE id = ?', [usuarioId]);
+}
+
+function normalizarIdentificadorExclusao(valor) {
+  return String(valor || '').trim().toLowerCase();
+}
+
+function montarAssinaturasUsuarioExclusao(usuario) {
+  return [
+    `id:${Number(usuario?.id || 0) || ''}`,
+    `cpf:${normalizarIdentificadorExclusao(usuario?.cpf)}`,
+    `email:${normalizarIdentificadorExclusao(usuario?.email)}`,
+    `telefone:${normalizarIdentificadorExclusao(usuario?.telefone)}`
+  ].filter(item => !item.endsWith(':'));
+}
+
+function montarAssinaturasExcluidos(registros) {
+  const assinaturas = new Set();
+  for (const registro of registros || []) {
+    let dados = {};
+    try {
+      dados = JSON.parse(registro.dados || '{}');
+    } catch (err) {
+      dados = {};
+    }
+
+    montarAssinaturasUsuarioExclusao({
+      ...dados,
+      id: registro.usuario_id || dados.id
+    }).forEach(assinatura => assinaturas.add(assinatura));
+  }
+  return assinaturas;
+}
 
 // Obter dados do próprio perfil
 router.get('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
@@ -137,6 +217,60 @@ router.put('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_d
   }
 });
 
+router.post('/notificacoes/equipes', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const titulo = String(req.body?.titulo || '').trim();
+    const mensagem = String(req.body?.mensagem || '').trim();
+
+    if (!titulo || titulo.length < 3) {
+      return res.status(400).json({ erro: 'Informe um título para a notificação' });
+    }
+
+    if (!mensagem || mensagem.length < 3) {
+      return res.status(400).json({ erro: 'Informe a mensagem da notificação' });
+    }
+
+    if (titulo.length > 80) {
+      return res.status(400).json({ erro: 'O título deve ter no máximo 80 caracteres' });
+    }
+
+    if (mensagem.length > 500) {
+      return res.status(400).json({ erro: 'A mensagem deve ter no máximo 500 caracteres' });
+    }
+
+    const usuarios = await database.all(
+      `SELECT id
+       FROM usuarios
+       WHERE equipe IS NOT NULL
+         AND TRIM(equipe) <> ''
+         AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+         AND status NOT IN ('desistiu', 'negou', 'contato_errado')`
+    );
+
+    const usuarioIds = usuarios.map(usuario => Number(usuario.id)).filter(Boolean);
+    const total = await criarNotificacoesParaUsuarios(usuarioIds, {
+      titulo,
+      mensagem,
+      tipo: 'aviso_dirigente',
+      referencia_tipo: 'notificacao_dirigente',
+      referencia_id: req.usuario.id
+    });
+
+    await registrarHistorico(req.usuario.id, 'notificacao_dirigente_enviada', {
+      titulo,
+      total_destinatarios: total
+    });
+
+    res.json({
+      mensagem: 'Notificação enviada com sucesso',
+      total_destinatarios: total
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao enviar notificação' });
+  }
+});
+
 // Obter todos os cadastros
 router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
@@ -145,10 +279,19 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
+      WHERE NOT EXISTS (
+        SELECT 1 FROM usuarios_excluidos ue WHERE ue.usuario_id = usuarios.id
+      )
       ORDER BY data_cadastro DESC
     `);
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
+    const usuariosAtivos = usuarios.filter(usuario => {
+      const assinaturasUsuario = montarAssinaturasUsuarioExclusao(usuario);
+      return !assinaturasUsuario.some(assinatura => assinaturasExcluidas.has(assinatura));
+    });
 
-    res.json(usuarios);
+    res.json(usuariosAtivos);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter usuários' });
@@ -168,9 +311,21 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM usuarios_excluidos ue WHERE ue.usuario_id = usuarios.id
+        )
     `, [usuario_id]);
 
     if (!usuario) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
+    const usuarioExcluido = montarAssinaturasUsuarioExclusao(usuario)
+      .some(assinatura => assinaturasExcluidas.has(assinatura));
+
+    if (usuarioExcluido) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
@@ -389,24 +544,25 @@ router.delete('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
-    await database.run(
-      `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
-       VALUES (?, ?, ?, ?)`,
-      [usuario.id, JSON.stringify(usuario), req.usuario.id, 'equipe_dirigente']
-    );
+    const usuariosParaExcluir = await obterUsuariosRelacionadosParaExclusao(usuario);
+    const idsParaExcluir = [...new Set(usuariosParaExcluir
+      .map(item => Number(item.id))
+      .filter(id => id && id !== Number(req.usuario.id)))];
 
-    await database.run('UPDATE pagamentos SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
-    await database.run('UPDATE solicitacoes_blusa SET confirmado_por = NULL WHERE confirmado_por = ?', [usuario_id]);
-    await database.run('DELETE FROM pagamentos WHERE usuario_id = ?', [usuario_id]);
-    await database.run('DELETE FROM solicitacoes_blusa WHERE usuario_id = ?', [usuario_id]);
-    await database.run('DELETE FROM presencas_reuniao WHERE usuario_id = ? OR registrada_por = ?', [usuario_id, usuario_id]);
-    await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id IN (SELECT id FROM reunioes WHERE criada_por = ?)', [usuario_id]);
-    await database.run('DELETE FROM reunioes WHERE criada_por = ?', [usuario_id]);
-    await database.run('DELETE FROM evento_usuarios WHERE usuario_id = ?', [usuario_id]);
-    await registrarHistorico(usuario_id, 'usuario_excluido', { excluido_por: req.usuario.id });
-    await database.run('DELETE FROM usuarios WHERE id = ?', [usuario_id]);
+    for (const item of usuariosParaExcluir) {
+      if (!idsParaExcluir.includes(Number(item.id))) continue;
+      await registrarUsuarioExcluidoSeNecessario(item, req.usuario.id, 'equipe_dirigente');
+    }
 
-    res.json({ mensagem: 'Usuário excluído com sucesso' });
+    for (const idParaExcluir of idsParaExcluir) {
+      await registrarHistorico(idParaExcluir, 'usuario_excluido', { excluido_por: req.usuario.id });
+      await apagarUsuarioAtivo(idParaExcluir);
+    }
+
+    res.json({
+      mensagem: 'Usuário excluído com sucesso',
+      total_excluidos: idsParaExcluir.length
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao excluir usuário' });

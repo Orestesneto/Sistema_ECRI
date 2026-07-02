@@ -9,6 +9,7 @@ const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { normalizarFotoPerfil } = require('../utils/foto');
+const { verificarToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -177,7 +178,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { id: usuario.id, email: usuario.email, perfil: usuario.perfil },
       process.env.JWT_SECRET,
-      { expiresIn: '10d' }
+      { expiresIn: '3650d' }
     );
 
     res.json({
@@ -194,6 +195,39 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao fazer login' });
+  }
+});
+
+router.post('/renovar', verificarToken, async (req, res) => {
+  try {
+    const usuario = await database.get(
+      'SELECT id, email, nome_completo, perfil, equipe FROM usuarios WHERE id = ?',
+      [req.usuario.id]
+    );
+
+    if (!usuario) {
+      return res.status(404).json({ erro: 'Usuario nao encontrado' });
+    }
+
+    const token = jwt.sign(
+      { id: usuario.id, email: usuario.email, perfil: usuario.perfil },
+      process.env.JWT_SECRET,
+      { expiresIn: '3650d' }
+    );
+
+    res.json({
+      token,
+      usuario: {
+        id: usuario.id,
+        email: usuario.email,
+        nome_completo: usuario.nome_completo,
+        perfil: usuario.perfil,
+        equipe: usuario.equipe || ''
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao renovar login' });
   }
 });
 

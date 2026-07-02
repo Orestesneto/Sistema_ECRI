@@ -23,6 +23,7 @@ const coordenadorRoutes = require('./routes/coordenador');
 const dirigentesRoutes = require('./routes/dirigentes');
 const confirmacaoRoutes = require('./routes/confirmacao');
 const desenvolvimentoRoutes = require('./routes/desenvolvimento');
+const notificacoesRoutes = require('./routes/notificacoes');
 
 app.use('/frontend', express.static(path.join(__dirname, '../frontend')));
 
@@ -32,6 +33,7 @@ app.use('/api/coordenador', coordenadorRoutes);
 app.use('/api/dirigentes', dirigentesRoutes);
 app.use('/api/confirmacao', confirmacaoRoutes);
 app.use('/api/desenvolvimento', desenvolvimentoRoutes);
+app.use('/api/notificacoes', notificacoesRoutes);
 
 app.get('/c/:codigo', async (req, res) => {
   try {
@@ -52,8 +54,21 @@ app.get('/c/:codigo', async (req, res) => {
 });
 
 // Rota de teste
-app.get('/api/health', (req, res) => {
-  res.json({ message: 'Sistema ECRI está funcionando!' });
+app.get('/api/health', async (req, res) => {
+  try {
+    const totalUsuarios = await database.get('SELECT COUNT(*) AS total FROM usuarios');
+    res.json({
+      message: 'Sistema ECRI esta funcionando!',
+      database: database.usingPostgres ? 'postgres' : 'sqlite',
+      usuarios: Number(totalUsuarios?.total || 0)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      message: 'Sistema ECRI esta com erro no banco de dados',
+      database: database.usingPostgres ? 'postgres' : 'sqlite'
+    });
+  }
 });
 
 const PORT = process.env.PORT || 5000;

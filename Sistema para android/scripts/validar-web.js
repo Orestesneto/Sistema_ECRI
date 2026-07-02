@@ -1,24 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 
-const webDir = path.join(__dirname, '..', 'www');
-const requiredFiles = [
-  'index.html',
-  'equipista.html',
-  'coordenador.html',
-  'dirigentes.html',
-  'confirmacao.html',
-  'confirmacao-desistencia.html',
-  'desenvolvimento.html',
-  path.join('js', 'config.js')
+const raiz = path.join(__dirname, '..');
+const obrigatorios = [
+  'www/index.html',
+  'www/equipista.html',
+  'www/coordenador.html',
+  'www/dirigentes.html',
+  'www/js/auth.js',
+  'www/js/equipista.js',
+  'www/js/coordenador.js',
+  'www/js/dirigentes.js',
+  'www/assets/logo-ecri.png'
 ];
 
-for (const file of requiredFiles) {
-  const fullPath = path.join(webDir, file);
-  if (!fs.existsSync(fullPath)) {
-    console.error(`Arquivo obrigatorio nao encontrado: ${file}`);
-    process.exit(1);
-  }
+const faltando = obrigatorios.filter(arquivo => !fs.existsSync(path.join(raiz, arquivo)));
+if (faltando.length) {
+  console.error(`Arquivos ausentes:\n${faltando.join('\n')}`);
+  process.exit(1);
 }
 
 console.log('Arquivos web do Android conferidos.');

@@ -1,53 +1,53 @@
-# Sistema ECRI para Android
+# Sistema ECRI Android
 
-Esta pasta contem uma versao Android do Sistema ECRI usando Capacitor. O app empacota o frontend atual em `www/` e consome o backend publicado em:
+Versao Android do Sistema ECRI 2026 usando Capacitor.
 
-```text
-https://sistema-ecri.vercel.app
-```
+## Comandos
 
-## Requisitos
-
-- Node.js instalado
-- Android Studio instalado
-- JDK configurado pelo Android Studio
-
-## Instalar dependencias
-
-```bash
+```powershell
 npm install
-```
-
-## Gerar/atualizar o projeto Android
-
-```bash
+npm run build:web
 npm run sync
+cd android
+.\gradlew.bat assembleDebug
 ```
 
-## Abrir no Android Studio
-
-```bash
-npm run open
-```
-
-Depois, no Android Studio, use **Run** para instalar no celular/emulador ou **Build > Generate Signed Bundle / APK** para gerar o APK assinado.
-
-## Alterar URL do servidor
-
-Edite:
+APK debug:
 
 ```text
-www/js/config.js
+android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Troque `APP_BASE_URL` pela URL desejada e rode novamente:
+## Notificacoes na tela bloqueada
 
-```bash
+Para aparecer na central de notificacoes do Android com o app fechado, precisa configurar o Firebase Cloud Messaging.
+
+1. Baixe o arquivo `google-services.json` no console do Firebase.
+2. Coloque exatamente neste caminho:
+
+```text
+Sistema para android\android\app\google-services.json
+```
+
+3. No Vercel, configure uma destas variaveis com a conta de servico do Firebase:
+
+```text
+FIREBASE_SERVICE_ACCOUNT_BASE64
+```
+
+ou
+
+```text
+FIREBASE_SERVICE_ACCOUNT_JSON
+```
+
+Depois rode:
+
+```powershell
+npm run build:web
 npm run sync
+cd android
+.\gradlew.bat assembleDebug
 ```
 
-## Observacoes
-
-- O backend Node/Express nao roda dentro do Android. O aplicativo Android usa o backend online.
-- Para testar contra o servidor local, o celular precisa acessar o IP da maquina na mesma rede, por exemplo `http://192.168.0.10:5000`.
-- Como o app usa camera/galeria por campos de arquivo do navegador, a captura de foto depende do WebView do Android.
+Sem o `google-services.json`, o app continua funcionando, mas o push nativo fica desligado para evitar travamento.
