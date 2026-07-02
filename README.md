@@ -1,42 +1,46 @@
 # Sistema ECRI
 
-Sistema web para gestao de equipes do ECRI, com cadastro de participantes, escalas, confirmacoes, pagamentos, blusas, reunioes, relatorios e acompanhamento de faltas.
+Sistema web para gestao de equipes do ECRI, com cadastro de participantes, escalas, confirmacoes, pagamentos, blusas, reunioes, relatorios, carografo e acompanhamento de faltas.
 
 ## Visao Geral
 
-O projeto tem backend em Node.js/Express e frontend estatico em HTML, CSS e JavaScript. Em desenvolvimento pode usar SQLite local; em producao deve usar PostgreSQL, atualmente preparado para Neon.
+O projeto tem backend em Node.js/Express e frontend estatico em HTML, CSS e JavaScript. Em ambiente local, pode usar SQLite. Em producao, pode usar PostgreSQL via `DATABASE_URL`.
 
-Perfis principais:
+Tambem existe uma versao Android gerada com Capacitor na pasta `Sistema para android/`.
 
-- Equipista: cadastro, perfil, solicitacao de blusa, pagamento de taxa/blusa e acompanhamento de status.
-- Coordenador: gestao da propria equipe, confirmacoes, pagamentos, blusas, reunioes, chamada, restricoes e pagamento da propria taxa/blusa.
-- Equipe dirigente: gerenciamento geral de usuarios, escalas, eventos, relatorios, situacao de pagamentos/blusas, carografo, reunioes e acompanhamento de faltas.
-- Desenvolvimento: area restrita para manutencao administrativa.
+## Perfis
+
+- **Equipista**: cadastro, perfil, solicitacao de blusa, pagamento de taxa/blusa e acompanhamento de status.
+- **Coordenador**: gestao da propria equipe, confirmacoes, pagamentos, blusas, reunioes, chamada, restricoes, carografo da Escrita e pagamento proprio.
+- **Equipe dirigente**: gerenciamento geral de usuarios, pessoas sem cadastro, escalas, eventos, relatorios, situacao de pagamentos/blusas, carografo, reunioes e faltas.
+- **Desenvolvimento**: area restrita para manutencao administrativa, logs, carografo geral, excluidos, configuracoes e manutencoes.
+
+## Recursos Principais
+
+- Login por CPF e data de nascimento.
+- Cadastro com foto de perfil, paroquia, telefone, movimento de origem e experiencia.
+- Cadastro e escala de pessoas sem cadastro.
+- Links de confirmacao e desistencia.
+- Links curtos em `/c/:codigo`.
+- Relatorio geral com resumo por equipe.
+- Carografo com filtros e atualizacao automatica.
+- Acompanhamento de faltas e faltas justificadas.
+- Pagamentos via Mercado Pago com PIX/cartao e webhook.
+- Controle de blusas.
+- Area de excluidos com registro de quem excluiu.
+- Layout responsivo com cards para tabelas largas no celular.
 
 ## Stack
 
 - Node.js
 - Express
-- PostgreSQL via Neon em producao
-- SQLite como fallback local
-- Vercel para deploy
-- Mercado Pago para PIX e cartao de credito
-- JWT para autenticacao
-- Bootstrap no frontend
-
-## Login
-
-O login usa:
-
-- CPF: apenas numeros
-- Senha: data de nascimento com 8 numeros, no formato DDMMAAAA
-
-Exemplo:
-
-```text
-CPF: 111111111
-Senha/data de nascimento: 01012000
-```
+- SQLite local
+- PostgreSQL em producao via `DATABASE_URL`
+- Vercel
+- JWT
+- Bootstrap
+- Mercado Pago
+- Capacitor para Android
 
 ## Estrutura
 
@@ -44,16 +48,8 @@ Senha/data de nascimento: 01012000
 Sistema-ECRI/
   backend/
     config/
-      database.js
     middleware/
-      auth.js
     routes/
-      auth.js
-      equipista.js
-      coordenador.js
-      dirigentes.js
-      confirmacao.js
-      desenvolvimento.js
     utils/
     server.js
   frontend/
@@ -64,41 +60,69 @@ Sistema-ECRI/
     equipista.html
     coordenador.html
     dirigentes.html
-    confirmacao.html
     desenvolvimento.html
-  vercel.json
+    confirmacao.html
+    confirmacao-desistencia.html
+  Sistema para android/
+    android/
+    www/
+    capacitor.config.json
+    package.json
   package.json
+  vercel.json
   README.md
 ```
 
+## Seguranca e Dados Sensiveis
+
+Nao coloque dados reais no repositorio:
+
+- CPF real
+- telefone real
+- senha real
+- token do Mercado Pago
+- `DATABASE_URL`
+- `JWT_SECRET`
+- arquivos `.env`
+- dumps SQL com pessoas reais
+
+Use sempre variaveis de ambiente para dados sensiveis.
+
 ## Variaveis de Ambiente
 
-Crie um `.env` local com base em `backend/.env.example`.
+Exemplo local:
 
 ```env
 PORT=5000
 JWT_SECRET=troque-este-segredo
 APP_BASE_URL=http://localhost:5000
 
-DATABASE_URL=postgresql://usuario:senha@host.neon.tech/database?sslmode=require
+DATABASE_URL=
+DATABASE=
 
-INITIAL_DIRIGENTE_CPF=111111111
+INITIAL_DIRIGENTE_CPF=11111111111
 INITIAL_DIRIGENTE_SENHA=01012000
 INITIAL_DIRIGENTE_DATA_NASCIMENTO=01012000
-INITIAL_DIRIGENTE_NOME=ORESTES PEREIRA DA SILVA NETO
-INITIAL_DIRIGENTE_CRACHA=ORESTES
+INITIAL_DIRIGENTE_EMAIL=admin@cpf.ecri.local
+INITIAL_DIRIGENTE_NOME=ADMINISTRADOR DO SISTEMA
+INITIAL_DIRIGENTE_CRACHA=ADMIN
 INITIAL_DIRIGENTE_TELEFONE=(11) 99999-9999
 
-MERCADO_PAGO_ACCESS_TOKEN=APP_USR_seu_access_token
-MERCADO_PAGO_NOTIFICATION_URL=https://seu-dominio.com/api/equipista/mercado-pago/webhook
+DEV_USUARIO=usuario-dev
+DEV_SENHA=senha-dev-forte
+
+MERCADO_PAGO_ACCESS_TOKEN=
+MERCADO_PAGO_NOTIFICATION_URL=
+MERCADO_PAGO_PAYER_EMAIL=pagamentos@sistema-ecri.com.br
 ```
 
 Notas:
 
-- Em producao, configure essas variaveis no painel da Vercel.
-- Nao coloque tokens reais do Mercado Pago nem strings reais do banco no README ou em commits.
-- Se `DATABASE_URL` existir, o sistema usa PostgreSQL. Sem `DATABASE_URL`, usa SQLite.
-- O usuario dirigente inicial e criado automaticamente quando o banco e inicializado e ainda nao existe usuario com o CPF configurado.
+- Se `DATABASE_URL` estiver preenchida, o sistema usa PostgreSQL.
+- Se `DATABASE_URL` nao existir, o sistema usa SQLite.
+- Em producao, configure as variaveis no painel da Vercel.
+- `JWT_SECRET` deve ser forte em producao.
+- O dirigente inicial e criado automaticamente se ainda nao existir usuario com o CPF configurado.
 
 ## Rodando Localmente
 
@@ -114,46 +138,46 @@ Inicie o servidor:
 npm start
 ```
 
-Servidor local:
-
-```text
-http://localhost:5000
-```
-
-Principais paginas:
+Acesse:
 
 ```text
 http://localhost:5000/frontend/index.html
+```
+
+Paginas principais:
+
+```text
 http://localhost:5000/frontend/equipista.html
 http://localhost:5000/frontend/coordenador.html
 http://localhost:5000/frontend/dirigentes.html
+http://localhost:5000/frontend/desenvolvimento.html
 ```
 
-Tambem e possivel usar o backend diretamente em `http://localhost:5000/api`.
-
-## Deploy na Vercel
-
-O arquivo `vercel.json` direciona:
-
-- `/api/*` para `backend/server.js`
-- `/c/*` para o redirecionador de links curtos
-- demais rotas para arquivos estaticos em `frontend/`
-
-Deploy de producao:
-
-```bash
-npx vercel --prod --yes
-```
-
-URL de producao atual:
+API:
 
 ```text
-https://sistema-ecri.vercel.app
+http://localhost:5000/api/health
+```
+
+## Login
+
+O login usa:
+
+- CPF com apenas numeros.
+- Data de nascimento com 8 numeros, no formato `DDMMAAAA`.
+
+Exemplo de desenvolvimento:
+
+```text
+CPF: 11111111111
+Data de nascimento: 01012000
 ```
 
 ## Banco de Dados
 
-O sistema cria e atualiza as tabelas automaticamente ao iniciar. As principais tabelas incluem:
+O sistema cria e atualiza tabelas automaticamente ao iniciar.
+
+Principais tabelas:
 
 - `usuarios`
 - `pessoas_externas`
@@ -166,46 +190,123 @@ O sistema cria e atualiza as tabelas automaticamente ao iniciar. As principais t
 - `tokens_confirmacao_utilizados`
 - `links_encurtados`
 - `historico`
+- `usuarios_excluidos`
 - `configuracoes`
 
-Em producao, use Neon PostgreSQL com `DATABASE_URL`.
+## Deploy na Vercel
+
+O arquivo `vercel.json` roteia:
+
+- `/api/*` para `backend/server.js`
+- `/c/*` para `backend/server.js`
+- `/frontend/*` para `frontend/*`
+- demais rotas para arquivos estaticos em `frontend/`
+
+Deploy de producao:
+
+```bash
+npx vercel --prod --yes
+```
+
+URL de producao:
+
+```text
+https://sistema-ecri.vercel.app
+```
+
+## Android
+
+A versao Android fica em:
+
+```text
+Sistema para android/
+```
+
+Instale dependencias e sincronize:
+
+```bash
+cd "Sistema para android"
+npm install
+npm run sync
+```
+
+Abrir no Android Studio:
+
+```bash
+npm run open
+```
+
+Para gerar APK debug:
+
+```bash
+cd "Sistema para android/android"
+./gradlew assembleDebug
+```
+
+No Windows PowerShell:
+
+```powershell
+cd "Sistema para android\android"
+.\gradlew.bat assembleDebug
+```
+
+APK debug:
+
+```text
+Sistema para android/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Para alterar a URL do servidor usada pelo app Android, edite:
+
+```text
+Sistema para android/www/js/config.js
+```
+
+Depois rode:
+
+```bash
+cd "Sistema para android"
+npm run sync
+```
 
 ## Pagamentos
 
 A integracao com Mercado Pago permite:
 
-- PIX com QR Code e codigo copia e cola em modal.
-- Cartao de credito com acrescimo de 8%.
+- PIX com QR Code e codigo copia e cola.
+- Cartao de credito com acrescimo configurado no frontend.
 - Webhook para reconhecer pagamento aprovado.
-- Webhook para marcar pagamento ressarcido.
-- Baixa automatica de taxa/blusa quando o pagamento e aprovado.
+- Registro de pagamento ressarcido.
+- Baixa de taxa/blusa conforme aprovacao.
 
-Regras importantes:
+Configure:
 
-- Taxa e blusa podem ser pagas uma unica vez por cobranca pendente.
-- Blusas pendentes sao somadas no pagamento de blusa.
-- Se uma blusa ja foi confirmada, os botoes de pagamento deixam de aparecer.
-- O status mostra se a baixa foi via Mercado Pago ou via coordenador.
-
-## Fotos
-
-Fotos de perfil sao enviadas em Base64 e armazenadas no banco.
-
-Limite atual:
-
-```text
-2MB por foto
+```env
+MERCADO_PAGO_ACCESS_TOKEN=
+MERCADO_PAGO_NOTIFICATION_URL=https://seu-dominio.com/api/equipista/mercado-pago/webhook
 ```
 
 ## Links de Confirmacao
 
-Coordenadores e dirigentes podem gerar links de confirmacao para participantes. O sistema tambem possui links curtos usando a rota:
+Coordenadores e dirigentes podem gerar links de confirmacao para participantes cadastrados e pessoas sem cadastro.
+
+Rota de confirmacao:
+
+```text
+/frontend/confirmacao.html?token=...
+```
+
+Rota de desistencia:
+
+```text
+/frontend/confirmacao-desistencia.html?token=...
+```
+
+Links curtos:
 
 ```text
 /c/:codigo
 ```
-
-Esses links redirecionam para o destino salvo em `links_encurtados`.
 
 ## Principais Endpoints
 
@@ -229,6 +330,7 @@ Coordenador:
 - `PUT /api/coordenador/meu-perfil`
 - `GET /api/coordenador/participantes-equipe`
 - `POST /api/coordenador/participantes-equipe/:tipo/:id/token-confirmacao`
+- `GET /api/coordenador/carografo-escrita`
 - `GET /api/coordenador/solicitacoes-blusa`
 - `POST /api/coordenador/solicitacoes-blusa/:usuario_id`
 - `PUT /api/coordenador/confirmar-blusa/:id`
@@ -236,41 +338,55 @@ Coordenador:
 - `PUT /api/coordenador/confirmar-pagamento/:id`
 - `GET /api/coordenador/reunioes`
 - `POST /api/coordenador/reunioes`
-- `GET /api/coordenador/reunioes/:id/presencas`
 - `PUT /api/coordenador/reunioes/:id/presencas`
 
 Equipe dirigente:
 
 - `GET /api/dirigentes/meu-perfil`
 - `PUT /api/dirigentes/meu-perfil`
+- `GET /api/dirigentes/configuracoes-encontro`
+- `PUT /api/dirigentes/configuracoes-encontro`
 - `GET /api/dirigentes/usuarios`
 - `GET /api/dirigentes/usuarios/:usuario_id`
 - `PUT /api/dirigentes/usuarios/:usuario_id/perfil`
 - `DELETE /api/dirigentes/usuarios/:usuario_id`
 - `GET /api/dirigentes/pessoas-externas`
 - `POST /api/dirigentes/pessoas-externas`
+- `PUT /api/dirigentes/pessoas-externas/:pessoa_id`
 - `PUT /api/dirigentes/pessoas-externas/:pessoa_id/equipe`
+- `DELETE /api/dirigentes/pessoas-externas/:pessoa_id`
 - `GET /api/dirigentes/relatorio/geral`
-- `GET /api/dirigentes/relatorio/equipe/:equipe`
 - `GET /api/dirigentes/situacao`
 - `GET /api/dirigentes/acompanhamento-faltas/equipes`
 - `GET /api/dirigentes/acompanhamento-faltas/equipes/:equipe`
 - `GET /api/dirigentes/eventos`
 - `POST /api/dirigentes/eventos`
 - `PUT /api/dirigentes/eventos/:evento_id/escalacoes`
+- `DELETE /api/dirigentes/eventos/:evento_id`
 
 Confirmacao:
 
 - `GET /api/confirmacao/:token`
 - `PUT /api/confirmacao/:token`
 
+Desenvolvimento:
+
+- `POST /api/desenvolvimento/login`
+- `GET /api/desenvolvimento/acesso`
+- `GET /api/desenvolvimento/logs`
+- `GET /api/desenvolvimento/carografo`
+- `GET /api/desenvolvimento/usuarios-excluidos`
+- `GET /api/desenvolvimento/blusas`
+- `GET /api/desenvolvimento/configuracoes`
+- `PUT /api/desenvolvimento/configuracoes`
+
 Saude:
 
 - `GET /api/health`
 
-## Validacao Antes de Publicar
+## Validacao
 
-Comandos uteis:
+Checar sintaxe do backend:
 
 ```bash
 node --check backend/server.js
@@ -278,41 +394,65 @@ node --check backend/routes/auth.js
 node --check backend/routes/equipista.js
 node --check backend/routes/coordenador.js
 node --check backend/routes/dirigentes.js
+node --check backend/routes/desenvolvimento.js
+node --check backend/routes/confirmacao.js
+```
+
+Checar sintaxe do frontend:
+
+```bash
 node --check frontend/js/auth.js
 node --check frontend/js/equipista.js
 node --check frontend/js/coordenador.js
 node --check frontend/js/dirigentes.js
+node --check frontend/js/desenvolvimento.js
+node --check frontend/js/confirmacao.js
+node --check frontend/js/tabelas-responsivas.js
 ```
 
-## Observacoes de Seguranca
+Validar assets Android:
 
-- Use um `JWT_SECRET` forte em producao.
-- Nao exponha `DATABASE_URL` nem `MERCADO_PAGO_ACCESS_TOKEN`.
-- Configure `MERCADO_PAGO_NOTIFICATION_URL` com a URL publica correta.
-- Use sempre HTTPS em producao.
-- Revise alteracoes em rotas administrativas antes de publicar.
+```bash
+cd "Sistema para android"
+npm run build:web
+```
 
 ## Troubleshooting
 
-Erro de modulo ausente:
+Reinstalar dependencias:
 
 ```bash
 npm install
 ```
 
-Banco local SQLite com problema:
+Limpar banco SQLite local:
 
-```bash
-Remove-Item backend/sistema_ecri.db
+```powershell
+Remove-Item backend\sistema_ecri.db
 npm start
 ```
 
-Verificar se a API esta online:
+Verificar producao:
 
 ```text
 https://sistema-ecri.vercel.app/api/health
 ```
 
-## Autoria
+## Publicacao no GitHub
 
-Desenvolvido para o ECRI da Paroquia Nossa Senhora da Guia - Queimadas/PB.
+Antes de tornar o repositorio publico:
+
+- Verifique se `.env` nao esta versionado.
+- Rode busca por CPF, tokens e senhas reais.
+- Nao publique dumps SQL com dados reais.
+- Evite commitar bancos SQLite locais.
+
+Busca util:
+
+```bash
+rg -n "CPF_REAL|TOKEN|DATABASE_URL|MERCADO_PAGO_ACCESS_TOKEN" .
+```
+
+## Licenca
+
+Projeto interno do Sistema ECRI. Defina uma licenca antes de reutilizar em outro contexto.
