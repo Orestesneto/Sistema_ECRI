@@ -38,6 +38,41 @@ function obterBaseUrl(req) {
   return process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
 }
 
+function usuarioPodeGerenciarReuniao(req, reuniao) {
+  if (req.usuario.perfil === 'equipe_dirigente') return true;
+  return Number(reuniao.criada_por) === Number(req.usuario.id);
+}
+
+async function obterIdsMensagensChamadaPendentes(reuniaoId, candidatos, tipoMensagem) {
+  const pendentes = [];
+
+  for (const usuarioId of candidatos) {
+    const enviada = await database.get(
+      'SELECT id FROM mensagens_chamada_enviadas WHERE reuniao_id = ? AND usuario_id = ? AND tipo_mensagem = ?',
+      [reuniaoId, usuarioId, tipoMensagem]
+    );
+
+    if (!enviada) pendentes.push(usuarioId);
+  }
+
+  return pendentes;
+}
+
+async function registrarMensagemChamadaEnviada(reuniaoId, usuarioId, tipoMensagem, enviadaPor) {
+  const existente = await database.get(
+    'SELECT id FROM mensagens_chamada_enviadas WHERE reuniao_id = ? AND usuario_id = ? AND tipo_mensagem = ?',
+    [reuniaoId, usuarioId, tipoMensagem]
+  );
+
+  if (existente) return;
+
+  await database.run(
+    `INSERT INTO mensagens_chamada_enviadas (reuniao_id, usuario_id, tipo_mensagem, enviada_por)
+     VALUES (?, ?, ?, ?)`,
+    [reuniaoId, usuarioId, tipoMensagem, enviadaPor]
+  );
+}
+
 async function gerarCodigoLinkCurto() {
   for (let tentativa = 0; tentativa < 6; tentativa += 1) {
     const codigo = crypto.randomBytes(4).toString('base64url');
@@ -57,9 +92,14 @@ async function encurtarLinkConfirmacao(req, destino) {
   return `${obterBaseUrl(req)}/c/${codigo}`;
 }
 
-async function gerarDadosConfirmacao(req, participante) {
+async function gerarDadosConfirmacao(req, participante, opcoes = {}) {
   const token = gerarTokenConfirmacao(participante);
-  const linkCompleto = `${obterBaseUrl(req)}/frontend/confirmacao.html?token=${encodeURIComponent(token)}`;
+  const pagina = opcoes.pagina || 'confirmacao.html';
+  const parametros = new URLSearchParams({ token });
+  if (opcoes.status) {
+    parametros.set('status', opcoes.status);
+  }
+  const linkCompleto = `${obterBaseUrl(req)}/frontend/${pagina}?${parametros.toString()}`;
   const linkCurto = await encurtarLinkConfirmacao(req, linkCompleto);
 
   return {
@@ -315,6 +355,12 @@ router.post('/participantes-equipe/:tipo/:id/token-confirmacao', verificarToken,
   try {
     const tipo = req.params.tipo;
     const id = Number(req.params.id);
+    const finalidade = req.body?.finalidade || 'confirmacao';
+    const statusDesistencia = ['negou', 'desistiu'].includes(req.body?.status) ? req.body.status : 'desistiu';
+
+    if (!['confirmacao', 'desistencia'].includes(finalidade)) {
+      return res.status(400).json({ erro: 'Finalidade invalida' });
+    }
 
     if (!['usuario', 'externo'].includes(tipo) || !id) {
       return res.status(400).json({ erro: 'Participante inválido' });
@@ -336,7 +382,10 @@ router.post('/participantes-equipe/:tipo/:id/token-confirmacao', verificarToken,
       return res.status(403).json({ erro: 'Participante não pertence à sua equipe' });
     }
 
-    res.json(await gerarDadosConfirmacao(req, participante));
+    res.json(await gerarDadosConfirmacao(req, participante, finalidade === 'desistencia'
+      ? { pagina: 'confirmacao-desistencia.html', status: statusDesistencia }
+      : {}
+    ));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar link de confirmação' });
@@ -710,7 +759,7 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       return res.status(404).json({ erro: 'Reuniao nao encontrada' });
     }
 
-    if (req.usuario.perfil !== 'equipe_dirigente' && Number(reuniao.criada_por) !== Number(usuario_id)) {
+    if (!usuarioPodeGerenciarReuniao(req, reuniao)) {
       return res.status(403).json({ erro: 'Você não tem permissão para acessar esta chamada' });
     }
 
@@ -766,6 +815,9 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
 
     await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id = ?', [reuniao_id]);
 
+    const idsComFalta = [];
+    const idsComFaltaJustificada = [];
+
     for (const presenca of presencas) {
       const equipista_id = Number(presenca.usuario_id);
       const status = presenca.status;
@@ -789,10 +841,18 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
          VALUES (?, ?, ?, ?, ?)`,
         [reuniao_id, equipista_id, status, observacao, usuario_id]
       );
+
+      if (status === 'falta') idsComFalta.push(equipista_id);
+      if (status === 'falta_justificada') idsComFaltaJustificada.push(equipista_id);
     }
 
+    const mensagensPendentes = {
+      falta: await obterIdsMensagensChamadaPendentes(reuniao_id, idsComFalta, 'falta'),
+      falta_justificada: await obterIdsMensagensChamadaPendentes(reuniao_id, idsComFaltaJustificada, 'falta_justificada')
+    };
+
     await registrarHistorico(usuario_id, 'chamada_salva', { reuniao_id, total_registros: presencas.length });
-    res.json({ mensagem: 'Chamada salva com sucesso' });
+    res.json({ mensagem: 'Chamada salva com sucesso', mensagens_pendentes: mensagensPendentes });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao salvar chamada' });
@@ -800,6 +860,44 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
 });
 
 // Atualizar reunião
+router.post('/reunioes/:id/mensagens-chamada/:usuarioId', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
+  try {
+    const reuniao_id = Number(req.params.id);
+    const participante_id = Number(req.params.usuarioId);
+    const enviada_por = req.usuario.id;
+    const { tipo_mensagem } = req.body || {};
+
+    if (!reuniao_id || !participante_id || !['falta', 'falta_justificada'].includes(tipo_mensagem)) {
+      return res.status(400).json({ erro: 'Mensagem invalida' });
+    }
+
+    const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reuniao_id]);
+    if (!reuniao) {
+      return res.status(404).json({ erro: 'Reuniao nao encontrada' });
+    }
+
+    if (!usuarioPodeGerenciarReuniao(req, reuniao)) {
+      return res.status(403).json({ erro: 'Sem permissao para registrar esta mensagem' });
+    }
+
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
+    const participante = await database.get(
+      'SELECT id FROM usuarios WHERE id = ? AND equipe = ?',
+      [participante_id, coordenador?.equipe || '']
+    );
+
+    if (!participante) {
+      return res.status(400).json({ erro: 'Usuario nao pertence a equipe desta chamada' });
+    }
+
+    await registrarMensagemChamadaEnviada(reuniao_id, participante_id, tipo_mensagem, enviada_por);
+    res.json({ mensagem: 'Mensagem registrada como enviada' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao registrar mensagem enviada' });
+  }
+});
+
 router.put('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
     const reunion_id = req.params.id;

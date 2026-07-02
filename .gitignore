@@ -12,3 +12,4 @@ build/
 *.swo
 .vercel
 .env*
+inserir_pessoas_externas_corrigido.sql

@@ -87,8 +87,8 @@ router.post('/criar-dirigente', verificarTokenDesenvolvimento, async (req, res) 
     const cpf = String(req.body.cpf || '11111111111').replace(/\D/g, '') || null;
     const email = String(req.body.email || `${cpf}@cpf.ecri.local`).trim().toLowerCase();
     const senha = String(req.body.senha || '01012000').trim();
-    const nomeCompleto = String(req.body.nome_completo || 'ORESTES PEREIRA DA SILVA NETO').trim().toUpperCase();
-    const nomeCracha = String(req.body.nome_cracha || 'ORESTES').trim().toUpperCase();
+    const nomeCompleto = String(req.body.nome_completo || 'ADMINISTRADOR DO SISTEMA').trim().toUpperCase();
+    const nomeCracha = String(req.body.nome_cracha || 'ADMIN').trim().toUpperCase();
     const telefone = String(req.body.telefone || '(11) 99999-9999').trim();
     const dataNascimento = String(req.body.data_nascimento || senha).replace(/\D/g, '');
 
@@ -288,14 +288,17 @@ router.get('/usuarios-excluidos', verificarTokenDesenvolvimento, async (req, res
       LIMIT 1000
     `);
 
-    res.json(registros.map((registro) => ({
+    const registrosFormatados = await Promise.all(registros.map(async (registro) => ({
       id: registro.id,
       usuario_id: registro.usuario_id,
       excluido_por: registro.excluido_por,
+      excluido_por_nome: await identificarResponsavel({ excluido_por: registro.excluido_por }),
       origem: registro.origem,
       data_exclusao: registro.data_exclusao,
       ...parseDetalhes(registro.dados)
     })));
+
+    res.json(registrosFormatados);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar usuários excluídos' });
@@ -660,11 +663,12 @@ router.delete('/pessoas-externas/:pessoa_id', verificarTokenDesenvolvimento, asy
       return res.status(400).json({ erro: 'Pessoa inválida' });
     }
 
-    const pessoa = await database.get('SELECT id, nome_completo, equipe FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    const pessoa = await database.get('SELECT * FROM pessoas_externas WHERE id = ?', [pessoa_id]);
     if (!pessoa) {
       return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
     }
 
+    await registrarPessoaExternaExcluida(pessoa, req.dev.usuario, 'area_exclusiva');
     await database.run('DELETE FROM pessoas_externas WHERE id = ?', [pessoa_id]);
 
     await registrarHistorico(null, 'pessoa_sem_cadastro_excluida_area_exclusiva', {
@@ -727,6 +731,23 @@ async function registrarUsuarioExcluido(usuario, excluidoPor, origem) {
     [
       usuario.id,
       JSON.stringify(usuario),
+      excluidoPor || null,
+      origem
+    ]
+  );
+}
+
+async function registrarPessoaExternaExcluida(pessoa, excluidoPor, origem) {
+  await database.run(
+    `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
+     VALUES (?, ?, ?, ?)`,
+    [
+      null,
+      JSON.stringify({
+        ...pessoa,
+        perfil: 'sem_cadastro',
+        origem_cadastro: 'externo'
+      }),
       excluidoPor || null,
       origem
     ]

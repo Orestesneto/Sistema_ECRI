@@ -4,10 +4,17 @@ const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
 const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas'];
+const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 5000;
+const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 5000;
+const ABAS_DIRIGENTE_TEMPO_REAL = ['relatorio', 'situacao', 'acompanhamentoFaltas'];
 let usuariosCache = [];
 let pessoasExternasCache = [];
 let eventosCache = [];
 let perfilDirigenteId = null;
+let intervaloAtualizacaoCarografo = null;
+let atualizacaoCarografoEmAndamento = false;
+let intervaloAtualizacaoAbaDirigente = null;
+let atualizacaoAbaDirigenteEmAndamento = false;
 const EQUIPES_FIXAS = [
     'SEM EQUIPE',
     'Animadores',
@@ -59,6 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarAcompanhamentoFaltas();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
+    configurarAtualizacaoAbasDirigenteTempoReal();
+    configurarAtualizacaoCarografoTempoReal();
 });
 
 function configurarConfiguraçõesDirigente() {
@@ -505,7 +514,7 @@ function renderizarTabelaUsuarios() {
         })
         .sort(ordenarUsuarioPorNome);
 
-    let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Nome</th><th>Email</th><th>Perfil</th><th>Equipe</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
+    let html = '<table class="table table-hover tabela-usuarios-dirigentes"><thead><tr><th class="col-foto">Foto</th><th class="col-nome">Nome</th><th class="col-email">Email</th><th class="col-perfil">Perfil</th><th class="col-equipe">Equipe</th><th class="col-status">Status</th><th class="col-acao">Ação</th></tr></thead><tbody>';
 
     if (!usuariosFiltrados.length) {
         html += '<tr><td colspan="7" class="text-muted">Nenhum usuário encontrado.</td></tr>';
@@ -522,18 +531,16 @@ function renderizarTabelaUsuarios() {
             'equipe_dirigente': '<span class="badge bg-danger">Dirigente</span>'
         }[u.perfil] || escapeHtml(u.perfil || '-');
 
-        const statusBadge = u.status === 'confirmado'
-            ? '<span class="badge bg-success">Confirmado</span>'
-            : '<span class="badge bg-warning">Pendente</span>';
+        const statusBadge = obterStatusBadge(u.status || 'pendente');
 
         html += `<tr>
-            <td>${fotoHtml}</td>
-            <td>${escapeHtml(u.nome_completo || '')}</td>
-            <td>${escapeHtml(u.email || '')}</td>
-            <td>${perfilBadge}</td>
-            <td>${escapeHtml(u.equipe || '-')}</td>
-            <td>${statusBadge}</td>
-            <td>
+            <td class="col-foto">${fotoHtml}</td>
+            <td class="col-nome">${escapeHtml(u.nome_completo || '')}</td>
+            <td class="col-email">${escapeHtml(u.email || '')}</td>
+            <td class="col-perfil">${perfilBadge}</td>
+            <td class="col-equipe">${escapeHtml(u.equipe || '-')}</td>
+            <td class="col-status">${statusBadge}</td>
+            <td class="col-acao">
                 <button class="btn btn-sm btn-secondary" onclick="abrirModalEditarUsuário(${Number(u.id)})">Editar</button>
                 <button class="btn btn-sm btn-primary" onclick="abrirModalEscalar(${Number(u.id)})">Escalar</button>
             </td>
@@ -607,9 +614,10 @@ async function abrirModalEditarUsuário(usuarioId) {
     document.getElementById('editarUsuárioId').value = usuario.id;
     document.getElementById('editarNomeCompleto').value = usuario.nome_completo || '';
     document.getElementById('editarNomeCracha').value = usuario.nome_cracha || '';
-    document.getElementById('editarTelefone').value = usuario.telefone || '';
+    preencherTelefonesEdicaoUsuario(usuario.telefone || '', usuario.movimento_origem || '');
     preencherParoquia('editarParoquia', 'outraParoquiaEditar', 'campoOutraParoquiaEditar', usuario.paroquia);
     document.getElementById('editarMovimento').value = usuario.movimento_origem || '';
+    atualizarCamposTelefoneEdicaoUsuario();
     document.getElementById('editarAnoEncontro').value = usuario.ano_encontro || '';
     document.getElementById('editarEquipe').value = usuario.equipe || 'SEM EQUIPE';
     document.getElementById('editarStatus').value = usuario.status || 'pendente';
@@ -638,15 +646,13 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
         return;
     }
 
-    const telefoneValidacao = validarCampoTelefoneContato('editarTelefone', { obrigatorio: true });
-    if (!telefoneValidacao.valido) {
-        return;
-    }
+    const telefoneEdicao = obterTelefoneEdicaoUsuario();
+    if (!telefoneEdicao.valido) return;
 
     const body = {
         nome_completo: document.getElementById('editarNomeCompleto').value,
         nome_cracha: document.getElementById('editarNomeCracha').value,
-        telefone: telefoneValidacao.telefone,
+        telefone: telefoneEdicao.telefone,
         paroquia,
         movimento_origem: document.getElementById('editarMovimento').value,
         ano_encontro: anoEncontro,
@@ -820,6 +826,85 @@ document.getElementById('formPessoaExterna')?.addEventListener('submit', async (
     }
 });
 
+document.getElementById('editarMovimento')?.addEventListener('change', atualizarCamposTelefoneEdicaoUsuario);
+
+function preencherTelefonesEdicaoUsuario(telefoneValor, movimento) {
+    const telefoneTexto = String(telefoneValor || '');
+    const telefoneIndividual = document.getElementById('editarTelefone');
+    const telefoneEsposa = document.getElementById('editarTelefoneEsposa');
+    const telefoneMarido = document.getElementById('editarTelefoneMarido');
+
+    if (!telefoneIndividual || !telefoneEsposa || !telefoneMarido) return;
+
+    telefoneIndividual.value = '';
+    telefoneEsposa.value = '';
+    telefoneMarido.value = '';
+
+    if (movimentoOrigemCasalDirigente(movimento)) {
+        telefoneEsposa.value = telefoneTexto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim() || '';
+        telefoneMarido.value = telefoneTexto.match(/Marido:\s*(.+)$/i)?.[1]?.trim() || '';
+
+        if (!telefoneEsposa.value && !telefoneMarido.value) {
+            telefoneEsposa.value = telefoneTexto;
+        }
+        return;
+    }
+
+    telefoneIndividual.value = telefoneTexto;
+}
+
+function atualizarCamposTelefoneEdicaoUsuario() {
+    const movimento = document.getElementById('editarMovimento')?.value || '';
+    const isCasal = movimentoOrigemCasalDirigente(movimento);
+    const campoIndividual = document.getElementById('campoEditarTelefoneIndividual');
+    const campoEsposa = document.getElementById('campoEditarTelefoneEsposa');
+    const campoMarido = document.getElementById('campoEditarTelefoneMarido');
+    const telefone = document.getElementById('editarTelefone');
+    const telefoneEsposa = document.getElementById('editarTelefoneEsposa');
+    const telefoneMarido = document.getElementById('editarTelefoneMarido');
+
+    if (!campoIndividual || !campoEsposa || !campoMarido || !telefone || !telefoneEsposa || !telefoneMarido) return;
+
+    campoIndividual.style.display = isCasal ? 'none' : 'block';
+    campoEsposa.style.display = isCasal ? 'block' : 'none';
+    campoMarido.style.display = isCasal ? 'block' : 'none';
+    telefone.required = !isCasal;
+    telefoneEsposa.required = isCasal;
+    telefoneMarido.required = isCasal;
+}
+
+function obterTelefoneEdicaoUsuario() {
+    const movimento = document.getElementById('editarMovimento')?.value || '';
+    const isCasal = movimentoOrigemCasalDirigente(movimento);
+
+    if (!isCasal) {
+        const telefoneValidacao = validarCampoTelefoneContato('editarTelefone', { obrigatorio: true });
+        if (!telefoneValidacao.valido) {
+            return { valido: false, telefone: '' };
+        }
+        return { valido: true, telefone: telefoneValidacao.telefone };
+    }
+
+    const esposaValidacao = validarCampoTelefoneContato('editarTelefoneEsposa', { obrigatorio: true });
+    if (!esposaValidacao.valido) {
+        return { valido: false, telefone: '' };
+    }
+
+    const maridoValidacao = validarCampoTelefoneContato('editarTelefoneMarido', { obrigatorio: true });
+    if (!maridoValidacao.valido) {
+        return { valido: false, telefone: '' };
+    }
+
+    return {
+        valido: true,
+        telefone: `Esposa: ${esposaValidacao.telefone} | Marido: ${maridoValidacao.telefone}`
+    };
+}
+
+function movimentoOrigemCasalDirigente(movimento) {
+    return movimento === 'ECC' || movimento === 'JOVENS EJC CASADOS';
+}
+
 function formatarMensagemErroPessoaExterna(mensagem) {
     const texto = mensagem || 'Erro ao adicionar pessoa.';
     const telefoneDuplicado = texto.match(/^Telefone já cadastrado para (.+)$/i);
@@ -844,6 +929,8 @@ function telefoneComecaComNoveSemDdd(telefone) {
 configurarCampoTelefoneContato('pessoaExternaTelefone');
 configurarCampoTelefoneContato('editarPessoaExternaTelefone');
 configurarCampoTelefoneContato('editarTelefone');
+configurarCampoTelefoneContato('editarTelefoneEsposa');
+configurarCampoTelefoneContato('editarTelefoneMarido');
 
 function mostrarModalMensagemDirigente(titulo, mensagem, tipo = 'info') {
     const modalExistente = document.getElementById('modalMensagemDirigente');
@@ -1191,9 +1278,11 @@ function renderizarCarografo(usuarios) {
         const motivoImpedimentoCard = pessoaImpedidaServir
             ? `<div class="carografo-motivo-impedimento"><strong>Motivo:</strong> ${escapeHtml(formatarMotivoImpedimentoServirCard(u.pessoa_impedida_motivos))}</div>`
             : '';
+        const coordenador = u.perfil === 'coordenador';
         const classesCard = [
             'carografo-item',
             destaqueMusical ? 'carografo-item-musical' : '',
+            coordenador ? 'carografo-item-coordenador' : '',
             removidoDoEncontro ? 'carografo-item-removido' : '',
             pessoaImpedidaServir ? 'carografo-item-impedido' : ''
         ].filter(Boolean).join(' ');
@@ -1261,7 +1350,185 @@ function configurarFiltrosCarografo() {
         aplicarFiltrosCarografo();
     });
 
-    document.getElementById('baixarRelatorioCarografo')?.addEventListener('click', baixarRelatorioCarografoExcel);
+    document.getElementById('baixarRelatorioCarografo')?.addEventListener('click', () => abrirModalStatusDownloadCarografo('excel'));
+    document.getElementById('baixarCarografoPdf')?.addEventListener('click', () => abrirModalStatusDownloadCarografo('pdf'));
+    document.getElementById('btnConfirmarDownloadCarografo')?.addEventListener('click', confirmarDownloadCarografo);
+}
+
+function configurarAtualizacaoCarografoTempoReal() {
+    document.querySelectorAll('[data-bs-toggle="tab"][href="#carografo"]').forEach((aba) => {
+        aba.addEventListener('shown.bs.tab', () => {
+            atualizarCarografoTempoReal();
+            iniciarAtualizacaoCarografoTempoReal();
+        });
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            pararAtualizacaoCarografoTempoReal();
+            return;
+        }
+
+        if (carografoEstaAberto()) {
+            atualizarCarografoTempoReal();
+            iniciarAtualizacaoCarografoTempoReal();
+        }
+    });
+
+    if (carografoEstaAberto()) {
+        iniciarAtualizacaoCarografoTempoReal();
+    }
+}
+
+function configurarAtualizacaoAbasDirigenteTempoReal() {
+    ABAS_DIRIGENTE_TEMPO_REAL.forEach((idAba) => {
+        document.querySelectorAll(`[data-bs-toggle="tab"][href="#${idAba}"]`).forEach((aba) => {
+            aba.addEventListener('shown.bs.tab', () => {
+                atualizarAbaDirigenteTempoReal(idAba);
+                iniciarAtualizacaoAbaDirigenteTempoReal();
+            });
+        });
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            pararAtualizacaoAbaDirigenteTempoReal();
+            return;
+        }
+
+        const idAba = obterAbaDirigenteTempoRealAberta();
+        if (idAba) {
+            atualizarAbaDirigenteTempoReal(idAba);
+            iniciarAtualizacaoAbaDirigenteTempoReal();
+        }
+    });
+
+    if (obterAbaDirigenteTempoRealAberta()) {
+        iniciarAtualizacaoAbaDirigenteTempoReal();
+    }
+}
+
+function obterAbaDirigenteTempoRealAberta() {
+    return ABAS_DIRIGENTE_TEMPO_REAL.find((idAba) => {
+        const aba = document.getElementById(idAba);
+        return aba && aba.classList.contains('active') && aba.classList.contains('show');
+    }) || '';
+}
+
+function iniciarAtualizacaoAbaDirigenteTempoReal() {
+    if (intervaloAtualizacaoAbaDirigente || !obterAbaDirigenteTempoRealAberta() || document.hidden) return;
+
+    intervaloAtualizacaoAbaDirigente = setInterval(() => {
+        const idAba = obterAbaDirigenteTempoRealAberta();
+        if (!idAba || document.hidden) {
+            pararAtualizacaoAbaDirigenteTempoReal();
+            return;
+        }
+
+        atualizarAbaDirigenteTempoReal(idAba);
+    }, INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS);
+}
+
+function pararAtualizacaoAbaDirigenteTempoReal() {
+    if (!intervaloAtualizacaoAbaDirigente) return;
+    clearInterval(intervaloAtualizacaoAbaDirigente);
+    intervaloAtualizacaoAbaDirigente = null;
+}
+
+async function atualizarAbaDirigenteTempoReal(idAba) {
+    if (atualizacaoAbaDirigenteEmAndamento || document.hidden) return;
+
+    atualizacaoAbaDirigenteEmAndamento = true;
+    try {
+        if (idAba === 'relatorio') {
+            await carregarRelatorio();
+        } else if (idAba === 'situacao') {
+            await carregarSituacao();
+        } else if (idAba === 'acompanhamentoFaltas') {
+            await carregarAcompanhamentoFaltas();
+        }
+    } finally {
+        atualizacaoAbaDirigenteEmAndamento = false;
+    }
+}
+
+function carografoEstaAberto() {
+    const aba = document.getElementById('carografo');
+    return Boolean(aba && aba.classList.contains('active') && aba.classList.contains('show'));
+}
+
+function iniciarAtualizacaoCarografoTempoReal() {
+    if (intervaloAtualizacaoCarografo || !carografoEstaAberto() || document.hidden) return;
+
+    intervaloAtualizacaoCarografo = setInterval(() => {
+        if (!carografoEstaAberto() || document.hidden) {
+            pararAtualizacaoCarografoTempoReal();
+            return;
+        }
+
+        atualizarCarografoTempoReal();
+    }, INTERVALO_ATUALIZACAO_CAROGRAFO_MS);
+}
+
+function pararAtualizacaoCarografoTempoReal() {
+    if (!intervaloAtualizacaoCarografo) return;
+    clearInterval(intervaloAtualizacaoCarografo);
+    intervaloAtualizacaoCarografo = null;
+}
+
+async function atualizarCarografoTempoReal() {
+    if (atualizacaoCarografoEmAndamento || !carografoEstaAberto() || document.hidden) return;
+
+    atualizacaoCarografoEmAndamento = true;
+    try {
+        const [responseUsuarios, responseExternos] = await Promise.all([
+            fetch(`${API_URL}/dirigentes/usuarios`, { headers: getHeaders() }),
+            fetch(`${API_URL}/dirigentes/pessoas-externas`, { headers: getHeaders() })
+        ]);
+
+        if (!responseUsuarios.ok || !responseExternos.ok) return;
+
+        const [usuarios, pessoas] = await Promise.all([
+            responseUsuarios.json(),
+            responseExternos.json()
+        ]);
+
+        usuariosCache = (Array.isArray(usuarios) ? usuarios : [])
+            .map(aplicarFallbackParóquiaPessoa)
+            .sort(ordenarUsuarioPorNome);
+        pessoasExternasCache = (Array.isArray(pessoas) ? pessoas : []).sort(ordenarUsuarioPorNome);
+
+        aplicarFiltrosCarografo();
+    } catch (err) {
+        console.error('Erro ao atualizar carógrafo em tempo real', err);
+    } finally {
+        atualizacaoCarografoEmAndamento = false;
+    }
+}
+
+let tipoDownloadCarografoPendente = null;
+
+function abrirModalStatusDownloadCarografo(tipo) {
+    tipoDownloadCarografoPendente = tipo;
+    const statusConfirmado = document.getElementById('statusDownloadCarografoConfirmado');
+    if (statusConfirmado) statusConfirmado.checked = true;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalStatusDownloadCarografo')).show();
+}
+
+function confirmarDownloadCarografo() {
+    const status = document.querySelector('input[name="statusDownloadCarografo"]:checked')?.value || 'confirmado';
+    const tipo = tipoDownloadCarografoPendente;
+    tipoDownloadCarografoPendente = null;
+    bootstrap.Modal.getInstance(document.getElementById('modalStatusDownloadCarografo'))?.hide();
+
+    if (tipo === 'excel') {
+        baixarRelatorioCarografoExcel(status);
+        return;
+    }
+
+    if (tipo === 'pdf') {
+        baixarCarografoPdf(status);
+    }
 }
 
 function aplicarFiltrosCarografo() {
@@ -1365,15 +1632,30 @@ function normalizarTelefoneFiltro(valor) {
     return String(valor || '').replace(/\D/g, '');
 }
 
-function baixarRelatorioCarografoExcel() {
+function obterPessoasDownloadCarografo(statusDownload) {
+    const statusPermitidos = statusDownload === 'pendente'
+        ? ['confirmado', 'pendente']
+        : ['confirmado'];
+
+    return obterPessoasCarografo().filter((pessoa) => {
+        const statusPessoa = pessoa.status || 'pendente';
+        return statusPermitidos.includes(statusPessoa) && !pessoaSemEquipe(pessoa);
+    });
+}
+
+function obterTextoStatusDownloadCarografo(statusDownload) {
+    return statusDownload === 'pendente' ? 'confirmados ou pendentes' : 'confirmados';
+}
+
+function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
     if (typeof XLSX === 'undefined') {
         mostrarAlerta('alertaDirigentes', 'Biblioteca de Excel não carregada. Verifique a internet e tente novamente.', 'warning');
         return;
     }
 
-    const pessoas = obterPessoasCarografo().filter(pessoa => pessoa.status === 'confirmado' && !pessoaSemEquipe(pessoa));
+    const pessoas = obterPessoasDownloadCarografo(statusDownload);
     if (!pessoas.length) {
-        mostrarAlerta('alertaDirigentes', 'Nenhum usuário confirmado para exportar.', 'warning');
+        mostrarAlerta('alertaDirigentes', `Nenhum usuário ${obterTextoStatusDownloadCarografo(statusDownload)} para exportar.`, 'warning');
         return;
     }
 
@@ -1419,6 +1701,253 @@ function baixarRelatorioCarografoExcel() {
 
     const data = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(workbook, `relatorio-carografo-${data}.xlsx`);
+}
+
+function baixarCarografoPdf(statusDownload = 'confirmado') {
+    const pessoas = obterPessoasDownloadCarografo(statusDownload);
+    if (!pessoas.length) {
+        mostrarAlerta('alertaDirigentes', `Nenhum usuario ${obterTextoStatusDownloadCarografo(statusDownload)} para exportar.`, 'warning');
+        return;
+    }
+
+    const janela = window.open('', '_blank');
+    if (!janela) {
+        mostrarAlerta('alertaDirigentes', 'Permita pop-ups para gerar o PDF do carografo.', 'warning');
+        return;
+    }
+
+    const equipes = Array.from(new Set(pessoas.map(pessoa => pessoa.equipe || 'SEM EQUIPE')))
+        .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+    const paginas = equipes.flatMap((equipe) => {
+        const pessoasEquipe = pessoas
+            .filter(pessoa => (pessoa.equipe || 'SEM EQUIPE') === equipe)
+            .sort(ordenarPessoaCarografoPdf);
+
+        return dividirEmBlocosCarografoPdf(pessoasEquipe, 16).map((grupo) => `
+            <section class="pagina-equipe">
+                <header>
+                    <h1>${escapeHtml(equipe)}</h1>
+                </header>
+                <main class="grade-carografo">${grupo.map(renderizarCardCarografoPdf).join('')}</main>
+            </section>
+        `);
+    }).join('');
+
+    janela.document.open();
+    janela.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Carografo</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #eef1f5;
+            color: #111827;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .barra-acoes {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px;
+            background: #ffffff;
+            border-bottom: 1px solid #d6dde8;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        .barra-acoes button {
+            border: 0;
+            border-radius: 6px;
+            padding: 9px 14px;
+            background: #1d4ed8;
+            color: #ffffff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .pagina-equipe {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 12px auto;
+            padding: 10mm;
+            background: #ffffff;
+            page-break-after: always;
+        }
+        .pagina-equipe:last-child { page-break-after: auto; }
+        header {
+            text-align: center;
+            margin-bottom: 7mm;
+        }
+        h1 {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+        .grade-carografo {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-auto-rows: 61mm;
+            gap: 4mm;
+            align-items: stretch;
+        }
+        .card-carografo {
+            border: 1px solid #cfd6e3;
+            border-radius: 6px;
+            padding: 2.4mm;
+            overflow: hidden;
+            background-color: #dbeafe;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            text-align: center;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .card-carografo-coordenador {
+            background-color: #60a5fa;
+            border-color: #2563eb;
+        }
+        .foto {
+            width: 34mm;
+            height: 34mm;
+            object-fit: cover;
+            border-radius: 6px;
+            display: block;
+            margin: 0 auto 2.4mm;
+            background: #d1d5db;
+        }
+        .foto-placeholder {
+            width: 34mm;
+            height: 34mm;
+            border-radius: 6px;
+            margin: 0 auto 2.4mm;
+            background: #d1d5db;
+            color: #4b5563;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .nome {
+            min-height: 8mm;
+            font-size: 13px;
+            line-height: 1.15;
+            font-weight: 700;
+            text-transform: uppercase;
+            overflow-wrap: anywhere;
+        }
+        .linha {
+            margin-top: 1.8mm;
+            font-size: 11.5px;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+        .contatos-casal {
+            margin-top: 1.2mm;
+            font-size: 10.8px;
+            line-height: 1.15;
+        }
+        .movimento-origem {
+            margin-top: 1.2mm;
+            font-weight: 700;
+        }
+        @media print {
+            body { background: #ffffff; }
+            .barra-acoes { display: none; }
+            .pagina-equipe {
+                margin: 0;
+                box-shadow: none;
+                width: auto;
+                min-height: auto;
+            }
+            @page { size: A4 portrait; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="barra-acoes">
+        <button type="button" onclick="window.print()">Baixar PDF</button>
+    </div>
+    ${paginas}
+</body>
+</html>`);
+    janela.document.close();
+    janela.focus();
+    setTimeout(() => janela.print(), 700);
+}
+
+function renderizarCardCarografoPdf(pessoa) {
+    const nomeCracha = pessoa.nome_cracha || pessoa.nome_completo || '-';
+    const telefone = formatarTelefoneCarografoPdf(pessoa.telefone || '-');
+    const movimento = pessoa.movimento_origem || '-';
+    const classeCoordenador = pessoa.perfil === 'coordenador' ? ' card-carografo-coordenador' : '';
+    const foto = pessoa.foto_perfil
+        ? `<img class="foto" src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto de ${escapeAttr(nomeCracha)}">`
+        : '<div class="foto-placeholder">-</div>';
+
+    return `
+        <article class="card-carografo${classeCoordenador}">
+            ${foto}
+            <div class="nome">${escapeHtml(nomeCracha)}</div>
+            ${telefone}
+            <div class="linha movimento-origem">${escapeHtml(movimento)}</div>
+        </article>
+    `;
+}
+
+function formatarTelefoneCarografoPdf(telefone) {
+    const texto = String(telefone || '').trim();
+    const esposa = texto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim() || '';
+    const marido = texto.match(/Marido:\s*(.+)$/i)?.[1]?.trim() || '';
+
+    if (esposa || marido) {
+        const linhas = [
+            marido ? `Marido: ${escapeHtml(formatarNumeroCarografoPdf(marido))}` : '',
+            esposa ? `Esposa: ${escapeHtml(formatarNumeroCarografoPdf(esposa))}` : ''
+        ].filter(Boolean);
+        return `<div class="linha contatos-casal">${linhas.join('<br>')}</div>`;
+    }
+
+    return `<div class="linha">${escapeHtml(formatarNumeroCarografoPdf(texto) || '-')}</div>`;
+}
+
+function formatarNumeroCarografoPdf(telefone) {
+    const numeros = String(telefone || '').replace(/\D/g, '').replace(/^55/, '');
+    if (numeros.length === 11 && numeros.startsWith('83')) {
+        const semDdd = numeros.slice(2);
+        return `${semDdd.slice(0, 1)} ${semDdd.slice(1, 5)}-${semDdd.slice(5)}`;
+    }
+
+    return String(telefone || '').trim();
+}
+
+function dividirEmBlocosCarografoPdf(lista, tamanho) {
+    const blocos = [];
+    for (let indice = 0; indice < lista.length; indice += tamanho) {
+        blocos.push(lista.slice(indice, indice + tamanho));
+    }
+    return blocos;
+}
+
+function ordenarPessoaCarografoPdf(a, b) {
+    const prioridadeA = obterPrioridadeCarografoPdf(a);
+    const prioridadeB = obterPrioridadeCarografoPdf(b);
+
+    if (prioridadeA !== prioridadeB) return prioridadeA - prioridadeB;
+    return String(a.nome_cracha || a.nome_completo || '').localeCompare(String(b.nome_cracha || b.nome_completo || ''), 'pt-BR', { sensitivity: 'base' });
+}
+
+function obterPrioridadeCarografoPdf(pessoa) {
+    if (pessoa.perfil !== 'coordenador') return 10;
+
+    const movimento = String(pessoa.movimento_origem || '').toUpperCase();
+    if (movimento === 'EJC') return 0;
+    if (movimento === 'ECC' || movimento === 'JOVENS EJC CASADOS') return 1;
+    if (movimento === 'ECRI') return 2;
+    return 3;
 }
 
 function ordenarPorPerfilRelatorio(a, b) {
@@ -1953,6 +2482,9 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
 });
 
 document.getElementById('btnEnviarLinkConfirmacaoEscalar')?.addEventListener('click', enviarLinkConfirmacaoModalEscalar);
+document.getElementById('btnConfirmarDestinatarioConfirmacao')?.addEventListener('click', enviarLinkConfirmacaoDestinatarioCasal);
+
+let envioConfirmacaoCasalPendente = null;
 
 async function enviarLinkConfirmacaoModalEscalar() {
     const participanteId = Number(document.getElementById('usuarioIdEscalar').value);
@@ -1964,12 +2496,39 @@ async function enviarLinkConfirmacaoModalEscalar() {
         return;
     }
 
+    if (movimentoOrigemCasalDirigente(participante.movimento_origem || participante.movimento || '')) {
+        abrirModalDestinatarioConfirmacaoCasal(participanteId, tipoCadastro, participante);
+        return;
+    }
+
     const telefone = limparTelefoneWhatsAppDirigente(participante.telefone || '');
     if (!telefone) {
         mostrarAlerta('alertaDirigentes', 'Telefone WhatsApp inválido para este participante.', 'warning');
         return;
     }
 
+    await enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone);
+}
+
+async function enviarLinkConfirmacaoDestinatarioCasal() {
+    if (!envioConfirmacaoCasalPendente) return;
+
+    const destinatario = document.querySelector('input[name="destinatarioConfirmacaoCasal"]:checked')?.value || '';
+    const telefone = envioConfirmacaoCasalPendente.telefones?.[destinatario] || '';
+
+    if (!telefone) {
+        mostrarAlerta('alertaDirigentes', 'Escolha um telefone valido para enviar o link.', 'warning');
+        return;
+    }
+
+    bootstrap.Modal.getInstance(document.getElementById('modalEscolherDestinatarioConfirmacao'))?.hide();
+
+    const { participanteId, tipoCadastro, participante } = envioConfirmacaoCasalPendente;
+    envioConfirmacaoCasalPendente = null;
+    await enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone);
+}
+
+async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone) {
     const janelaWhatsApp = abrirJanelaWhatsAppPendenteDirigente();
     try {
         const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${participanteId}/token-confirmacao`, {
@@ -1999,6 +2558,38 @@ ${linkConfirmacao}`;
         mostrarAlerta('alertaDirigentes', 'Erro ao gerar link de confirmação.', 'danger');
         console.error(err);
     }
+}
+
+function abrirModalDestinatarioConfirmacaoCasal(participanteId, tipoCadastro, participante) {
+    const telefones = obterTelefonesCasalDirigente(participante.telefone || '');
+
+    if (!telefones.esposa && !telefones.marido) {
+        mostrarAlerta('alertaDirigentes', 'Telefone WhatsApp invalido para este participante.', 'warning');
+        return;
+    }
+
+    envioConfirmacaoCasalPendente = { participanteId, tipoCadastro, participante, telefones };
+
+    const radioEsposa = document.getElementById('destinatarioConfirmacaoEsposa');
+    const radioMarido = document.getElementById('destinatarioConfirmacaoMarido');
+    const textoEsposa = document.getElementById('telefoneConfirmacaoEsposaTexto');
+    const textoMarido = document.getElementById('telefoneConfirmacaoMaridoTexto');
+
+    if (radioEsposa) {
+        radioEsposa.checked = Boolean(telefones.esposa);
+        radioEsposa.disabled = !telefones.esposa;
+    }
+
+    if (radioMarido) {
+        radioMarido.checked = !telefones.esposa && Boolean(telefones.marido);
+        radioMarido.disabled = !telefones.marido;
+    }
+
+    if (textoEsposa) textoEsposa.textContent = telefones.esposa ? `(${telefones.esposa})` : '(sem telefone)';
+    if (textoMarido) textoMarido.textContent = telefones.marido ? `(${telefones.marido})` : '(sem telefone)';
+
+    bootstrap.Modal.getInstance(document.getElementById('modalEscalar'))?.hide();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalEscolherDestinatarioConfirmacao')).show();
 }
 
 function abrirJanelaWhatsAppPendenteDirigente() {
@@ -2032,7 +2623,24 @@ function obterParticipanteEscalar(participanteId, tipoCadastro) {
 function limparTelefoneWhatsAppDirigente(telefone) {
     const grupos = String(telefone || '').match(/\d{10,13}/g) || [];
     const numero = grupos[0] || String(telefone || '').replace(/\D/g, '');
-    return numero.replace(/^55/, '');
+    const numeroSemPais = numero.replace(/^55/, '');
+    return /^\d{10,11}$/.test(numeroSemPais) ? numeroSemPais : '';
+}
+
+function obterTelefonesCasalDirigente(telefone) {
+    const texto = String(telefone || '');
+    const esposa = limparTelefoneWhatsAppDirigente(texto.match(/Esposa:\s*([^|]+)/i)?.[1] || '');
+    const marido = limparTelefoneWhatsAppDirigente(texto.match(/Marido:\s*(.+)$/i)?.[1] || '');
+
+    if (esposa || marido) {
+        return { esposa, marido };
+    }
+
+    const grupos = texto.match(/\d{10,13}/g) || [];
+    return {
+        esposa: limparTelefoneWhatsAppDirigente(grupos[0] || ''),
+        marido: limparTelefoneWhatsAppDirigente(grupos[1] || '')
+    };
 }
 
 // Mostrar campo de equipe quando necessário

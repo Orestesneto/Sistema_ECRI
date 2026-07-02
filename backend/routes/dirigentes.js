@@ -560,7 +560,19 @@ router.delete('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['
       return res.status(400).json({ erro: 'Pessoa invalida' });
     }
 
+    const pessoa = await database.get('SELECT * FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    await registrarPessoaExternaExcluida(pessoa, req.usuario.id, 'equipe_dirigente');
     await database.run('DELETE FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_excluida', {
+      excluido_por: req.usuario.id,
+      pessoa_id,
+      nome_completo: pessoa.nome_completo,
+      equipe: pessoa.equipe
+    });
 
     res.json({ mensagem: 'Pessoa removida da equipe com sucesso' });
   } catch (err) {
@@ -568,6 +580,23 @@ router.delete('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['
     res.status(500).json({ erro: 'Erro ao remover pessoa sem cadastro' });
   }
 });
+
+async function registrarPessoaExternaExcluida(pessoa, excluidoPor, origem) {
+  await database.run(
+    `INSERT INTO usuarios_excluidos (usuario_id, dados, excluido_por, origem)
+     VALUES (?, ?, ?, ?)`,
+    [
+      null,
+      JSON.stringify({
+        ...pessoa,
+        perfil: 'sem_cadastro',
+        origem_cadastro: 'externo'
+      }),
+      excluidoPor || null,
+      origem
+    ]
+  );
+}
 
 router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {

@@ -405,6 +405,18 @@ async function initPostgres() {
     )
   `);
 
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS mensagens_chamada_enviadas (
+      id SERIAL PRIMARY KEY,
+      reuniao_id INTEGER NOT NULL REFERENCES reunioes(id),
+      usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+      tipo_mensagem TEXT NOT NULL,
+      enviada_por INTEGER NOT NULL REFERENCES usuarios(id),
+      data_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(reuniao_id, usuario_id, tipo_mensagem)
+    )
+  `);
+
   await seedDirigenteInicial();
   console.log('Tabelas do banco PostgreSQL criadas/verificadas');
 }
@@ -553,6 +565,7 @@ async function initSqlite() {
   await addColumnIfMissing('pessoas_externas', 'ano_encontro TEXT');
   await addColumnIfMissing('pessoas_externas', 'paroquia TEXT');
   await executar(`CREATE TABLE IF NOT EXISTS presencas_reuniao (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')), observacao TEXT, registrada_por INTEGER NOT NULL, data_registro DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(registrada_por) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS mensagens_chamada_enviadas (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, tipo_mensagem TEXT NOT NULL, enviada_por INTEGER NOT NULL, data_envio DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id, tipo_mensagem), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(enviada_por) REFERENCES usuarios(id))`);
 
   await seedDirigenteInicial();
   console.log('Tabelas do banco SQLite criadas/verificadas');
@@ -562,8 +575,8 @@ async function seedDirigenteInicial() {
   const cpf = String(process.env.INITIAL_DIRIGENTE_CPF || '11111111111').replace(/\D/g, '');
   const senha = String(process.env.INITIAL_DIRIGENTE_SENHA || '01012000').trim();
   const email = String(process.env.INITIAL_DIRIGENTE_EMAIL || `${cpf}@cpf.ecri.local`).trim().toLowerCase();
-  const nomeCompleto = String(process.env.INITIAL_DIRIGENTE_NOME || 'ORESTES PEREIRA DA SILVA NETO').trim().toUpperCase();
-  const nomeCracha = String(process.env.INITIAL_DIRIGENTE_CRACHA || 'ORESTES').trim().toUpperCase();
+  const nomeCompleto = String(process.env.INITIAL_DIRIGENTE_NOME || 'ADMINISTRADOR DO SISTEMA').trim().toUpperCase();
+  const nomeCracha = String(process.env.INITIAL_DIRIGENTE_CRACHA || 'ADMIN').trim().toUpperCase();
   const telefone = String(process.env.INITIAL_DIRIGENTE_TELEFONE || '(11) 99999-9999').trim();
   const dataNascimento = String(process.env.INITIAL_DIRIGENTE_DATA_NASCIMENTO || senha).replace(/\D/g, '');
 

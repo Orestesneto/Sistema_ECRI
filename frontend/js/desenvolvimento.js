@@ -513,9 +513,11 @@ function renderizarExcluidosDev() {
             const telefone = escapeHtml(usuario.telefone || '-');
             const equipeAtual = escapeHtml(usuario.equipe || 'SEM EQUIPE');
             const statusBadge = obterStatusBadge(usuario.status);
-            const perfil = escapeHtml(formatarPerfilAcesso(usuario.perfil));
+            const cadastroExterno = usuario.origem_cadastro === 'externo' || usuario.perfil === 'sem_cadastro';
+            const perfil = cadastroExterno ? 'Pessoa sem cadastro' : escapeHtml(formatarPerfilAcesso(usuario.perfil));
             const dataExclusao = usuario.data_exclusao ? formatarDataHoraDev(usuario.data_exclusao) : '-';
             const origem = usuario.origem === 'equipe_dirigente' ? 'Equipe dirigente' : 'Área exclusiva';
+            const excluidoPor = usuario.excluido_por_nome || usuario.excluido_por || '-';
             const fotoHtml = usuario.foto_perfil
                 ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
                 : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
@@ -535,6 +537,7 @@ function renderizarExcluidosDev() {
                         <div class="carografo-linha">Perfil: ${perfil}</div>
                         <div class="carografo-status">${statusBadge}</div>
                         <div class="carografo-linha text-danger"><strong>Excluído em:</strong> ${escapeHtml(dataExclusao)}</div>
+                        <div class="carografo-linha"><strong>Excluído por:</strong> ${escapeHtml(excluidoPor)}</div>
                         <div class="carografo-linha"><strong>Origem:</strong> ${escapeHtml(origem)}</div>
                     </div>
                 </div>

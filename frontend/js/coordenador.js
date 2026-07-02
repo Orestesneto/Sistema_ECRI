@@ -17,6 +17,7 @@ let linkCheckoutCartaoProprioAtual = '';
 let pagamentoProprioMonitoradoId = null;
 let intervaloMonitoramentoPagamentoProprio = null;
 let tentativasMonitoramentoPagamentoProprio = 0;
+let reunioesCoordenadorCache = [];
 
 if (!getToken()) {
     window.location.href = 'index.html';
@@ -660,6 +661,7 @@ function configurarFiltrosCarografoEscrita() {
         aplicarFiltrosCarografoEscrita();
     });
     document.getElementById('baixarRelatorioCarografoEscrita')?.addEventListener('click', baixarRelatorioCarografoEscritaExcel);
+    document.getElementById('baixarCarografoEscritaPdf')?.addEventListener('click', baixarCarografoEscritaPdf);
 }
 
 function preencherFiltroEquipesCarografoEscrita() {
@@ -814,6 +816,248 @@ function baixarRelatorioCarografoEscritaExcel() {
 
     const data = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(workbook, `relatorio-carografo-${data}.xlsx`);
+}
+
+function baixarCarografoEscritaPdf() {
+    const pessoas = carografoEscritaCache.filter(usuario => usuario.status === 'confirmado' && !usuarioSemEquipeCoordenador(usuario));
+    if (!pessoas.length) {
+        mostrarAlerta('alertaCoordenador', 'Nenhum usuario confirmado para exportar.', 'warning');
+        return;
+    }
+
+    const janela = window.open('', '_blank');
+    if (!janela) {
+        mostrarAlerta('alertaCoordenador', 'Permita pop-ups para gerar o PDF do carografo.', 'warning');
+        return;
+    }
+
+    const equipes = Array.from(new Set(pessoas.map(pessoa => pessoa.equipe || 'SEM EQUIPE')))
+        .sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+    const paginas = equipes.flatMap((equipe) => {
+        const pessoasEquipe = pessoas
+            .filter(pessoa => (pessoa.equipe || 'SEM EQUIPE') === equipe)
+            .sort(ordenarPessoaCarografoEscritaPdf);
+
+        return dividirEmBlocosCarografoPdf(pessoasEquipe, 16).map((grupo) => `
+                <section class="pagina-equipe">
+                    <header>
+                        <h1>${escapeHtml(equipe)}</h1>
+                    </header>
+                    <main class="grade-carografo">${grupo.map(renderizarCardCarografoEscritaPdf).join('')}</main>
+                </section>
+            `);
+    }).join('');
+
+    janela.document.open();
+    janela.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Carografo</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #eef1f5;
+            color: #111827;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        .barra-acoes {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px;
+            background: #ffffff;
+            border-bottom: 1px solid #d6dde8;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        .barra-acoes button {
+            border: 0;
+            border-radius: 6px;
+            padding: 9px 14px;
+            background: #1d4ed8;
+            color: #ffffff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .pagina-equipe {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 12px auto;
+            padding: 10mm;
+            background: #ffffff;
+            page-break-after: always;
+        }
+        .pagina-equipe:last-child { page-break-after: auto; }
+        header {
+            text-align: center;
+            margin-bottom: 7mm;
+        }
+        h1 {
+            margin: 0;
+            font-size: 22px;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+        .grade-carografo {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-auto-rows: 61mm;
+            gap: 4mm;
+            align-items: stretch;
+        }
+        .card-carografo {
+            border: 1px solid #cfd6e3;
+            border-radius: 6px;
+            padding: 2.4mm;
+            overflow: hidden;
+            background-color: #dbeafe;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            text-align: center;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        .foto {
+            width: 34mm;
+            height: 34mm;
+            object-fit: cover;
+            border-radius: 6px;
+            display: block;
+            margin: 0 auto 2.4mm;
+            background: #d1d5db;
+        }
+        .foto-placeholder {
+            width: 34mm;
+            height: 34mm;
+            border-radius: 6px;
+            margin: 0 auto 2.4mm;
+            background: #d1d5db;
+            color: #4b5563;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .nome {
+            min-height: 8mm;
+            font-size: 13px;
+            line-height: 1.15;
+            font-weight: 700;
+            text-transform: uppercase;
+            overflow-wrap: anywhere;
+        }
+        .linha {
+            margin-top: 1.8mm;
+            font-size: 11.5px;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+        .contatos-casal {
+            margin-top: 1.2mm;
+            font-size: 10.8px;
+            line-height: 1.15;
+        }
+        .movimento-origem {
+            margin-top: 1.2mm;
+            font-weight: 700;
+        }
+        @media print {
+            body { background: #ffffff; }
+            .barra-acoes { display: none; }
+            .pagina-equipe {
+                margin: 0;
+                box-shadow: none;
+                width: auto;
+                min-height: auto;
+            }
+            @page { size: A4 portrait; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="barra-acoes">
+        <button type="button" onclick="window.print()">Baixar PDF</button>
+    </div>
+    ${paginas}
+</body>
+</html>`);
+    janela.document.close();
+    janela.focus();
+    setTimeout(() => janela.print(), 700);
+}
+
+function renderizarCardCarografoEscritaPdf(pessoa) {
+    const nomeCracha = pessoa.nome_cracha || pessoa.nome_completo || '-';
+    const telefone = formatarTelefoneCarografoEscritaPdf(pessoa.telefone || '-');
+    const movimento = pessoa.movimento_origem || '-';
+    const foto = pessoa.foto_perfil
+        ? `<img class="foto" src="${escapeAttr(pessoa.foto_perfil)}" alt="Foto de ${escapeAttr(nomeCracha)}">`
+        : '<div class="foto-placeholder">-</div>';
+
+    return `
+        <article class="card-carografo">
+            ${foto}
+            <div class="nome">${escapeHtml(nomeCracha)}</div>
+            ${telefone}
+            <div class="linha movimento-origem">${escapeHtml(movimento)}</div>
+        </article>
+    `;
+}
+
+function formatarTelefoneCarografoEscritaPdf(telefone) {
+    const texto = String(telefone || '').trim();
+    const esposa = texto.match(/Esposa:\s*([^|]+)/i)?.[1]?.trim() || '';
+    const marido = texto.match(/Marido:\s*(.+)$/i)?.[1]?.trim() || '';
+
+    if (esposa || marido) {
+        const linhas = [
+            marido ? `Marido: ${escapeHtml(formatarNumeroCarografoEscritaPdf(marido))}` : '',
+            esposa ? `Esposa: ${escapeHtml(formatarNumeroCarografoEscritaPdf(esposa))}` : ''
+        ].filter(Boolean);
+        return `<div class="linha contatos-casal">${linhas.join('<br>')}</div>`;
+    }
+
+    return `<div class="linha">${escapeHtml(formatarNumeroCarografoEscritaPdf(texto) || '-')}</div>`;
+}
+
+function formatarNumeroCarografoEscritaPdf(telefone) {
+    const numeros = String(telefone || '').replace(/\D/g, '').replace(/^55/, '');
+    if (numeros.length === 11 && numeros.startsWith('83')) {
+        const semDdd = numeros.slice(2);
+        return `${semDdd.slice(0, 1)} ${semDdd.slice(1, 5)}-${semDdd.slice(5)}`;
+    }
+
+    return String(telefone || '').trim();
+}
+
+function dividirEmBlocosCarografoPdf(lista, tamanho) {
+    const blocos = [];
+    for (let indice = 0; indice < lista.length; indice += tamanho) {
+        blocos.push(lista.slice(indice, indice + tamanho));
+    }
+    return blocos;
+}
+
+function ordenarPessoaCarografoEscritaPdf(a, b) {
+    const prioridadeA = obterPrioridadeCarografoEscritaPdf(a);
+    const prioridadeB = obterPrioridadeCarografoEscritaPdf(b);
+
+    if (prioridadeA !== prioridadeB) return prioridadeA - prioridadeB;
+    return String(a.nome_cracha || a.nome_completo || '').localeCompare(String(b.nome_cracha || b.nome_completo || ''), 'pt-BR', { sensitivity: 'base' });
+}
+
+function obterPrioridadeCarografoEscritaPdf(pessoa) {
+    if (pessoa.perfil !== 'coordenador') return 10;
+
+    const movimento = String(pessoa.movimento_origem || '').toUpperCase();
+    if (movimento === 'EJC') return 0;
+    if (movimento === 'ECC' || movimento === 'JOVENS EJC CASADOS') return 1;
+    if (movimento === 'ECRI') return 2;
+    return 3;
 }
 
 function ordenarPorPerfilRelatorioCoordenador(a, b) {
@@ -1014,14 +1258,17 @@ async function atualizarStatusParticipante({ usuarioId, tipoCadastro = 'usuario'
 
         if (response.ok) {
             mostrarAlerta('alertaCoordenador', 'Status atualizado com sucesso!', 'success');
+            return true;
         } else {
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao atualizar status', 'danger');
             carregarConfirmacoes();
+            return false;
         }
     } catch (err) {
         mostrarAlerta('alertaCoordenador', 'Erro ao atualizar status', 'danger');
         carregarConfirmacoes();
         console.error(err);
+        return false;
     }
 }
 
@@ -1063,7 +1310,17 @@ document.getElementById('btnConfirmarRemocaoEncontro')?.addEventListener('click'
         select.value = status;
     }
 
-    await atualizarStatusParticipante({ usuarioId, tipoCadastro, status });
+    const janelaWhatsApp = abrirJanelaWhatsAppPendente();
+    const urlWhatsApp = await gerarUrlAtualizacaoDesistenciaWhatsApp(usuarioId, tipoCadastro, status, janelaWhatsApp);
+    if (!urlWhatsApp) return;
+
+    const atualizado = await atualizarStatusParticipante({ usuarioId, tipoCadastro, status });
+    if (!atualizado) {
+        fecharJanelaWhatsAppPendente(janelaWhatsApp);
+        return;
+    }
+
+    abrirWhatsAppComJanela(janelaWhatsApp, urlWhatsApp);
 });
 
 document.getElementById('modalConfirmarRemocaoEncontro')?.addEventListener('hidden.bs.modal', () => {
@@ -1155,6 +1412,63 @@ Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
     abrirWhatsAppComJanela(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
+}
+
+async function gerarUrlAtualizacaoDesistenciaWhatsApp(usuarioId, tipoCadastro = 'usuario', status = 'desistiu', janelaWhatsApp = null) {
+    const usuario = participantesEquipeCache.find(item => Number(item.id) === Number(usuarioId) && (item.tipo_cadastro || 'usuario') === tipoCadastro);
+    if (!usuario) {
+        fecharJanelaWhatsAppPendente(janelaWhatsApp);
+        mostrarAlerta('alertaCoordenador', 'Participante nao encontrado para enviar mensagem.', 'warning');
+        return '';
+    }
+
+    const telefone = limparTelefoneWhatsApp(usuario.telefone || '');
+    if (!telefone) {
+        fecharJanelaWhatsAppPendente(janelaWhatsApp);
+        mostrarAlerta('alertaCoordenador', 'Telefone WhatsApp inválido para este participante.', 'warning');
+        return '';
+    }
+
+    const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
+    let tokenConfirmacao = '';
+    let linkConfirmacao = '';
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${Number(usuarioId)}/token-confirmacao`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ finalidade: 'desistencia', status })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.token_confirmacao) {
+            fecharJanelaWhatsAppPendente(janelaWhatsApp);
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao gerar link de atualização.', 'danger');
+            return '';
+        }
+
+        tokenConfirmacao = data.token_confirmacao;
+        linkConfirmacao = data.link_confirmacao || '';
+        usuario.token_confirmacao = tokenConfirmacao;
+    } catch (err) {
+        fecharJanelaWhatsAppPendente(janelaWhatsApp);
+        mostrarAlerta('alertaCoordenador', 'Erro ao gerar link de atualização.', 'danger');
+        console.error(err);
+        return '';
+    }
+
+    if (!linkConfirmacao) {
+        linkConfirmacao = `${origem}/frontend/confirmacao-desistencia.html?token=${encodeURIComponent(tokenConfirmacao)}&status=${encodeURIComponent(status)}`;
+    }
+
+    const mensagem = `Aaah, que pena ${usuario.nome_completo || ''},
+Sentimos muito porque você nao poderá servir no nosso encontro.
+
+Mas você poderia, pelo menos atualizar seus dados cadastrais, para que futuramente em outros encontros possarmos contar com você?
+
+Link: ${linkConfirmacao}`;
+
+    return `https://api.whatsapp.com/send?phone=55${telefone}&text=${encodeURIComponent(mensagem)}`;
 }
 
 async function gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro = 'usuario') {
@@ -1298,13 +1612,22 @@ function mostrarLinkParaCopiaManual(linkConfirmacao) {
 function abrirJanelaWhatsAppPendente() {
     const janela = window.open('', '_blank');
     if (janela) {
-        janela.document.write('<p style="font-family:Arial,sans-serif;padding:16px;">Abrindo WhatsApp...</p>');
+        janela.document.write('<p style="font-family:Arial,sans-serif;padding:16px;">Preparando mensagem do WhatsApp...</p>');
     }
     return janela;
 }
 
 function abrirWhatsAppComJanela(janela, url) {
     if (janela && !janela.closed) {
+        janela.document.open();
+        janela.document.write(`
+            <div style="font-family:Arial,sans-serif;padding:16px;line-height:1.4;">
+                <p>Abrindo WhatsApp...</p>
+                <p>Se nÃ£o abrir automaticamente, toque no botÃ£o abaixo.</p>
+                <p><a href="${escapeAttr(url)}" style="display:inline-block;padding:10px 14px;background:#198754;color:#fff;text-decoration:none;border-radius:6px;font-weight:700;">Abrir WhatsApp</a></p>
+            </div>
+        `);
+        janela.document.close();
         janela.location.href = url;
         return;
     }
@@ -1321,7 +1644,21 @@ function fecharJanelaWhatsAppPendente(janela) {
 function limparTelefoneWhatsApp(telefone) {
     const grupos = String(telefone || '').match(/\d{10,13}/g) || [];
     const numero = grupos[0] || String(telefone || '').replace(/\D/g, '');
-    return numero.replace(/^55/, '');
+    const numeroSemPais = numero.replace(/^55/, '');
+
+    if (/^\d{8}$/.test(numeroSemPais)) {
+        return `839${numeroSemPais}`;
+    }
+
+    if (/^\d{9}$/.test(numeroSemPais)) {
+        return `83${numeroSemPais}`;
+    }
+
+    if (/^\d{10,11}$/.test(numeroSemPais)) {
+        return numeroSemPais;
+    }
+
+    return '';
 }
 function formatarStatusConfirmacao(status) {
     const mapa = {
@@ -1871,6 +2208,7 @@ async function carregarReunioes() {
         });
         
         const reunioes = await response.json();
+        reunioesCoordenadorCache = Array.isArray(reunioes) ? reunioes : [];
         
         if (reunioes.length === 0) {
             document.getElementById('listaReunioes').innerHTML = '<p class="text-muted">Nenhuma reunião agendada</p>';
@@ -1946,29 +2284,32 @@ async function abrirChamada(reuniaoId) {
             return;
         }
 
-        const linhas = presencas.map(p => `
+        const linhas = presencas.map(p => {
+            const nomeChamada = p.nome_cracha || p.nome_completo || '';
+            return `
             <tr>
-                <td>${p.foto_perfil ? `<img src="${p.foto_perfil}" alt="Foto" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : '-'}</td>
-                <td>${escapeHtml(p.nome_completo || '')}</td>
+                <td class="chamada-col-foto">${p.foto_perfil ? `<img src="${p.foto_perfil}" alt="Foto" class="chamada-foto">` : '-'}</td>
+                <td class="chamada-col-nome">${escapeHtml(nomeChamada)}</td>
                 <td>${escapeHtml(p.perfil || '-')}</td>
                 <td>${escapeHtml(p.equipe || '-')}</td>
-                <td>
-                    <select class="form-select form-select-sm presenca-status" data-reuniao-id="${reuniaoId}" data-usuario-id="${p.id}">
+                <td class="chamada-col-presenca">
+                    <select class="form-select form-select-sm presenca-status" data-reuniao-id="${reuniaoId}" data-usuario-id="${p.id}" data-usuario-nome="${escapeAttr(p.nome_completo || '')}" data-usuario-cracha="${escapeAttr(p.nome_cracha || p.nome_completo || '')}" data-usuario-telefone="${escapeAttr(p.telefone || '')}">
                         <option value="presente" ${p.status === 'presente' ? 'selected' : ''}>Presente</option>
                         <option value="falta_justificada" ${p.status === 'falta_justificada' ? 'selected' : ''}>Falta justificada</option>
                         <option value="falta" ${p.status === 'falta' ? 'selected' : ''}>Falta</option>
                     </select>
                 </td>
-                <td>
+                <td class="chamada-col-observacao">
                     <input type="text" class="form-control form-control-sm presenca-observacao" data-reuniao-id="${reuniaoId}" data-usuario-id="${p.id}" value="${escapeHtml(p.observacao || '')}" placeholder="Observação">
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
 
         container.innerHTML = `
             <h6>Chamada de presença</h6>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle">
+            <div class="table-responsive chamada-responsive">
+                <table class="table table-sm align-middle chamada-tabela">
                     <thead><tr><th>Foto</th><th>Usuário</th><th>Perfil</th><th>Equipe</th><th>Presença</th><th>Observação</th></tr></thead>
                     <tbody>${linhas}</tbody>
                 </table>
@@ -1985,15 +2326,35 @@ async function abrirChamada(reuniaoId) {
 
 async function salvarChamada(reuniaoId) {
     const statusCampos = Array.from(document.querySelectorAll(`.presenca-status[data-reuniao-id="${reuniaoId}"]`));
+    const usuariosComFalta = [];
+    const usuariosComFaltaJustificada = [];
     const presencas = statusCampos.map(campo => {
         const usuarioId = campo.dataset.usuarioId;
         const observacao = document.querySelector(`.presenca-observacao[data-reuniao-id="${reuniaoId}"][data-usuario-id="${usuarioId}"]`)?.value || '';
-
-        return {
+        const presenca = {
             usuario_id: Number(usuarioId),
             status: campo.value,
             observacao
         };
+
+        if (campo.value === 'falta') {
+            usuariosComFalta.push({
+                id: Number(usuarioId),
+                nome: campo.dataset.usuarioNome || '',
+                telefone: campo.dataset.usuarioTelefone || ''
+            });
+        }
+
+        if (campo.value === 'falta_justificada') {
+            usuariosComFaltaJustificada.push({
+                id: Number(usuarioId),
+                nome: campo.dataset.usuarioNome || '',
+                nomeCracha: campo.dataset.usuarioCracha || campo.dataset.usuarioNome || '',
+                telefone: campo.dataset.usuarioTelefone || ''
+            });
+        }
+
+        return presenca;
     });
 
     try {
@@ -2007,6 +2368,7 @@ async function salvarChamada(reuniaoId) {
 
         if (response.ok) {
             mostrarAlerta('alertaCoordenador', 'Chamada salva com sucesso!', 'success');
+            prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFaltaJustificada, data.mensagens_pendentes || {});
         } else {
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao salvar chamada', 'danger');
         }
@@ -2014,6 +2376,235 @@ async function salvarChamada(reuniaoId) {
         mostrarAlerta('alertaCoordenador', 'Erro ao salvar chamada', 'danger');
         console.error(err);
     }
+}
+
+function abrirJanelasWhatsAppFaltasPendentes(usuariosComFalta) {
+    return usuariosComFalta.map(() => abrirJanelaWhatsAppPendente());
+}
+
+function fecharJanelasWhatsAppFaltasPendentes(janelas) {
+    janelas.forEach(janela => fecharJanelaWhatsAppPendente(janela));
+}
+
+function prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFaltaJustificada, pendentes) {
+    const reuniao = reunioesCoordenadorCache.find(item => Number(item.id) === Number(reuniaoId)) || {};
+    const data = formatarDataReuniaoWhatsApp(reuniao.data_reuniao);
+    const local = reuniao.local || 'local informado';
+    const descricao = reuniao.descricao || 'os assuntos da reuniao';
+    const idsFaltaPendentes = new Set((pendentes.falta || []).map(Number));
+    const idsFaltaJustificadaPendentes = new Set((pendentes.falta_justificada || []).map(Number));
+
+    const mensagensFalta = usuariosComFalta
+        .filter(usuario => idsFaltaPendentes.has(Number(usuario.id)))
+        .map(usuario => {
+            const telefone = limparTelefoneWhatsApp(usuario.telefone || '');
+            const nome = usuario.nome || 'participante';
+            const mensagem = `Olá, ${nome}.
+Sentimos sua falta na reunião que aconteceu em ${data}, no local ${local}. Hoje tratamos: ${descricao}. Que pena que você não compareceu.
+
+Esperamos te encontrar na próxima reunião.
+
+Att
+Seus coordenadores.`;
+
+            return {
+                id: Number(usuario.id),
+                nome,
+                telefone,
+                tipoMensagem: 'falta',
+                url: telefone ? `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}` : ''
+            };
+        });
+
+    const mensagensFaltaJustificada = usuariosComFaltaJustificada
+        .filter(usuario => idsFaltaJustificadaPendentes.has(Number(usuario.id)))
+        .map(usuario => {
+            const telefone = limparTelefoneWhatsApp(usuario.telefone || '');
+            const nomeCracha = usuario.nomeCracha || usuario.nome || 'participante';
+            const mensagem = `Olá ${nomeCracha}, sua falta foi justificada =)`;
+
+            return {
+                id: Number(usuario.id),
+                nome: nomeCracha,
+                telefone,
+                tipoMensagem: 'falta_justificada',
+                url: telefone ? `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}` : ''
+            };
+        });
+
+    const mensagens = [...mensagensFalta, ...mensagensFaltaJustificada];
+    if (!mensagens.length) return;
+    abrirModalEnvioWhatsAppChamada(reuniaoId, mensagens);
+}
+
+function abrirModalEnvioWhatsAppChamada(reuniaoId, mensagens) {
+    let modalEl = document.getElementById('modalEnvioWhatsAppChamada');
+
+    if (!modalEl) {
+        modalEl = document.createElement('div');
+        modalEl.className = 'modal fade';
+        modalEl.id = 'modalEnvioWhatsAppChamada';
+        modalEl.tabIndex = -1;
+        modalEl.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Enviar WhatsApp da chamada</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="conteudoEnvioWhatsAppChamada"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalEl);
+    }
+
+    const conteudo = document.getElementById('conteudoEnvioWhatsAppChamada');
+    if (!conteudo) return;
+
+    conteudo.innerHTML = `
+        <p class="mb-3">A chamada foi salva. Envie as mensagens pendentes pelo WhatsApp:</p>
+        <div class="list-group" id="listaEnvioWhatsAppChamada">
+            ${mensagens.map(item => `
+                <div class="list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap" data-whatsapp-pendente="${item.tipoMensagem}-${item.id}">
+                    <div>
+                        <strong>${escapeHtml(item.nome)}</strong>
+                        <div class="text-muted small">${item.tipoMensagem === 'falta' ? 'Falta' : 'Falta justificada'}</div>
+                        ${item.telefone ? `<div class="text-muted small">${escapeHtml(item.telefone)}</div>` : '<div class="text-danger small">Telefone WhatsApp invalido</div>'}
+                    </div>
+                    ${item.url
+                        ? `<button type="button" class="btn btn-success btn-sm" onclick="enviarWhatsAppChamada(${Number(reuniaoId)}, ${Number(item.id)}, '${escapeAttr(item.tipoMensagem)}', '${escapeAttr(item.url)}')">Enviar WhatsApp</button>`
+                        : '<button type="button" class="btn btn-secondary btn-sm" disabled>Sem telefone</button>'}
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+function enviarWhatsAppChamada(reuniaoId, usuarioId, tipoMensagem, url) {
+    document.querySelector(`[data-whatsapp-pendente="${tipoMensagem}-${usuarioId}"]`)?.remove();
+    if (!document.querySelector('#listaEnvioWhatsAppChamada .list-group-item')) {
+        bootstrap.Modal.getInstance(document.getElementById('modalEnvioWhatsAppChamada'))?.hide();
+        mostrarAlerta('alertaCoordenador', 'Todas as mensagens pendentes foram enviadas.', 'success');
+    }
+
+    fetch(`${API_URL}/coordenador/reunioes/${reuniaoId}/mensagens-chamada/${usuarioId}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ tipo_mensagem: tipoMensagem }),
+        keepalive: true
+    }).catch(err => console.error('Erro ao registrar envio da mensagem', err));
+
+    window.open(url, '_blank', 'noopener');
+}
+
+function prepararEnvioWhatsAppFaltas(reuniaoId, usuariosComFalta, janelas = []) {
+    if (!usuariosComFalta.length) return;
+
+    const reuniao = reunioesCoordenadorCache.find(item => Number(item.id) === Number(reuniaoId)) || {};
+    const data = formatarDataReuniaoWhatsApp(reuniao.data_reuniao);
+    const local = reuniao.local || 'local informado';
+    const descricao = reuniao.descricao || 'os assuntos da reuniao';
+
+    const mensagens = usuariosComFalta.map((usuario, indice) => {
+        const telefone = limparTelefoneWhatsApp(usuario.telefone || '');
+        const nome = usuario.nome || 'participante';
+        const mensagem = `Olá, ${nome}.
+Sentimos sua falta na reunião que aconteceu em ${data}, no local ${local}. Hoje tratamos: ${descricao}. Que pena que você não compareceu.
+
+Esperamos te encontrar na próxima reunião.
+
+Att
+Seus coordenadores.`;
+
+        return {
+            nome,
+            telefone,
+            url: telefone ? `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}` : '',
+            janela: janelas[indice] || null
+        };
+    });
+
+    const pendentes = mensagens.filter(item => {
+        if (!item.url) {
+            fecharJanelaWhatsAppPendente(item.janela);
+            return true;
+        }
+
+        if (!item.janela) return true;
+
+        abrirWhatsAppComJanela(item.janela, item.url);
+        return false;
+    });
+
+    if (pendentes.length) {
+        abrirModalEnvioWhatsAppFaltas(pendentes);
+        return;
+    }
+
+    mostrarAlerta('alertaCoordenador', 'Chamada salva e mensagens de falta abertas no WhatsApp.', 'success');
+}
+
+function formatarDataReuniaoWhatsApp(valor) {
+    if (!valor) return 'data informada';
+    const partes = String(valor).slice(0, 10).split('-');
+    if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+    return String(valor);
+}
+
+function abrirModalEnvioWhatsAppFaltas(mensagens) {
+    let modalEl = document.getElementById('modalEnvioWhatsAppFaltas');
+
+    if (!modalEl) {
+        modalEl = document.createElement('div');
+        modalEl.className = 'modal fade';
+        modalEl.id = 'modalEnvioWhatsAppFaltas';
+        modalEl.tabIndex = -1;
+        modalEl.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Enviar mensagem de falta</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="conteudoEnvioWhatsAppFaltas"></div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modalEl);
+    }
+
+    const conteudo = document.getElementById('conteudoEnvioWhatsAppFaltas');
+    if (!conteudo) return;
+
+    conteudo.innerHTML = `
+        <p class="mb-3">A chamada foi salva. Envie a mensagem pelo WhatsApp para quem recebeu falta:</p>
+        <div class="list-group">
+            ${mensagens.map(item => `
+                <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                    <div>
+                        <strong>${escapeHtml(item.nome)}</strong>
+                        ${item.telefone ? `<div class="text-muted small">${escapeHtml(item.telefone)}</div>` : '<div class="text-danger small">Telefone WhatsApp invalido</div>'}
+                    </div>
+                    ${item.url
+                        ? `<a class="btn btn-success btn-sm" href="${escapeAttr(item.url)}" target="_blank" rel="noopener">Enviar WhatsApp</a>`
+                        : '<button type="button" class="btn btn-secondary btn-sm" disabled>Sem telefone</button>'}
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
 
 function abrirModalEditar(id, titulo, descricao, data, horarioInicio, horarioFim, local) {

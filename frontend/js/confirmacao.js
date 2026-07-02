@@ -4,6 +4,8 @@ const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 
 const params = new URLSearchParams(window.location.search);
 const token = params.get('token');
+const modoDesistencia = window.location.pathname.includes('confirmacao-desistencia');
+const statusDesistencia = ['negou', 'desistiu'].includes(params.get('status')) ? params.get('status') : 'desistiu';
 let tipoCadastro = '';
 let fotoPerfilAtualConfirmacao = '';
 
@@ -111,6 +113,7 @@ async function carregarConfirmacao() {
             : '<div class="mx-auto" style="width:120px; height:120px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
 
         document.getElementById('formConfirmacao').style.display = 'block';
+        aplicarModoDesistenciaConfirmacao();
         atualizarModoConfirmacao();
     } catch (err) {
         mostrarAlerta('Erro ao carregar confirmação.', 'danger');
@@ -277,7 +280,7 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         instrumentos,
         canta,
         equipes_servidas: equipesServidas,
-        status: document.getElementById('confirmacaoStatus').value,
+        status: modoDesistencia ? statusDesistencia : document.getElementById('confirmacaoStatus').value,
         foto_perfil: fotoPerfil
     };
 
@@ -291,7 +294,7 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         const data = await response.json();
 
         if (response.ok) {
-            mostrarAlerta('Confirmação enviada com sucesso!', 'success');
+            mostrarAlerta(modoDesistencia ? 'Atualizacao de dados enviada com sucesso!' : 'Confirmacao enviada com sucesso!', 'success');
             document.getElementById('formConfirmacao').style.display = 'none';
         } else {
             if (erroTelefoneConfirmacao(data.erro)) {
@@ -306,6 +309,18 @@ document.getElementById('formConfirmacao')?.addEventListener('submit', async (e)
         console.error(err);
     }
 });
+
+function aplicarModoDesistenciaConfirmacao() {
+    if (!modoDesistencia) return;
+
+    const campoStatus = document.getElementById('campoConfirmacaoStatus');
+    const status = document.getElementById('confirmacaoStatus');
+    const botao = document.getElementById('btnEnviarConfirmacao');
+
+    if (campoStatus) campoStatus.style.display = 'none';
+    if (status) status.value = statusDesistencia;
+    if (botao) botao.textContent = 'Enviar atualização de dados';
+}
 
 function atualizarModoConfirmacao() {
     const movimento = document.getElementById('confirmacaoMovimento')?.value || '';
