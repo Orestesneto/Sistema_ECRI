@@ -2178,7 +2178,6 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
     const descricao = document.getElementById('descricaoReuniao').value;
     const data_reuniao = document.getElementById('dataReuniao').value;
     const horario_inicio = document.getElementById('horarioInicio').value;
-    const horario_fim = document.getElementById('horarioFim').value;
     const local = document.getElementById('localReuniao').value;
     
     try {
@@ -2186,7 +2185,7 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                titulo, descricao, data_reuniao, horario_inicio, horario_fim, local
+                titulo, descricao, data_reuniao, horario_inicio, local
             })
         });
         
@@ -2217,7 +2216,7 @@ async function carregarReunioes() {
         
         let html = '';
         reunioes.forEach(r => {
-            const data = new Date(r.data_reuniao).toLocaleDateString('pt-BR');
+            const data = formatarDataReuniao(r.data_reuniao);
             const statusBadge = r.status === 'agendada' 
                 ? '<span class="badge bg-info">Agendada</span>' 
                 : `<span class="badge bg-success">${r.status}</span>`;
@@ -2230,14 +2229,14 @@ async function carregarReunioes() {
                         <table class="table table-sm">
                             <tr>
                                 <td><strong>Data:</strong> ${data}</td>
-                                <td><strong>Horário:</strong> ${r.horario_inicio}${r.horario_fim ? ' - ' + r.horario_fim : ''}</td>
+                                <td><strong>Horário:</strong> ${formatarHoraReuniao(r.horario_inicio)}</td>
                             </tr>
                             <tr>
                                 <td colspan="2"><strong>Local:</strong> ${r.local}</td>
                             </tr>
                         </table>
                         <div class="btn-group" role="group">
-                            <button class="btn btn-sm btn-primary" onclick="abrirModalEditar(${r.id}, '${r.titulo}', '${r.descricao}', '${r.data_reuniao}', '${r.horario_inicio}', '${r.horario_fim}', '${r.local}')">Editar</button>
+                            <button class="btn btn-sm btn-primary" onclick="abrirModalEditar(${r.id}, '${r.titulo}', '${r.descricao}', '${String(r.data_reuniao || '').slice(0, 10)}', '${r.horario_inicio}', '${r.local}')">Editar</button>
                             <button type="button" class="btn btn-sm btn-success btn-abrir-chamada" data-reuniao-id="${r.id}">Chamada</button>
                             <button class="btn btn-sm btn-danger" onclick="deletarReuniao(${r.id})">Cancelar</button>
                         </div>
@@ -2607,13 +2606,25 @@ function abrirModalEnvioWhatsAppFaltas(mensagens) {
     bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
 
-function abrirModalEditar(id, titulo, descricao, data, horarioInicio, horarioFim, local) {
+function formatarDataReuniao(valor) {
+    if (!valor) return '-';
+    const partes = String(valor).slice(0, 10).split('-');
+    if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+    return String(valor);
+}
+
+function formatarHoraReuniao(valor) {
+    return String(valor || '').slice(0, 5) || '-';
+}
+
+function abrirModalEditar(id, titulo, descricao, data, horarioInicio, local) {
     document.getElementById('reuniaoIdEditar').value = id;
     document.getElementById('tituloReuniao2').value = titulo;
     document.getElementById('descricaoReuniao2').value = descricao;
-    document.getElementById('dataReuniao2').value = data;
+    document.getElementById('dataReuniao2').value = String(data || '').slice(0, 10);
     document.getElementById('horarioInicio2').value = horarioInicio;
-    document.getElementById('horarioFim2').value = horarioFim;
     document.getElementById('localReuniao2').value = local;
     
     const modal = new bootstrap.Modal(document.getElementById('modalEditarReuniao'));
@@ -2628,7 +2639,6 @@ document.getElementById('formEditarReuniao')?.addEventListener('submit', async (
     const descricao = document.getElementById('descricaoReuniao2').value;
     const data_reuniao = document.getElementById('dataReuniao2').value;
     const horario_inicio = document.getElementById('horarioInicio2').value;
-    const horario_fim = document.getElementById('horarioFim2').value;
     const local = document.getElementById('localReuniao2').value;
     
     try {
@@ -2636,7 +2646,7 @@ document.getElementById('formEditarReuniao')?.addEventListener('submit', async (
             method: 'PUT',
             headers: getHeaders(),
             body: JSON.stringify({
-                titulo, descricao, data_reuniao, horario_inicio, horario_fim, local
+                titulo, descricao, data_reuniao, horario_inicio, local
             })
         });
         

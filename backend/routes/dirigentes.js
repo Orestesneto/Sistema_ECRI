@@ -42,13 +42,9 @@ router.get('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
 // Atualizar próprio perfil
 router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
-    const { nome_cracha, paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, movimento_origem, ano_encontro } = req.body;
+    const { nome_cracha, paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, ano_encontro } = req.body;
     const usuario_id = req.usuario.id;
     const experiencia = normalizarExperienciaPerfil(req.body);
-
-    if (!movimentoOrigemValido(movimento_origem)) {
-      return res.status(400).json({ erro: 'Movimento de origem inválido' });
-    }
 
     if (!anoEncontroValido(ano_encontro)) {
       return res.status(400).json({ erro: 'Ano do encontro inválido' });
@@ -57,8 +53,6 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
     if (!paroquiaValida(paroquia)) {
       return res.status(400).json({ erro: 'Paróquia inválida' });
     }
-
-    const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
@@ -71,7 +65,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
     await database.run(
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
-           foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
+           foto_perfil = COALESCE(?, foto_perfil), ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
            instrumentos = ?, canta = ?, equipes_servidas = ?,
            status = CASE WHEN status = 'contato_errado' THEN 'pendente' ELSE status END
        WHERE id = ?`,
@@ -81,7 +75,6 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
         restricao_alimentar,
         restricao_medicacao,
         fotoPerfil,
-        movimentoOrigem,
         anoEncontro,
         paroquiaNormalizada,
         experiencia.tocaInstrumento,
@@ -250,7 +243,6 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
     }
     const statusFinal = usuario.status === 'contato_errado' ? 'pendente' : status;
     const regraEquipeStatus = aplicarRegraSemEquipe(equipeNormalizada, statusFinal);
-
     const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
     if (!paroquiaValida(paroquiaNormalizada)) {

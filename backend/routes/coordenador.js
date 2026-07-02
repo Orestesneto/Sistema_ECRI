@@ -148,13 +148,9 @@ router.get('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
 // Atualizar próprio perfil
 router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const { nome_cracha, paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, movimento_origem, ano_encontro } = req.body;
+    const { nome_cracha, paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, ano_encontro } = req.body;
     const usuario_id = req.usuario.id;
     const experiencia = normalizarExperienciaPerfil(req.body);
-
-    if (!movimentoOrigemValido(movimento_origem)) {
-      return res.status(400).json({ erro: 'Movimento de origem inválido' });
-    }
 
     if (!anoEncontroValido(ano_encontro)) {
       return res.status(400).json({ erro: 'Ano do encontro inválido' });
@@ -164,7 +160,6 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
       return res.status(400).json({ erro: 'Paróquia inválida' });
     }
 
-    const movimentoOrigem = normalizarMovimentoOrigem(movimento_origem);
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
@@ -177,7 +172,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
     await database.run(
       `UPDATE usuarios
        SET nome_cracha = ?, restricao_medica = ?, restricao_alimentar = ?, restricao_medicacao = ?,
-           foto_perfil = COALESCE(?, foto_perfil), movimento_origem = ?, ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
+           foto_perfil = COALESCE(?, foto_perfil), ano_encontro = ?, paroquia = ?, toca_instrumento = ?,
            instrumentos = ?, canta = ?, equipes_servidas = ?,
            status = CASE WHEN status = 'contato_errado' THEN 'pendente' ELSE status END
        WHERE id = ?`,
@@ -187,7 +182,6 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
         restricao_alimentar,
         restricao_medicacao,
         fotoPerfil,
-        movimentoOrigem,
         anoEncontro,
         paroquiaNormalizada,
         experiencia.tocaInstrumento,
@@ -709,7 +703,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
 // Criar nova reunião
 router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const { titulo, descricao, data_reuniao, horario_inicio, horario_fim, local } = req.body;
+    const { titulo, descricao, data_reuniao, horario_inicio, local } = req.body;
     const criada_por = req.usuario.id;
 
     if (!titulo || !data_reuniao || !horario_inicio || !local) {
@@ -719,7 +713,7 @@ router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe
     const resultado = await database.run(
       `INSERT INTO reunioes (criada_por, titulo, descricao, data_reuniao, horario_inicio, horario_fim, local) 
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [criada_por, titulo, descricao || '', data_reuniao, horario_inicio, horario_fim || '', local]
+      [criada_por, titulo, descricao || '', data_reuniao, horario_inicio, '', local]
     );
 
     res.status(201).json({
@@ -902,7 +896,7 @@ router.put('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', 'equ
   try {
     const reunion_id = req.params.id;
     const usuario_id = req.usuario.id;
-    const { titulo, descricao, data_reuniao, horario_inicio, horario_fim, local, status } = req.body;
+    const { titulo, descricao, data_reuniao, horario_inicio, local, status } = req.body;
 
     // Verificar se é o criador
     const reuniao = await database.get('SELECT criada_por FROM reunioes WHERE id = ?', [reunion_id]);
@@ -912,7 +906,7 @@ router.put('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', 'equ
 
     await database.run(
       `UPDATE reunioes SET titulo = ?, descricao = ?, data_reuniao = ?, horario_inicio = ?, horario_fim = ?, local = ?, status = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = ?`,
-      [titulo, descricao || '', data_reuniao, horario_inicio, horario_fim || '', local, status || 'agendada', reunion_id]
+      [titulo, descricao || '', data_reuniao, horario_inicio, '', local, status || 'agendada', reunion_id]
     );
 
     res.json({ mensagem: 'Reunião atualizada com sucesso' });

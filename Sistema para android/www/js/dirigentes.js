@@ -1,4 +1,4 @@
-const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'http://localhost:5000/api' : window.location.origin + '/api');
+const API_URL = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl) || (window.location.protocol === 'file:' ? 'https://sistema-ecri.vercel.app/api' : window.location.origin + '/api');
 const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
@@ -2543,7 +2543,7 @@ async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCa
             return;
         }
 
-        const origem = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.appBaseUrl) || (window.location.protocol === 'file:' ? 'http://localhost:5000' : window.location.origin);
+        const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
         const linkConfirmacao = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
         const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
 Ficamos muito felizes pelo seu sim!
@@ -2682,7 +2682,7 @@ async function carregarReunioes() {
                 'cancelada': '<span class="badge bg-danger">Cancelada</span>'
             }[r.status] || r.status;
             
-            const dataFormatada = new Date(r.data_reuniao).toLocaleDateString('pt-BR');
+            const dataFormatada = formatarDataReuniaoDirigente(r.data_reuniao);
             
             html += `
                 <div class="col-md-6 mb-3">
@@ -2698,7 +2698,7 @@ async function carregarReunioes() {
                             <hr>
                             <p class="card-text"><small><strong>Descrição:</strong> ${r.descricao || 'Sem descrição'}</small></p>
                             <p class="card-text"><small><strong>Data:</strong> ${dataFormatada}</small></p>
-                            <p class="card-text"><small><strong>Horário:</strong> ${r.horario_inicio}${r.horario_fim ? ' - ' + r.horario_fim : ''}</small></p>
+                            <p class="card-text"><small><strong>Horário:</strong> ${formatarHoraReuniaoDirigente(r.horario_inicio)}</small></p>
                             <p class="card-text"><small><strong>Local:</strong> ${r.local}</small></p>
                         </div>
                     </div>
@@ -2711,6 +2711,19 @@ async function carregarReunioes() {
         console.error(err);
         document.getElementById('containerReunioes').innerHTML = '<div class="alert alert-danger">Erro ao carregar reuniões.</div>';
     }
+}
+
+function formatarDataReuniaoDirigente(valor) {
+    if (!valor) return '-';
+    const partes = String(valor).slice(0, 10).split('-');
+    if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+    return String(valor);
+}
+
+function formatarHoraReuniaoDirigente(valor) {
+    return String(valor || '').slice(0, 5) || '-';
 }
 
 async function carregarAcompanhamentoFaltas() {
