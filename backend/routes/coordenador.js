@@ -840,7 +840,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     const usuario_id = req.usuario.id;
     const { presencas } = req.body;
 
-    const reuniao = await database.get('SELECT criada_por, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reuniao_id]);
+    const reuniao = await database.get('SELECT criada_por, titulo, data_reuniao, horario_inicio FROM reunioes WHERE id = ?', [reuniao_id]);
     if (!reuniao) {
       return res.status(404).json({ erro: 'Reuniao nao encontrada' });
     }
@@ -861,6 +861,14 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     if (!coordenador?.equipe || equipeSemEquipe(coordenador.equipe)) {
       return res.status(400).json({ erro: 'Coordenador sem equipe escalada' });
     }
+
+    const presencasAnteriores = await database.all(
+      'SELECT usuario_id, status FROM presencas_reuniao WHERE reuniao_id = ?',
+      [reuniao_id]
+    );
+    const statusAnteriorPorUsuario = new Map(
+      presencasAnteriores.map(item => [Number(item.usuario_id), item.status || 'presente'])
+    );
 
     await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id = ?', [reuniao_id]);
 
@@ -891,6 +899,9 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
          VALUES (?, ?, ?, ?, ?)`,
         [reuniao_id, equipista_id, status, observacao, usuario_id]
       );
+
+      const statusAnterior = statusAnteriorPorUsuario.get(equipista_id) || 'presente';
+      if (status === statusAnterior) continue;
 
       if (status === 'presente') idsComPresenca.push(equipista_id);
       if (status === 'falta') idsComFalta.push(equipista_id);

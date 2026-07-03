@@ -576,16 +576,22 @@ router.get('/equipes', verificarToken, verificarPerfil(['equipe_dirigente']), (r
 router.get('/acompanhamento-faltas/equipes', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const equipesCadastradas = EQUIPES.filter(equipe => !equipeSemEquipe(equipe));
-    const totais = await database.all(`
-      SELECT equipe, COUNT(*) AS total_usuarios
+    const usuarios = await database.all(`
+      SELECT id, cpf, email, telefone, equipe
       FROM usuarios
       WHERE equipe IS NOT NULL
         AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
-      GROUP BY equipe
     `);
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
 
-    const totalPorEquipe = totais.reduce((acc, item) => {
-      acc[normalizarEquipe(item.equipe)] = Number(item.total_usuarios || 0);
+    const totalPorEquipe = usuarios.reduce((acc, usuario) => {
+      const usuarioExcluido = montarAssinaturasUsuarioExclusao(usuario)
+        .some(assinatura => assinaturasExcluidos.has(assinatura));
+      if (usuarioExcluido) return acc;
+
+      const equipe = normalizarEquipe(usuario.equipe);
+      acc[equipe] = (acc[equipe] || 0) + 1;
       return acc;
     }, {});
 
@@ -607,7 +613,7 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
     }
 
     const usuarios = await database.all(`
-      SELECT id, nome_completo, nome_cracha, email, telefone, foto_perfil, perfil, status, equipe,
+      SELECT id, cpf, nome_completo, nome_cracha, email, telefone, foto_perfil, perfil, status, equipe,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'presente'), 0) AS total_presencas,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta'), 0) AS total_faltas
@@ -615,8 +621,12 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
       WHERE equipe = ?
       ORDER BY nome_completo ASC
     `, [equipe]);
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
+    const usuariosAtivos = usuarios.filter(usuario => !montarAssinaturasUsuarioExclusao(usuario)
+      .some(assinatura => assinaturasExcluidos.has(assinatura)));
 
-    res.json({ equipe, usuarios });
+    res.json({ equipe, usuarios: usuariosAtivos });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar faltas da equipe' });

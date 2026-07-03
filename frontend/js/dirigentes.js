@@ -406,7 +406,7 @@ document.getElementById('formPerfilDirigente')?.addEventListener('submit', async
             preencherParoquia('paroquiaDirigente', 'outraParoquiaDirigente', 'campoOutraParoquiaDirigente', paroquiaSalva);
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
             await carregarPerfilDirigente();
-        await window['carregarUsu\u00c3\u00a1rios']?.();
+            await carregarUsuários();
             carregarRelatorio();
         } else {
             const mensagem = await lerErroResposta(response, 'Erro ao atualizar perfil');
@@ -792,7 +792,7 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
             aplicarFiltrosCarografo();
             mostrarAlerta('alertaDirigentes', 'Perfil atualizado com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEditarUsuário')).hide();
-        await window['carregarUsu\u00c3\u00a1rios']?.();
+            await carregarUsuários();
             carregarRelatorio();
         } else {
             const erro = await response.json();
@@ -2576,7 +2576,7 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
         if (response.ok) {
             mostrarAlerta('alertaDirigentes', tipoCadastro === 'externo' ? 'Pessoa sem cadastro escalada com sucesso!' : 'Usuário escalado com sucesso!', 'success');
             bootstrap.Modal.getInstance(document.getElementById('modalEscalar')).hide();
-        await window['carregarUsu\u00c3\u00a1rios']?.();
+            await carregarUsuários();
             await carregarPessoasExternas();
             carregarRelatorio();
             carregarSituacao();
@@ -2924,13 +2924,6 @@ function renderizarModalAcompanhamentoFaltas(equipe, usuarios) {
         return;
     }
 
-    const totais = usuarios.reduce((acc, usuario) => {
-        acc.presencas += Number(usuario.total_presencas || 0);
-        acc.faltasJustificadas += Number(usuario.total_faltas_justificadas || 0);
-        acc.faltas += Number(usuario.total_faltas || 0);
-        return acc;
-    }, { presencas: 0, faltasJustificadas: 0, faltas: 0 });
-
     const linhas = usuarios.map(usuario => {
         const fotoHtml = usuario.foto_perfil
             ? `<img src="${escapeAttr(sanitizarImagemPerfil(usuario.foto_perfil))}" alt="Foto de ${escapeAttr(usuario.nome_completo || '')}" title="Clique para ampliar" style="width:44px; height:44px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
@@ -2951,17 +2944,6 @@ function renderizarModalAcompanhamentoFaltas(equipe, usuarios) {
     }).join('');
 
     conteudo.innerHTML = `
-        <div class="row g-2 mb-3">
-            <div class="col-md-4">
-                <div class="alert alert-success mb-0 py-2"><strong>Presenças:</strong> ${totais.presencas}</div>
-            </div>
-            <div class="col-md-4">
-                <div class="alert alert-warning mb-0 py-2"><strong>Faltas justificadas:</strong> ${totais.faltasJustificadas}</div>
-            </div>
-            <div class="col-md-4">
-                <div class="alert alert-danger mb-0 py-2"><strong>Faltas:</strong> ${totais.faltas}</div>
-            </div>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead>
