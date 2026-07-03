@@ -1095,9 +1095,15 @@ router.get('/relatorio/equipe/:equipe', verificarToken, verificarPerfil(['equipe
 router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuarios = await database.all(`
-      SELECT id, nome_completo, email, perfil, status, equipe, movimento_origem FROM usuarios
+      SELECT id, cpf, nome_completo, email, telefone, perfil, status, equipe, movimento_origem FROM usuarios
     `);
-    const usuariosAtivos = usuarios.filter(u => u.equipe && !equipeSemEquipe(u.equipe));
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
+    const usuariosAtivos = usuarios.filter(u => {
+      const usuarioExcluido = montarAssinaturasUsuarioExclusao(u)
+        .some(assinatura => assinaturasExcluidos.has(assinatura));
+      return !usuarioExcluido && u.equipe && !equipeSemEquipe(u.equipe);
+    });
     const usuariosEscalados = usuariosAtivos;
     const equipesResumo = Object.values(usuariosEscalados.reduce((acc, usuario) => {
       const equipe = usuario.equipe;

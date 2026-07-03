@@ -2928,13 +2928,13 @@ function renderizarModalAcompanhamentoFaltas(equipe, usuarios) {
         const fotoHtml = usuario.foto_perfil
             ? `<img src="${escapeAttr(sanitizarImagemPerfil(usuario.foto_perfil))}" alt="Foto de ${escapeAttr(usuario.nome_completo || '')}" title="Clique para ampliar" style="width:44px; height:44px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
             : '<div style="width:44px; height:44px; border-radius:50%; background:#e9ecef; display:flex; align-items:center; justify-content:center;">-</div>';
+        const nomeCompleto = usuario.nome_completo || usuario.nome_cracha || '-';
 
         return `
             <tr>
                 <td>${fotoHtml}</td>
                 <td>
-                    <strong>${escapeHtml(usuario.nome_cracha || usuario.nome_completo || '-')}</strong>
-                    <br><small class="text-muted">${escapeHtml(usuario.nome_completo || '')}</small>
+                    <strong>${escapeHtml(nomeCompleto)}</strong>
                 </td>
                 <td><span class="badge bg-success">${Number(usuario.total_presencas || 0)}</span></td>
                 <td><span class="badge bg-warning text-dark">${Number(usuario.total_faltas_justificadas || 0)}</span></td>
@@ -2942,9 +2942,39 @@ function renderizarModalAcompanhamentoFaltas(equipe, usuarios) {
             </tr>
         `;
     }).join('');
+    const cards = usuarios.map(usuario => {
+        const fotoHtml = usuario.foto_perfil
+            ? `<img src="${escapeAttr(sanitizarImagemPerfil(usuario.foto_perfil))}" alt="Foto de ${escapeAttr(usuario.nome_completo || '')}" title="Clique para ampliar" class="faltas-card-foto" onclick="abrirModalFotoGrande(this.src)">`
+            : '<div class="faltas-card-foto faltas-card-foto-placeholder">-</div>';
+        const nomeCompleto = usuario.nome_completo || usuario.nome_cracha || '-';
+
+        return `
+            <article class="faltas-card">
+                ${fotoHtml}
+                <div class="faltas-card-corpo">
+                    <div class="faltas-card-nome">${escapeHtml(nomeCompleto)}</div>
+                    <div class="faltas-card-contadores">
+                        <div class="faltas-card-contador">
+                            <span>Presenças</span>
+                            <strong class="badge bg-success">${Number(usuario.total_presencas || 0)}</strong>
+                        </div>
+                        <div class="faltas-card-contador">
+                            <span>Justificadas</span>
+                            <strong class="badge bg-warning text-dark">${Number(usuario.total_faltas_justificadas || 0)}</strong>
+                        </div>
+                        <div class="faltas-card-contador">
+                            <span>Faltas</span>
+                            <strong class="badge bg-danger">${Number(usuario.total_faltas || 0)}</strong>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        `;
+    }).join('');
 
     conteudo.innerHTML = `
-        <div class="table-responsive">
+        <div class="faltas-cards-mobile">${cards}</div>
+        <div class="table-responsive faltas-tabela-desktop">
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>

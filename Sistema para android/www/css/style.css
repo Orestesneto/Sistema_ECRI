@@ -409,6 +409,95 @@ body {
     box-shadow: 0 10px 30px rgba(0,0,0,0.1) !important;
 }
 
+.faltas-cards-mobile {
+    display: none;
+}
+
+@media (max-width: 991.98px) {
+    #modalAcompanhamentoFaltas .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    #modalAcompanhamentoFaltas .modal-body {
+        padding: 0.75rem;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-tabela-desktop {
+        display: none !important;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-cards-mobile {
+        display: grid !important;
+        gap: 10px;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card {
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        padding: 10px;
+        background: #fff;
+        border: 1px solid #e6e8ee;
+        border-radius: 8px;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-foto {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        object-fit: cover;
+        cursor: pointer;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-foto-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #e9ecef;
+        color: #6c757d;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-corpo {
+        min-width: 0;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-nome {
+        max-width: 100%;
+        margin-bottom: 8px;
+        font-size: clamp(0.68rem, 3vw, 0.95rem);
+        font-weight: 800;
+        line-height: 1.15;
+        white-space: nowrap !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-contadores {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-contador {
+        min-width: 0;
+        padding: 6px 4px;
+        background: #f8f9fa;
+        border-radius: 6px;
+        text-align: center;
+    }
+
+    #modalAcompanhamentoFaltas .faltas-card-contador span {
+        display: block;
+        margin-bottom: 4px;
+        color: #5f6375;
+        font-size: clamp(0.56rem, 2.45vw, 0.72rem);
+        font-weight: 700;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+}
+
 @media (max-width: 768px) {
     body {
         font-size: 0.98rem;
@@ -758,6 +847,7 @@ body {
     .modal-body select {
         max-width: 100%;
     }
+
 }
 
 @media (max-width: 480px) {
