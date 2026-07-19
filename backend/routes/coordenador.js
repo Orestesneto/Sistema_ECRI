@@ -58,12 +58,13 @@ function montarMensagemWhatsAppReunioes(reunioes) {
     return data > dataAtual || (data === dataAtual && hora >= horaAtual);
   }).sort((a, b) => `${normalizarDataMensagemWhatsApp(a.data_reuniao)} ${a.horario_inicio}`.localeCompare(`${normalizarDataMensagemWhatsApp(b.data_reuniao)} ${b.horario_inicio}`));
 
-  return EQUIPES_MENSAGEM_WHATSAPP.map(({ equipe, titulo }) => {
-    const detalhes = futuras.filter(reuniao => normalizarEquipe(reuniao.equipe) === equipe).map(reuniao => {
-      const [ano, mes, dia] = normalizarDataMensagemWhatsApp(reuniao.data_reuniao).split('-');
-      return `Dia: ${dia}/${mes}/${ano}\nHora: ${String(reuniao.horario_inicio || '').slice(0, 5)}\nLocal: ${reuniao.local || ''}`;
-    }).join('\n\n');
-    return detalhes ? `${titulo}\n${detalhes}` : '';
+  const titulosPorEquipe = new Map(EQUIPES_MENSAGEM_WHATSAPP.map(item => [item.equipe, item.titulo]));
+  return futuras.map(reuniao => {
+    const titulo = titulosPorEquipe.get(normalizarEquipe(reuniao.equipe));
+    if (!titulo) return '';
+
+    const [ano, mes, dia] = normalizarDataMensagemWhatsApp(reuniao.data_reuniao).split('-');
+    return `${titulo}\nDia: ${dia}/${mes}/${ano}\nHora: ${String(reuniao.horario_inicio || '').slice(0, 5)}\nLocal: ${reuniao.local || ''}`;
   }).filter(Boolean).join('\n\n');
 }
 
