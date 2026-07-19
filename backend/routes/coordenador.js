@@ -34,24 +34,37 @@ const EQUIPES_MENSAGEM_WHATSAPP = [
   { equipe: 'Vassourinha', titulo: '🚽🧹🪠🚾 Vassourinha 🚽🧹🪠🚾' }
 ];
 
+function normalizarDataMensagemWhatsApp(valor) {
+  if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
+    return valor.toISOString().slice(0, 10);
+  }
+
+  const texto = String(valor || '');
+  const correspondencia = texto.match(/^\d{4}-\d{2}-\d{2}/);
+  if (correspondencia) return correspondencia[0];
+
+  const data = new Date(texto);
+  return Number.isNaN(data.getTime()) ? '' : data.toISOString().slice(0, 10);
+}
+
 function montarMensagemWhatsAppReunioes(reunioes) {
   const partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date()).reduce((resultado, parte) => ({ ...resultado, [parte.type]: parte.value }), {});
   const dataAtual = `${partes.year}-${partes.month}-${partes.day}`;
   const horaAtual = `${partes.hour}:${partes.minute}`;
   const futuras = reunioes.filter(reuniao => {
-    const data = String(reuniao.data_reuniao || '').slice(0, 10);
+    const data = normalizarDataMensagemWhatsApp(reuniao.data_reuniao);
     const hora = String(reuniao.horario_inicio || '').slice(0, 5);
     return data > dataAtual || (data === dataAtual && hora >= horaAtual);
-  }).sort((a, b) => `${a.data_reuniao} ${a.horario_inicio}`.localeCompare(`${b.data_reuniao} ${b.horario_inicio}`));
+  }).sort((a, b) => `${normalizarDataMensagemWhatsApp(a.data_reuniao)} ${a.horario_inicio}`.localeCompare(`${normalizarDataMensagemWhatsApp(b.data_reuniao)} ${b.horario_inicio}`));
 
   return EQUIPES_MENSAGEM_WHATSAPP.map(({ equipe, titulo }) => {
     const detalhes = futuras.filter(reuniao => normalizarEquipe(reuniao.equipe) === equipe).map(reuniao => {
-      const [ano, mes, dia] = String(reuniao.data_reuniao || '').slice(0, 10).split('-');
+      const [ano, mes, dia] = normalizarDataMensagemWhatsApp(reuniao.data_reuniao).split('-');
       return `Dia: ${dia}/${mes}/${ano}\nHora: ${String(reuniao.horario_inicio || '').slice(0, 5)}\nLocal: ${reuniao.local || ''}`;
     }).join('\n\n');
-    return `${titulo}\n${detalhes || 'Dia: \nHora: \nLocal: '}`;
-  }).join('\n\n');
+    return detalhes ? `${titulo}\n${detalhes}` : '';
+  }).filter(Boolean).join('\n\n');
 }
 
 function gerarTokenConfirmacao(participante) {

@@ -2172,7 +2172,7 @@ function getToken() {
 // ===== FUNCOES DE REUNIAO =====
 
 function abrirCompartilhamentoWhatsApp(mensagem, janelaWhatsApp) {
-    const url = `https://wa.me/?text=${encodeURIComponent(mensagem || '')}`;
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(mensagem || '')}`;
     if (janelaWhatsApp && !janelaWhatsApp.closed) return janelaWhatsApp.location.href = url;
     window.location.href = url;
 }
@@ -2199,7 +2199,8 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
-            abrirCompartilhamentoWhatsApp(data.mensagem_whatsapp, janelaWhatsApp);
+            if (data.mensagem_whatsapp) abrirCompartilhamentoWhatsApp(data.mensagem_whatsapp, janelaWhatsApp);
+            else janelaWhatsApp?.close();
         } else {
             janelaWhatsApp?.close();
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao agendar reuniao', 'danger');
