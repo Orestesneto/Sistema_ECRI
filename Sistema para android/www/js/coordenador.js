@@ -2171,11 +2171,16 @@ function getToken() {
 
 // ===== FUNCOES DE REUNIAO =====
 
+function abrirCompartilhamentoWhatsApp(mensagem, janelaWhatsApp) {
+    const url = `https://wa.me/?text=${encodeURIComponent(mensagem || '')}`;
+    if (janelaWhatsApp && !janelaWhatsApp.closed) return janelaWhatsApp.location.href = url;
+    window.location.href = url;
+}
+
 document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const janelaWhatsApp = window.open('about:blank', '_blank');
     
-    const titulo = document.getElementById('tituloReuniao').value;
-    const descricao = document.getElementById('descricaoReuniao').value;
     const data_reuniao = document.getElementById('dataReuniao').value;
     const horario_inicio = document.getElementById('horarioInicio').value;
     const local = document.getElementById('localReuniao').value;
@@ -2185,19 +2190,22 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                titulo, descricao, data_reuniao, horario_inicio, local
+                data_reuniao, horario_inicio, local
             })
         });
         
+        const data = await response.json().catch(() => ({}));
         if (response.ok) {
             mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
+            abrirCompartilhamentoWhatsApp(data.mensagem_whatsapp, janelaWhatsApp);
         } else {
-            const data = await response.json().catch(() => ({}));
+            janelaWhatsApp?.close();
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao agendar reuniao', 'danger');
         }
     } catch (err) {
+        janelaWhatsApp?.close();
         mostrarAlerta('alertaCoordenador', 'Erro ao agendar reunião', 'danger');
         console.error(err);
     }

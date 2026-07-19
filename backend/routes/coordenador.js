@@ -23,6 +23,37 @@ const TAXAS_POR_MOVIMENTO = {
   ECRI: 15
 };
 
+const EQUIPES_MENSAGEM_WHATSAPP = [
+  { equipe: 'Arco Iris', titulo: '🌈🌈 Arco-Íris 🌈🌈' }, { equipe: 'Animadores', titulo: '🎤🎤 Animadores 🎤🎤' },
+  { equipe: 'Anjos da Alegria', titulo: '🤡🎉👼🏼 Anjos da Alegria 🤡🎉👼🏼' }, { equipe: 'Anjos da Guarda', titulo: '😇👼🏼 Anjo da Guarda 😇👼🏼' },
+  { equipe: 'Bandinha', titulo: '🪗🥁🔊🎻 Bandinha 🪗🥁🔊🎻' }, { equipe: 'Boa Acao', titulo: '🥛🚽 💊 Boa Ação 🥛🚽 💊' },
+  { equipe: 'ECRI SHOP', titulo: '🛍️💸🤑 ECRI SHOP 🛍️💸🤑' }, { equipe: 'Escrita', titulo: '🖨️💻✍🏼 Escrita 🖨️💻✍🏼' },
+  { equipe: 'Missa e Oracao', titulo: '📿🙏🏼⛪ Missa e Oração 📿🙏🏼⛪' }, { equipe: 'Papa Lanche', titulo: '🍪🥠🍟 Papa Lanche 🍪🥠🍟' },
+  { equipe: 'Pombo Correio', titulo: '📬📮🕊️ Pombo Correio 📬📮🕊️' }, { equipe: 'Ranguinho', titulo: '🍴🍽️🥣 Ranguinho 🍴🍽️🥣' },
+  { equipe: 'Som e Iluminacao', titulo: '💡🔦🔊🎤 Som e Iluminação 💡🔦🔊🎤' }, { equipe: 'Teatrinho', titulo: '🎭🎭🎭 Teatrinho 🎭🎭🎭' },
+  { equipe: 'Vassourinha', titulo: '🚽🧹🪠🚾 Vassourinha 🚽🧹🪠🚾' }
+];
+
+function montarMensagemWhatsAppReunioes(reunioes) {
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date()).reduce((resultado, parte) => ({ ...resultado, [parte.type]: parte.value }), {});
+  const dataAtual = `${partes.year}-${partes.month}-${partes.day}`;
+  const horaAtual = `${partes.hour}:${partes.minute}`;
+  const futuras = reunioes.filter(reuniao => {
+    const data = String(reuniao.data_reuniao || '').slice(0, 10);
+    const hora = String(reuniao.horario_inicio || '').slice(0, 5);
+    return data > dataAtual || (data === dataAtual && hora >= horaAtual);
+  }).sort((a, b) => `${a.data_reuniao} ${a.horario_inicio}`.localeCompare(`${b.data_reuniao} ${b.horario_inicio}`));
+
+  return EQUIPES_MENSAGEM_WHATSAPP.map(({ equipe, titulo }) => {
+    const detalhes = futuras.filter(reuniao => normalizarEquipe(reuniao.equipe) === equipe).map(reuniao => {
+      const [ano, mes, dia] = String(reuniao.data_reuniao || '').slice(0, 10).split('-');
+      return `Dia: ${dia}/${mes}/${ano}\nHora: ${String(reuniao.horario_inicio || '').slice(0, 5)}\nLocal: ${reuniao.local || ''}`;
+    }).join('\n\n');
+    return `${titulo}\n${detalhes || 'Dia: \nHora: \nLocal: '}`;
+  }).join('\n\n');
+}
+
 function gerarTokenConfirmacao(participante) {
   return jwt.sign(
     {
@@ -738,10 +769,12 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
 // Criar nova reunião
 router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const { titulo, descricao, data_reuniao, horario_inicio, local } = req.body;
+    const { data_reuniao, horario_inicio, local } = req.body;
+    const titulo = 'Reunião';
+    const descricao = '';
     const criada_por = req.usuario.id;
 
-    if (!titulo || !data_reuniao || !horario_inicio || !local) {
+    if (!data_reuniao || !horario_inicio || !local) {
       return res.status(400).json({ erro: 'Campos obrigatórios: título, data, horário e local' });
     }
 
@@ -760,9 +793,16 @@ router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe
       referencia_id: resultado.lastID
     }, { excluirIds: [criada_por] });
 
+    const reunioes = await database.all(`
+      SELECT r.data_reuniao, r.horario_inicio, r.local, u.equipe
+      FROM reunioes r JOIN usuarios u ON u.id = r.criada_por
+      WHERE COALESCE(r.status, 'agendada') = 'agendada'
+    `);
+
     res.status(201).json({
       mensagem: 'Reunião agendada com sucesso',
-      id: resultado.lastID
+      id: resultado.lastID,
+      mensagem_whatsapp: montarMensagemWhatsAppReunioes(reunioes)
     });
   } catch (err) {
     console.error(err);
