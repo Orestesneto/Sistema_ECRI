@@ -279,19 +279,9 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
-      WHERE NOT EXISTS (
-        SELECT 1 FROM usuarios_excluidos ue WHERE ue.usuario_id = usuarios.id
-      )
       ORDER BY data_cadastro DESC
     `);
-    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
-    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
-    const usuariosAtivos = usuarios.filter(usuario => {
-      const assinaturasUsuario = montarAssinaturasUsuarioExclusao(usuario);
-      return !assinaturasUsuario.some(assinatura => assinaturasExcluidas.has(assinatura));
-    });
-
-    res.json(usuariosAtivos);
+    res.json(usuarios);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter usuários' });
@@ -311,21 +301,9 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM usuarios_excluidos ue WHERE ue.usuario_id = usuarios.id
-        )
     `, [usuario_id]);
 
     if (!usuario) {
-      return res.status(404).json({ erro: 'Usuário não encontrado' });
-    }
-
-    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
-    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
-    const usuarioExcluido = montarAssinaturasUsuarioExclusao(usuario)
-      .some(assinatura => assinaturasExcluidas.has(assinatura));
-
-    if (usuarioExcluido) {
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 

@@ -479,9 +479,10 @@ router.get('/carografo-escrita', verificarToken, verificarPerfil(['coordenador']
              restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
-      WHERE status = 'confirmado'
-        AND equipe IS NOT NULL
-        AND UPPER(equipe) <> 'SEM EQUIPE'
+      WHERE (status = 'confirmado'
+             AND equipe IS NOT NULL
+             AND UPPER(equipe) <> 'SEM EQUIPE')
+         OR perfil = 'coordenador'
       ORDER BY nome_completo ASC
     `);
 
