@@ -24,14 +24,14 @@ const TAXAS_POR_MOVIMENTO = {
 };
 
 const EQUIPES_MENSAGEM_WHATSAPP = [
-  { equipe: 'Arco Iris', titulo: '🌈🌈 Arco-Íris 🌈🌈' }, { equipe: 'Animadores', titulo: '🎤🎤 Animadores 🎤🎤' },
-  { equipe: 'Anjos da Alegria', titulo: '🤡🎉👼🏼 Anjos da Alegria 🤡🎉👼🏼' }, { equipe: 'Anjos da Guarda', titulo: '😇👼🏼 Anjo da Guarda 😇👼🏼' },
-  { equipe: 'Bandinha', titulo: '🪗🥁🔊🎻 Bandinha 🪗🥁🔊🎻' }, { equipe: 'Boa Acao', titulo: '🥛🚽 💊 Boa Ação 🥛🚽 💊' },
-  { equipe: 'ECRI SHOP', titulo: '🛍️💸🤑 ECRI SHOP 🛍️💸🤑' }, { equipe: 'Escrita', titulo: '🖨️💻✍🏼 Escrita 🖨️💻✍🏼' },
-  { equipe: 'Missa e Oracao', titulo: '📿🙏🏼⛪ Missa e Oração 📿🙏🏼⛪' }, { equipe: 'Papa Lanche', titulo: '🍪🥠🍟 Papa Lanche 🍪🥠🍟' },
-  { equipe: 'Pombo Correio', titulo: '📬📮🕊️ Pombo Correio 📬📮🕊️' }, { equipe: 'Ranguinho', titulo: '🍴🍽️🥣 Ranguinho 🍴🍽️🥣' },
-  { equipe: 'Som e Iluminacao', titulo: '💡🔦🔊🎤 Som e Iluminação 💡🔦🔊🎤' }, { equipe: 'Teatrinho', titulo: '🎭🎭🎭 Teatrinho 🎭🎭🎭' },
-  { equipe: 'Vassourinha', titulo: '🚽🧹🪠🚾 Vassourinha 🚽🧹🪠🚾' }
+  { equipe: 'Arco Iris', titulo: '\u{1F308}\u{1F308} Arco-\u00CDris \u{1F308}\u{1F308}' }, { equipe: 'Animadores', titulo: '\u{1F3A4}\u{1F3A4} Animadores \u{1F3A4}\u{1F3A4}' },
+  { equipe: 'Anjos da Alegria', titulo: '\u{1F921}\u{1F389}\u{1F47C}\u{1F3FC} Anjos da Alegria \u{1F921}\u{1F389}\u{1F47C}\u{1F3FC}' }, { equipe: 'Anjos da Guarda', titulo: '\u{1F607}\u{1F47C}\u{1F3FC} Anjo da Guarda \u{1F607}\u{1F47C}\u{1F3FC}' },
+  { equipe: 'Bandinha', titulo: '\u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB} Bandinha \u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB}' }, { equipe: 'Boa Acao', titulo: '\u{1F95B}\u{1F6BD} \u{1F48A} Boa A\u00E7\u00E3o \u{1F95B}\u{1F6BD} \u{1F48A}' },
+  { equipe: 'ECRI SHOP', titulo: '\u{1F6CD}\uFE0F\u{1F4B8}\u{1F911} ECRI SHOP \u{1F6CD}\uFE0F\u{1F4B8}\u{1F911}' }, { equipe: 'Escrita', titulo: '\u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC} Escrita \u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC}' },
+  { equipe: 'Missa e Oracao', titulo: '\u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA Missa e Ora\u00E7\u00E3o \u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA' }, { equipe: 'Papa Lanche', titulo: '\u{1F36A}\u{1F960}\u{1F35F} Papa Lanche \u{1F36A}\u{1F960}\u{1F35F}' },
+  { equipe: 'Pombo Correio', titulo: '\u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F Pombo Correio \u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F' }, { equipe: 'Ranguinho', titulo: '\u{1F374}\u{1F37D}\uFE0F\u{1F963} Ranguinho \u{1F374}\u{1F37D}\uFE0F\u{1F963}' },
+  { equipe: 'Som e Iluminacao', titulo: '\u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4} Som e Ilumina\u00E7\u00E3o \u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4}' }, { equipe: 'Teatrinho', titulo: '\u{1F3AD}\u{1F3AD}\u{1F3AD} Teatrinho \u{1F3AD}\u{1F3AD}\u{1F3AD}' },
+  { equipe: 'Vassourinha', titulo: '\u{1F6BD}\u{1F9F9}\u{1FAA0}\u{1F6BE} Vassourinha \u{1F6BD}\u{1F9F9}\u{1FAA0}\u{1F6BE}' }
 ];
 
 function normalizarDataMensagemWhatsApp(valor) {
