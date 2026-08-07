@@ -10,7 +10,7 @@ const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { equipeSemEquipe } = require('../utils/equipes');
 const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
-const { normalizarFotoPerfil } = require('../utils/foto');
+const { processarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
 const TAXAS_POR_MOVIMENTO = {
@@ -21,6 +21,7 @@ const TAXAS_POR_MOVIMENTO = {
   ECRI: 15
 };
 const PERCENTUAL_TAXA_CARTAO = 0.08;
+const PERCENTUAL_TAXA_PIX = 0.01;
 const TAMANHOS_BLUSA = [
   '8 Anos',
   '10 Anos',
@@ -67,26 +68,28 @@ function arredondarMoeda(valor) {
   return Math.round(Number(valor || 0) * 100) / 100;
 }
 
-function aplicarTaxaCartao(valor, formaPagamento) {
+function aplicarTaxasPagamento(valor, formaPagamento) {
   const valorBase = arredondarMoeda(valor);
-  if (formaPagamento !== 'cartao_credito') {
-    return {
-      valorBase,
-      acrescimoCartao: 0,
-      valorFinal: valorBase
-    };
-  }
-
-  const acrescimoCartao = arredondarMoeda(valorBase * PERCENTUAL_TAXA_CARTAO);
+  const acrescimoCartao = formaPagamento === 'cartao_credito'
+    ? arredondarMoeda(valorBase * PERCENTUAL_TAXA_CARTAO)
+    : 0;
+  const acrescimoPix = formaPagamento === 'pix'
+    ? arredondarMoeda(valorBase * PERCENTUAL_TAXA_PIX)
+    : 0;
   return {
     valorBase,
     acrescimoCartao,
-    valorFinal: arredondarMoeda(valorBase + acrescimoCartao)
+    acrescimoPix,
+    valorFinal: arredondarMoeda(valorBase + acrescimoCartao + acrescimoPix)
   };
 }
 
 function formatarPercentualCartao() {
   return `${Math.round(PERCENTUAL_TAXA_CARTAO * 100)}%`;
+}
+
+function formatarPercentualPix() {
+  return `${Math.round(PERCENTUAL_TAXA_PIX * 100)}%`;
 }
 
 function montarTiposExcluidosMercadoPago(formaPagamento) {
@@ -253,6 +256,8 @@ async function reabrirBlusasConfirmadasPorPagamentoOnline(usuarioId, formaPagame
      SET status = 'pendente', data_confirmacao = NULL, forma_pagamento = NULL, confirmado_por = NULL
      WHERE usuario_id = ?
        AND status = 'confirmado'
+       AND confirmado_por IS NULL
+       AND forma_pagamento IN ('pix', 'cartao_credito')
        AND (? IS NULL OR forma_pagamento = ?)`,
     [usuarioId, formaPagamento, formaPagamento]
   );
@@ -289,21 +294,92 @@ function formaPagamentoMercadoPago(payment) {
   return null;
 }
 
-function pagamentoMercadoPagoRessarcido(payment) {
+function obterStatusReversaoMercadoPago(payment) {
   const status = String(payment?.status || '').toLowerCase();
   const statusDetail = String(payment?.status_detail || '').toLowerCase();
-  if (['refunded', 'charged_back'].includes(status)) return true;
-  if (statusDetail === 'reimbursed') return true;
+  if (status === 'charged_back' || statusDetail === 'charged_back') return 'estornado';
+  if (status === 'refunded' || statusDetail === 'reimbursed') return 'ressarcido';
 
   const valorPagamento = Number(payment?.transaction_amount || 0);
   const reembolsos = Array.isArray(payment?.refunds) ? payment.refunds : [];
-  if (!valorPagamento || !reembolsos.length) return false;
+  if (!valorPagamento || !reembolsos.length) return null;
 
   const valorReembolsado = reembolsos
     .filter(refund => ['approved', 'refunded'].includes(String(refund.status || '').toLowerCase()))
     .reduce((total, refund) => total + Number(refund.amount || 0), 0);
 
-  return valorReembolsado >= valorPagamento - 0.01;
+  return valorReembolsado >= valorPagamento - 0.01 ? 'ressarcido' : null;
+}
+
+async function sincronizarBlusasComPagamentosOnline(usuarioId = null) {
+  const filtroUsuario = usuarioId ? 'AND sb.usuario_id = ?' : '';
+  const params = usuarioId ? [usuarioId] : [];
+  await database.run(
+    `UPDATE solicitacoes_blusa AS sb
+     SET status = 'pendente',
+     data_confirmacao = NULL,
+     forma_pagamento = NULL,
+     confirmado_por = NULL
+     WHERE sb.status = 'confirmado'
+       AND sb.confirmado_por IS NULL
+       AND sb.forma_pagamento IN ('pix', 'cartao_credito')
+       ${filtroUsuario}
+       AND EXISTS (
+         SELECT 1
+         FROM pagamentos p
+         WHERE p.id = (
+           SELECT p2.id
+           FROM pagamentos p2
+           WHERE p2.usuario_id = sb.usuario_id
+             AND p2.tipo = 'blusa'
+             AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+             AND p2.data_solicitacao >= sb.data_solicitacao
+           ORDER BY p2.data_solicitacao DESC, p2.id DESC
+           LIMIT 1
+         )
+           AND p.status IN ('ressarcido', 'estornado')
+       )`,
+    params
+  );
+
+  await database.run(
+    `UPDATE solicitacoes_blusa AS sb
+     SET status = 'confirmado',
+         data_confirmacao = CURRENT_TIMESTAMP,
+         forma_pagamento = (
+           SELECT p.forma_pagamento
+           FROM pagamentos p
+           WHERE p.id = (
+             SELECT p2.id
+             FROM pagamentos p2
+             WHERE p2.usuario_id = sb.usuario_id
+               AND p2.tipo = 'blusa'
+               AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+               AND p2.data_solicitacao >= sb.data_solicitacao
+             ORDER BY p2.data_solicitacao DESC, p2.id DESC
+             LIMIT 1
+           )
+         ),
+         confirmado_por = NULL
+     WHERE sb.status = 'pendente'
+       ${filtroUsuario}
+       AND EXISTS (
+         SELECT 1
+         FROM pagamentos p
+         WHERE p.id = (
+           SELECT p2.id
+           FROM pagamentos p2
+           WHERE p2.usuario_id = sb.usuario_id
+             AND p2.tipo = 'blusa'
+             AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+             AND p2.data_solicitacao >= sb.data_solicitacao
+           ORDER BY p2.data_solicitacao DESC, p2.id DESC
+           LIMIT 1
+         )
+           AND p.status = 'confirmado'
+       )`,
+    params
+  );
 }
 
 router.post('/mercado-pago/webhook', async (req, res) => {
@@ -332,26 +408,32 @@ router.post('/mercado-pago/webhook', async (req, res) => {
     }
 
     const formaPagamento = formaPagamentoMercadoPago(pagamentoMercadoPago);
+    const statusReversao = obterStatusReversaoMercadoPago(pagamentoMercadoPago);
 
-    if (pagamentoMercadoPagoRessarcido(pagamentoMercadoPago)) {
+    if (statusReversao) {
       await database.run(
         `UPDATE pagamentos
-         SET status = 'ressarcido', forma_pagamento = COALESCE(?, forma_pagamento)
+         SET status = ?, forma_pagamento = COALESCE(?, forma_pagamento)
          WHERE id = ?`,
-        [formaPagamento, pagamentoLocal.id]
+        [statusReversao, formaPagamento, pagamentoLocal.id]
       );
 
       if (pagamentoLocal.tipo === 'blusa') {
         await reabrirBlusasConfirmadasPorPagamentoOnline(pagamentoLocal.usuario_id, formaPagamento);
       }
 
-      await registrarHistorico(pagamentoLocal.usuario_id, 'pagamento_ressarcido_mercado_pago', {
+      await registrarHistorico(
+        pagamentoLocal.usuario_id,
+        statusReversao === 'estornado' ? 'pagamento_estornado_mercado_pago' : 'pagamento_ressarcido_mercado_pago',
+        {
         pagamento_id: pagamentoLocal.id,
         mercado_pago_payment_id: pagamentoMercadoPago.id,
         status: pagamentoMercadoPago.status,
         status_detail: pagamentoMercadoPago.status_detail || null,
+        status_local: statusReversao,
         tipo: pagamentoLocal.tipo
-      });
+        }
+      );
     } else if (pagamentoMercadoPago.status === 'approved') {
       await database.run(
         `UPDATE pagamentos
@@ -397,7 +479,7 @@ router.put('/perfil', verificarToken, verificarPerfil(['equipista']), async (req
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
-    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    const fotoValidada = await processarFotoPerfil(foto_perfil, { prefixo: 'usuarios' });
     if (fotoValidada.erro) {
       return res.status(400).json({ erro: fotoValidada.erro });
     }
@@ -491,8 +573,9 @@ router.post('/solicitar-blusa', verificarToken, verificarPerfil(['equipista']), 
     }
 
     const resultado = await database.run(
-      `INSERT INTO solicitacoes_blusa (usuario_id, tamanho, valor) VALUES (?, ?, ?)`,
-      [usuario_id, tamanho, VALOR_BLUSA_UNICA]
+      `INSERT INTO solicitacoes_blusa (usuario_id, tamanho, valor, tamanho_atualizado_por, tamanho_atualizado_em)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [usuario_id, tamanho, VALOR_BLUSA_UNICA, usuario_id]
     );
     const preco = await recalcularValoresBlusasUsuario(database, usuario_id);
     await registrarHistorico(usuario_id, 'blusa_solicitada', {
@@ -509,6 +592,93 @@ router.post('/solicitar-blusa', verificarToken, verificarPerfil(['equipista']), 
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao solicitar blusa' });
+  }
+});
+
+router.put('/solicitacoes-blusa/:id/tamanho', verificarToken, verificarPerfil(['equipista', 'coordenador']), async (req, res) => {
+  try {
+    const solicitacao_id = Number(req.params.id);
+    const usuario_id = req.usuario.id;
+    const { tamanho } = req.body;
+
+    if (await pedidosBlusaBloqueados(database)) {
+      return res.status(403).json({ erro: 'Pedidos de blusa estão encerrados' });
+    }
+
+    if (!solicitacao_id || !TAMANHOS_BLUSA.includes(tamanho)) {
+      return res.status(400).json({ erro: 'Tamanho de blusa inválido' });
+    }
+
+    const solicitacao = await database.get(
+      'SELECT id, usuario_id, tamanho FROM solicitacoes_blusa WHERE id = ?',
+      [solicitacao_id]
+    );
+
+    if (!solicitacao || Number(solicitacao.usuario_id) !== Number(usuario_id)) {
+      return res.status(404).json({ erro: 'Solicitação de camisa não encontrada' });
+    }
+
+    if (solicitacao.tamanho === tamanho) {
+      return res.json({ mensagem: 'Tamanho mantido', id: solicitacao_id, tamanho });
+    }
+
+    await database.run(
+      'UPDATE solicitacoes_blusa SET tamanho = ?, tamanho_atualizado_por = ?, tamanho_atualizado_em = CURRENT_TIMESTAMP WHERE id = ?',
+      [tamanho, usuario_id, solicitacao_id]
+    );
+    await registrarHistorico(usuario_id, 'tamanho_blusa_atualizado', {
+      solicitacao_id,
+      tamanho_anterior: solicitacao.tamanho,
+      tamanho_novo: tamanho
+    });
+
+    res.json({ mensagem: 'Tamanho da camisa atualizado', id: solicitacao_id, tamanho });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar tamanho da camisa' });
+  }
+});
+
+router.delete('/solicitacoes-blusa/:id', verificarToken, verificarPerfil(['equipista', 'coordenador']), async (req, res) => {
+  try {
+    const solicitacao_id = Number(req.params.id);
+    const usuario_id = req.usuario.id;
+
+    if (await pedidosBlusaBloqueados(database)) {
+      return res.status(403).json({ erro: 'Pedidos de blusa estão encerrados' });
+    }
+
+    const solicitacao = await database.get(
+      'SELECT id, usuario_id, tamanho, status FROM solicitacoes_blusa WHERE id = ?',
+      [solicitacao_id]
+    );
+
+    if (!solicitacao || Number(solicitacao.usuario_id) !== Number(usuario_id)) {
+      return res.status(404).json({ erro: 'Solicitação de camisa não encontrada' });
+    }
+
+    if (solicitacao.status === 'confirmado') {
+      return res.status(400).json({ erro: 'Camisa com pagamento confirmado não pode ser cancelada pelo usuário' });
+    }
+
+    await database.run('DELETE FROM solicitacoes_blusa WHERE id = ?', [solicitacao_id]);
+    await database.run(
+      `DELETE FROM pagamentos
+       WHERE usuario_id = ? AND tipo = 'blusa' AND status = 'pendente'`,
+      [usuario_id]
+    );
+    const preco = await recalcularValoresBlusasUsuario(database, usuario_id);
+    await registrarHistorico(usuario_id, 'blusa_cancelada_pelo_usuario', {
+      solicitacao_id,
+      tamanho: solicitacao.tamanho,
+      valor_atual_blusas: preco.valor,
+      quantidade_blusas: preco.quantidade
+    });
+
+    res.json({ mensagem: 'Pedido de camisa cancelado' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao cancelar pedido de camisa' });
   }
 });
 
@@ -555,6 +725,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
       : Number(valor);
 
     if (tipo === 'blusa') {
+      await sincronizarBlusasComPagamentosOnline(usuario_id);
       const resumoBlusas = await database.get(
         `SELECT COALESCE(SUM(valor), 0) AS total
          FROM solicitacoes_blusa
@@ -568,7 +739,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
       return res.status(400).json({ erro: 'Valor inválido' });
     }
 
-    const valoresPagamento = aplicarTaxaCartao(valorPagamento, forma_pagamento);
+    const valoresPagamento = aplicarTaxasPagamento(valorPagamento, forma_pagamento);
     valorPagamento = valoresPagamento.valorFinal;
 
     if (tipo === 'taxa' || tipo === 'blusa') {
@@ -589,7 +760,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
         const valorMudou = Math.abs(valorExistente - valorPagamento) >= 0.01;
         if (
           pagamentoExistente.status === 'pendente'
-          && (pagamentoExistente.forma_pagamento !== forma_pagamento || (tipo === 'blusa' && valorMudou))
+          && (pagamentoExistente.forma_pagamento !== forma_pagamento || valorMudou)
         ) {
           await database.run('DELETE FROM pagamentos WHERE id = ?', [pagamentoExistente.id]);
         } else {
@@ -661,6 +832,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
       pagamento_id: resultado.lastID,
       valor_base: valoresPagamento.valorBase,
       acrescimo_cartao: valoresPagamento.acrescimoCartao,
+      acrescimo_pix: valoresPagamento.acrescimoPix,
       mercado_pago_preference_id: pagamentoMercadoPago.preferenceId || null,
       mercado_pago_payment_id: pagamentoMercadoPago.paymentId || null
     });
@@ -677,8 +849,10 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
       forma_pagamento,
       valor_base: valoresPagamento.valorBase,
       acrescimo_cartao: valoresPagamento.acrescimoCartao,
+      acrescimo_pix: valoresPagamento.acrescimoPix,
       valor_final: valoresPagamento.valorFinal,
-      percentual_taxa_cartao: formatarPercentualCartao()
+      percentual_taxa_cartao: formatarPercentualCartao(),
+      percentual_taxa_pix: formatarPercentualPix()
     });
   } catch (err) {
     console.error(err);
@@ -696,6 +870,8 @@ router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador
       return res.json({ pagamentos: [], blusas: [] });
     }
 
+    await sincronizarBlusasComPagamentosOnline(usuario_id);
+
     const pagamentos = await database.all(
       `SELECT id, tipo, valor, status, data_solicitacao, data_confirmacao, forma_pagamento,
               mercado_pago_preference_id, mercado_pago_payment_id, mercado_pago_init_point,
@@ -709,11 +885,14 @@ router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador
 
     const blusas = await database.all(
       `SELECT sb.id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao, sb.data_confirmacao,
-              sb.forma_pagamento, sb.confirmado_por,
+              sb.forma_pagamento, sb.confirmado_por, sb.tamanho_atualizado_em,
               confirmador.nome_completo AS confirmado_por_nome,
-              confirmador.nome_cracha AS confirmado_por_cracha
+              confirmador.nome_cracha AS confirmado_por_cracha,
+              COALESCE(editor.nome_completo, editor.nome_cracha, dono.nome_completo, dono.nome_cracha) AS tamanho_atualizado_por_nome
        FROM solicitacoes_blusa sb
        LEFT JOIN usuarios confirmador ON confirmador.id = sb.confirmado_por
+       LEFT JOIN usuarios editor ON editor.id = sb.tamanho_atualizado_por
+       LEFT JOIN usuarios dono ON dono.id = sb.usuario_id
        WHERE sb.usuario_id = ?
        ORDER BY sb.data_solicitacao DESC`,
       [usuario_id]
@@ -763,6 +942,9 @@ router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador
         total: totalBlusas,
         pago: totalBlusasPago,
         pendente: totalBlusasPendente
+      },
+      configuracoes_blusa: {
+        pedidos_bloqueados: await pedidosBlusaBloqueados(database)
       }
     });
   } catch (err) {

@@ -1,5 +1,6 @@
 const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 300 * 1024;
 const TIPOS_FOTO_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
+const { enviarImagemSupabase, ehUrlImagem } = require('./supabaseStorage');
 
 function tamanhoFotoBase64Bytes(fotoPerfil) {
   const base64 = String(fotoPerfil || '').split(',')[1] || '';
@@ -14,6 +15,9 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   }
 
   if (typeof fotoPerfil !== 'string' || !fotoPerfil.startsWith('data:image/')) {
+    if (ehUrlImagem(fotoPerfil)) {
+      return { fotoPerfil };
+    }
     return { erro: 'Foto de perfil invalida' };
   }
 
@@ -30,8 +34,24 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   return { fotoPerfil };
 }
 
+async function processarFotoPerfil(fotoPerfil, { obrigatoria = false, prefixo = 'usuarios' } = {}) {
+  const validacao = normalizarFotoPerfil(fotoPerfil, { obrigatoria });
+  if (validacao.erro || !validacao.fotoPerfil || ehUrlImagem(validacao.fotoPerfil)) {
+    return validacao;
+  }
+
+  try {
+    const enviada = await enviarImagemSupabase(validacao.fotoPerfil, { prefixo });
+    return { fotoPerfil: enviada.url || validacao.fotoPerfil };
+  } catch (err) {
+    console.error('Erro ao salvar foto no Supabase Storage:', err.message || err);
+    return { fotoPerfil: validacao.fotoPerfil };
+  }
+}
+
 module.exports = {
   TAMANHO_MAXIMO_FOTO_SALVA_BYTES,
   TIPOS_FOTO_PERMITIDOS,
-  normalizarFotoPerfil
+  normalizarFotoPerfil,
+  processarFotoPerfil
 };

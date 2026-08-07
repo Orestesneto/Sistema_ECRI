@@ -11,7 +11,7 @@ const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('../utils/equipes');
 const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
-const { normalizarFotoPerfil } = require('../utils/foto');
+const { processarFotoPerfil } = require('../utils/foto');
 const { criarNotificacao, criarNotificacoesParaEquipe } = require('../utils/notificacoes');
 
 const router = express.Router();
@@ -24,48 +24,146 @@ const TAXAS_POR_MOVIMENTO = {
 };
 
 const EQUIPES_MENSAGEM_WHATSAPP = [
-  { equipe: 'Arco Iris', titulo: '\u{1F308}\u{1F308} Arco-\u00CDris \u{1F308}\u{1F308}' }, { equipe: 'Animadores', titulo: '\u{1F3A4}\u{1F3A4} Animadores \u{1F3A4}\u{1F3A4}' },
-  { equipe: 'Anjos da Alegria', titulo: '\u{1F921}\u{1F389}\u{1F47C}\u{1F3FC} Anjos da Alegria \u{1F921}\u{1F389}\u{1F47C}\u{1F3FC}' }, { equipe: 'Anjos da Guarda', titulo: '\u{1F607}\u{1F47C}\u{1F3FC} Anjo da Guarda \u{1F607}\u{1F47C}\u{1F3FC}' },
-  { equipe: 'Bandinha', titulo: '\u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB} Bandinha \u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB}' }, { equipe: 'Boa Acao', titulo: '\u{1F95B}\u{1F6BD} \u{1F48A} Boa A\u00E7\u00E3o \u{1F95B}\u{1F6BD} \u{1F48A}' },
-  { equipe: 'ECRI SHOP', titulo: '\u{1F6CD}\uFE0F\u{1F4B8}\u{1F911} ECRI SHOP \u{1F6CD}\uFE0F\u{1F4B8}\u{1F911}' }, { equipe: 'Escrita', titulo: '\u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC} Escrita \u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC}' },
-  { equipe: 'Missa e Oracao', titulo: '\u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA Missa e Ora\u00E7\u00E3o \u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA' }, { equipe: 'Papa Lanche', titulo: '\u{1F36A}\u{1F960}\u{1F35F} Papa Lanche \u{1F36A}\u{1F960}\u{1F35F}' },
-  { equipe: 'Pombo Correio', titulo: '\u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F Pombo Correio \u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F' }, { equipe: 'Ranguinho', titulo: '\u{1F374}\u{1F37D}\uFE0F\u{1F963} Ranguinho \u{1F374}\u{1F37D}\uFE0F\u{1F963}' },
-  { equipe: 'Som e Iluminacao', titulo: '\u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4} Som e Ilumina\u00E7\u00E3o \u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4}' }, { equipe: 'Teatrinho', titulo: '\u{1F3AD}\u{1F3AD}\u{1F3AD} Teatrinho \u{1F3AD}\u{1F3AD}\u{1F3AD}' },
+  { equipe: 'Arco Iris', titulo: '🌈🌈 Arco-Íris 🌈🌈' },
+  { equipe: 'Animadores', titulo: '🎤🎤 Animadores 🎤🎤' },
+  { equipe: 'Anjos da Alegria', titulo: '🤡🎉👼🏼 Anjos da Alegria 🤡🎉👼🏼' },
+  { equipe: 'Anjos da Guarda', titulo: '😇👼🏼 Anjo da Guarda 😇👼🏼' },
+  { equipe: 'Bandinha', titulo: '🪗🥁🔊🎻 Bandinha 🪗🥁🔊🎻' },
+  { equipe: 'Boa Acao', titulo: '🥛🚽 💊 Boa Ação 🥛🚽 💊' },
+  { equipe: 'ECRI SHOP', titulo: '🛍️💸🤑 ECRI SHOP 🛍️💸🤑' },
+  { equipe: 'Escrita', titulo: '🖨️💻✍🏼 Escrita 🖨️💻✍🏼' },
+  { equipe: 'Missa e Oracao', titulo: '📿🙏🏼⛪ Missa e Oração 📿🙏🏼⛪' },
+  { equipe: 'Papa Lanche', titulo: '🍪🥠🍟 Papa Lanche 🍪🥠🍟' },
+  { equipe: 'Pombo Correio', titulo: '📬📮🕊️ Pombo Correio 📬📮🕊️' },
+  { equipe: 'Ranguinho', titulo: '🍴🍽️🥣 Ranguinho 🍴🍽️🥣' },
+  { equipe: 'Som e Iluminacao', titulo: '💡🔦🔊🎤 Som e Iluminação 💡🔦🔊🎤' },
+  { equipe: 'Teatrinho', titulo: '🎭🎭🎭 Teatrinho 🎭🎭🎭' },
+  { equipe: 'Vassourinha', titulo: '🚽🧹🪠🚾 Vassourinha 🚽🧹🪠🚾' }
+];
+
+const EQUIPES_MENSAGEM_WHATSAPP_UTF8 = [
+  { equipe: 'Arco Iris', titulo: '🌈🌈 Arco-Íris 🌈🌈' },
+  { equipe: 'Animadores', titulo: '🎤🎤 Animadores 🎤🎤' },
+  { equipe: 'Anjos da Alegria', titulo: '🤡🎉👼🏼 Anjos da Alegria 🤡🎉👼🏼' },
+  { equipe: 'Anjos da Guarda', titulo: '😇👼🏼 Anjo da Guarda 😇👼🏼' },
+  { equipe: 'Bandinha', titulo: '🪗🥁🔊🎻 Bandinha 🪗🥁🔊🎻' },
+  { equipe: 'Boa Acao', titulo: '🥛🚽💊 Boa Ação 🥛🚽💊' },
+  { equipe: 'ECRI SHOP', titulo: '🛍️💸🤑 ECRI SHOP 🛍️💸🤑' },
+  { equipe: 'Escrita', titulo: '🖨️💻✍🏼 Escrita 🖨️💻✍🏼' },
+  { equipe: 'Missa e Oracao', titulo: '📿🙏🏼⛪ Missa e Oração 📿🙏🏼⛪' },
+  { equipe: 'Papa Lanche', titulo: '🍪🥠🍟 Papa Lanche 🍪🥠🍟' },
+  { equipe: 'Pombo Correio', titulo: '📬📮🕊️ Pombo Correio 📬📮🕊️' },
+  { equipe: 'Ranguinho', titulo: '🍴🍽️🥣 Ranguinho 🍴🍽️🥣' },
+  { equipe: 'Som e Iluminacao', titulo: '💡🔦🔊🎤 Som e Iluminação 💡🔦🔊🎤' },
+  { equipe: 'Teatrinho', titulo: '🎭🎭🎭 Teatrinho 🎭🎭🎭' },
+  { equipe: 'Vassourinha', titulo: '🚽🧹🪠🚾 Vassourinha 🚽🧹🪠🚾' }
+];
+
+const EQUIPES_MENSAGEM_WHATSAPP_SEGURAS = [
+  { equipe: 'Arco Iris', titulo: '\u{1F308}\u{1F308} Arco-\u00cdris \u{1F308}\u{1F308}' },
+  { equipe: 'Animadores', titulo: '\u{1F3A4}\u{1F3A4} Animadores \u{1F3A4}\u{1F3A4}' },
+  { equipe: 'Anjos da Alegria', titulo: '\u{1F921}\u{1F389}\u{1F47C}\u{1F3FC} Anjos da Alegria \u{1F921}\u{1F389}\u{1F47C}\u{1F3FC}' },
+  { equipe: 'Anjos da Guarda', titulo: '\u{1F607}\u{1F47C}\u{1F3FC} Anjo da Guarda \u{1F607}\u{1F47C}\u{1F3FC}' },
+  { equipe: 'Bandinha', titulo: '\u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB} Bandinha \u{1FA97}\u{1F941}\u{1F50A}\u{1F3BB}' },
+  { equipe: 'Boa Acao', titulo: '\u{1F95B}\u{1F6BD}\u{1F48A} Boa A\u00e7\u00e3o \u{1F95B}\u{1F6BD}\u{1F48A}' },
+  { equipe: 'ECRI SHOP', titulo: '\u{1F6CD}\uFE0F\u{1F4B8}\u{1F911} ECRI SHOP \u{1F6CD}\uFE0F\u{1F4B8}\u{1F911}' },
+  { equipe: 'Escrita', titulo: '\u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC} Escrita \u{1F5A8}\uFE0F\u{1F4BB}\u270D\u{1F3FC}' },
+  { equipe: 'Missa e Oracao', titulo: '\u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA Missa e Ora\u00e7\u00e3o \u{1F4FF}\u{1F64F}\u{1F3FC}\u26EA' },
+  { equipe: 'Papa Lanche', titulo: '\u{1F36A}\u{1F960}\u{1F35F} Papa Lanche \u{1F36A}\u{1F960}\u{1F35F}' },
+  { equipe: 'Pombo Correio', titulo: '\u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F Pombo Correio \u{1F4EC}\u{1F4EE}\u{1F54A}\uFE0F' },
+  { equipe: 'Ranguinho', titulo: '\u{1F374}\u{1F37D}\uFE0F\u{1F963} Ranguinho \u{1F374}\u{1F37D}\uFE0F\u{1F963}' },
+  { equipe: 'Som e Iluminacao', titulo: '\u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4} Som e Ilumina\u00e7\u00e3o \u{1F4A1}\u{1F526}\u{1F50A}\u{1F3A4}' },
+  { equipe: 'Teatrinho', titulo: '\u{1F3AD}\u{1F3AD}\u{1F3AD} Teatrinho \u{1F3AD}\u{1F3AD}\u{1F3AD}' },
   { equipe: 'Vassourinha', titulo: '\u{1F6BD}\u{1F9F9}\u{1FAA0}\u{1F6BE} Vassourinha \u{1F6BD}\u{1F9F9}\u{1FAA0}\u{1F6BE}' }
 ];
 
-function normalizarDataMensagemWhatsApp(valor) {
-  if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
-    return valor.toISOString().slice(0, 10);
+function obterDataHoraBrasilia() {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).reduce((resultado, parte) => {
+    resultado[parte.type] = parte.value;
+    return resultado;
+  }, {});
+  return { data: `${partes.year}-${partes.month}-${partes.day}`, horario: `${partes.hour}:${partes.minute}` };
+}
+
+function obterDataIsoMensagemWhatsApp(data) {
+  if (data instanceof Date && !Number.isNaN(data.getTime())) {
+    return data.toISOString().slice(0, 10);
   }
 
-  const texto = String(valor || '');
-  const correspondencia = texto.match(/^\d{4}-\d{2}-\d{2}/);
-  if (correspondencia) return correspondencia[0];
+  const texto = String(data || '');
+  const iso = texto.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+  if (iso) return iso;
 
-  const data = new Date(texto);
-  return Number.isNaN(data.getTime()) ? '' : data.toISOString().slice(0, 10);
+  const dataConvertida = new Date(texto);
+  return Number.isNaN(dataConvertida.getTime())
+    ? ''
+    : dataConvertida.toISOString().slice(0, 10);
+}
+
+function formatarDataMensagemWhatsApp(data) {
+  const [ano, mes, dia] = obterDataIsoMensagemWhatsApp(data).split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : '';
 }
 
 function montarMensagemWhatsAppReunioes(reunioes) {
-  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-    .formatToParts(new Date()).reduce((resultado, parte) => ({ ...resultado, [parte.type]: parte.value }), {});
-  const dataAtual = `${partes.year}-${partes.month}-${partes.day}`;
-  const horaAtual = `${partes.hour}:${partes.minute}`;
+  const agora = obterDataHoraBrasilia();
   const futuras = reunioes.filter(reuniao => {
-    const data = normalizarDataMensagemWhatsApp(reuniao.data_reuniao);
-    const hora = String(reuniao.horario_inicio || '').slice(0, 5);
-    return data > dataAtual || (data === dataAtual && hora >= horaAtual);
-  }).sort((a, b) => `${normalizarDataMensagemWhatsApp(a.data_reuniao)} ${a.horario_inicio}`.localeCompare(`${normalizarDataMensagemWhatsApp(b.data_reuniao)} ${b.horario_inicio}`));
+    const data = obterDataIsoMensagemWhatsApp(reuniao.data_reuniao);
+    const horario = String(reuniao.horario_inicio || '').slice(0, 5);
+    return data > agora.data || (data === agora.data && horario >= agora.horario);
+  }).sort((a, b) => `${a.data_reuniao} ${a.horario_inicio}`.localeCompare(`${b.data_reuniao} ${b.horario_inicio}`));
 
-  const titulosPorEquipe = new Map(EQUIPES_MENSAGEM_WHATSAPP.map(item => [item.equipe, item.titulo]));
-  return futuras.map(reuniao => {
-    const titulo = titulosPorEquipe.get(normalizarEquipe(reuniao.equipe));
-    if (!titulo) return '';
-
-    const [ano, mes, dia] = normalizarDataMensagemWhatsApp(reuniao.data_reuniao).split('-');
-    return `${titulo}\nDia: ${dia}/${mes}/${ano}\nHora: ${String(reuniao.horario_inicio || '').slice(0, 5)}\nLocal: ${reuniao.local || ''}`;
+  return EQUIPES_MENSAGEM_WHATSAPP_SEGURAS.map(({ equipe, titulo }) => {
+    const reunioesEquipe = futuras.filter(reuniao => normalizarEquipe(reuniao.equipe) === equipe);
+    if (!reunioesEquipe.length) return '';
+    const detalhes = reunioesEquipe.map(reuniao => [
+      `Dia: ${formatarDataMensagemWhatsApp(reuniao.data_reuniao)}`,
+      `Hora: ${String(reuniao.horario_inicio || '').slice(0, 5)}`,
+      `Local: ${reuniao.local || ''}`
+    ].join('\n')).join('\n\n');
+    return `${titulo}\n${detalhes}`;
   }).filter(Boolean).join('\n\n');
+}
+const PERCENTUAL_TAXA_CARTAO = 0.08;
+const PERCENTUAL_TAXA_PIX = 0.01;
+
+function arredondarMoeda(valor) {
+  return Math.round(Number(valor || 0) * 100) / 100;
+}
+
+function calcularValorSemTaxaManual(valor, formaPagamentoOriginal) {
+  const valorNumerico = Number(valor || 0);
+  if (formaPagamentoOriginal === 'pix') {
+    return arredondarMoeda(valorNumerico / (1 + PERCENTUAL_TAXA_PIX));
+  }
+  if (formaPagamentoOriginal === 'cartao_credito') {
+    return arredondarMoeda(valorNumerico / (1 + PERCENTUAL_TAXA_CARTAO));
+  }
+  return arredondarMoeda(valorNumerico);
+}
+
+function obterTokenRequisicao(req) {
+  return req.headers.authorization?.split(' ')[1] || '';
+}
+
+function montarUrlFotoPerfil(req, tipo, id, temFoto) {
+  if (!temFoto) return '';
+  const token = encodeURIComponent(obterTokenRequisicao(req));
+  return `/api/fotos/${tipo}/${Number(id)}?token=${token}`;
+}
+
+function trocarFotoPorUrl(req, tipo) {
+  return (item) => {
+    const temFoto = Number(item.tem_foto_perfil || 0) > 0;
+    const { tem_foto_perfil, ...restante } = item;
+    return {
+      ...restante,
+      foto_perfil: montarUrlFotoPerfil(req, tipo, item.usuario_id || item.id, temFoto)
+    };
+  };
 }
 
 function gerarTokenConfirmacao(participante) {
@@ -243,7 +341,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
-    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    const fotoValidada = await processarFotoPerfil(foto_perfil, { prefixo: 'usuarios' });
     if (fotoValidada.erro) {
       return res.status(400).json({ erro: fotoValidada.erro });
     }
@@ -289,7 +387,9 @@ router.get('/restricoes-alimentares', verificarToken, verificarPerfil(['coordena
     }
 
     const usuarios = await database.all(`
-      SELECT id, nome_completo, nome_cracha, foto_perfil, restricao_alimentar
+      SELECT id, nome_completo, nome_cracha,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             restricao_alimentar
       FROM usuarios
       WHERE status = 'confirmado'
         AND equipe IS NOT NULL
@@ -297,7 +397,7 @@ router.get('/restricoes-alimentares', verificarToken, verificarPerfil(['coordena
       ORDER BY nome_cracha COLLATE NOCASE ASC, nome_completo COLLATE NOCASE ASC
     `);
 
-    res.json(usuarios);
+    res.json(usuarios.map(trocarFotoPorUrl(req, 'usuario')));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar restrições alimentares' });
@@ -316,7 +416,7 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
     }
 
     const pagamento = await database.get(`
-      SELECT p.id, p.tipo, u.equipe, u.perfil
+      SELECT p.id, p.tipo, p.valor, p.forma_pagamento, u.equipe, u.perfil
       FROM pagamentos p
       JOIN usuarios u ON p.usuario_id = u.id
       WHERE p.id = ?
@@ -335,13 +435,21 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
       return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode confirmar este pagamento' });
     }
 
+    const valorConfirmacaoManual = calcularValorSemTaxaManual(pagamento.valor, pagamento.forma_pagamento);
+
     await database.run(
       `UPDATE pagamentos
-       SET status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, confirmado_por = ?, forma_pagamento = ?
+       SET valor = ?, status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, confirmado_por = ?, forma_pagamento = ?
        WHERE id = ?`,
-      [usuario_id, forma_pagamento, pagamento_id]
+      [valorConfirmacaoManual, usuario_id, forma_pagamento, pagamento_id]
     );
-    await registrarHistorico(usuario_id, 'pagamento_confirmado', { pagamento_id, forma_pagamento });
+    await registrarHistorico(usuario_id, 'pagamento_confirmado', {
+      pagamento_id,
+      forma_pagamento,
+      valor_confirmado: valorConfirmacaoManual,
+      valor_original: Number(pagamento.valor || 0),
+      forma_pagamento_original: pagamento.forma_pagamento || null
+    });
 
     res.json({ mensagem: 'Pagamento confirmado com sucesso' });
   } catch (err) {
@@ -388,7 +496,8 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
     const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
 
     const usuarios = await database.all(`
-      SELECT id, nome_completo, nome_cracha, email, telefone, movimento_origem, foto_perfil,
+      SELECT id, nome_completo, nome_cracha, email, telefone, movimento_origem,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'presente'), 0) AS total_presencas,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
@@ -400,8 +509,9 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
     `, filtroEquipeParams);
 
     const externos = await database.all(`
-      SELECT id, nome_completo, nome_cracha, '' AS email, telefone, movimento_origem, foto_perfil,
-             restricao_medica, restricao_alimentar, restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe,
+      SELECT id, nome_completo, nome_cracha, '' AS email, telefone, movimento_origem,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             restricao_medica, restricao_alimentar, restricao_medicacao, COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe,
              0 AS total_presencas,
              0 AS total_faltas_justificadas,
              0 AS total_faltas,
@@ -411,7 +521,10 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
       ORDER BY nome_completo ASC
     `, filtroEquipeParams);
 
-    const participantes = [...usuarios, ...externos]
+    const participantes = [
+      ...usuarios.map(trocarFotoPorUrl(req, 'usuario')),
+      ...externos.map(trocarFotoPorUrl(req, 'externo'))
+    ]
       .sort((a, b) => String(a.nome_completo || '').localeCompare(String(b.nome_completo || '')))
       .map(participante => ({
         ...participante,
@@ -476,17 +589,17 @@ router.get('/carografo-escrita', verificarToken, verificarPerfil(['coordenador']
 
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
-             restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, foto_perfil,
+             restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
-      WHERE (status = 'confirmado'
-             AND equipe IS NOT NULL
-             AND UPPER(equipe) <> 'SEM EQUIPE')
-         OR perfil = 'coordenador'
+      WHERE status = 'confirmado'
+        AND equipe IS NOT NULL
+        AND UPPER(equipe) <> 'SEM EQUIPE'
       ORDER BY nome_completo ASC
     `);
 
-    res.json(usuarios);
+    res.json(usuarios.map(trocarFotoPorUrl(req, 'usuario')));
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar carógrafo' });
@@ -548,12 +661,17 @@ router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador'
     const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
 
     const solicitacoes = await database.all(`
-      SELECT u.id as usuario_id, u.nome_completo, u.email, u.nome_cracha, u.foto_perfil, u.equipe,
+      SELECT u.id as usuario_id, u.nome_completo, u.email, u.nome_cracha,
+             CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             u.equipe,
              sb.id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao, sb.data_confirmacao, sb.forma_pagamento,
-             sb.confirmado_por, confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha
+             sb.confirmado_por, sb.tamanho_atualizado_em,
+             confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha,
+             COALESCE(editor.nome_completo, editor.nome_cracha, u.nome_completo, u.nome_cracha) AS tamanho_atualizado_por_nome
       FROM usuarios u
       LEFT JOIN solicitacoes_blusa sb ON sb.usuario_id = u.id
       LEFT JOIN usuarios confirmador ON confirmador.id = sb.confirmado_por
+      LEFT JOIN usuarios editor ON editor.id = sb.tamanho_atualizado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'
@@ -561,7 +679,7 @@ router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador'
       ORDER BY u.nome_completo ASC, sb.data_solicitacao DESC
     `, filtroEquipeParams);
 
-    res.json(solicitacoes.map(item => ({
+    res.json(solicitacoes.map(trocarFotoPorUrl(req, 'usuario')).map(item => ({
       ...item,
       status: item.id ? item.status : 'sem_solicitacao'
     })));
@@ -617,8 +735,9 @@ router.post('/solicitacoes-blusa/:usuario_id', verificarToken, verificarPerfil([
     }
 
     const resultado = await database.run(
-      `INSERT INTO solicitacoes_blusa (usuario_id, tamanho, valor) VALUES (?, ?, ?)`,
-      [usuario_id, tamanho, VALOR_BLUSA_UNICA]
+      `INSERT INTO solicitacoes_blusa (usuario_id, tamanho, valor, tamanho_atualizado_por, tamanho_atualizado_em)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [usuario_id, tamanho, VALOR_BLUSA_UNICA, req.usuario.id]
     );
     const preco = await recalcularValoresBlusasUsuario(database, usuario_id);
     await registrarHistorico(usuario_id, 'blusa_solicitada_pelo_coordenador', {
@@ -662,6 +781,53 @@ router.delete('/solicitacoes-blusa/:id', verificarToken, verificarPerfil(['coord
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao excluir solicitação de camisa' });
+  }
+});
+
+router.put('/solicitacoes-blusa/:id/tamanho', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const solicitacao_id = Number(req.params.id);
+    const { tamanho } = req.body;
+
+    if (await pedidosBlusaBloqueados(database)) {
+      return res.status(403).json({ erro: 'Pedidos de blusa estao encerrados' });
+    }
+
+    if (!solicitacao_id || !TAMANHOS_BLUSA.includes(tamanho)) {
+      return res.status(400).json({ erro: 'Tamanho de blusa invalido' });
+    }
+
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const solicitacao = await database.get(`
+      SELECT sb.id, sb.usuario_id, sb.tamanho, sb.status, u.equipe
+      FROM solicitacoes_blusa sb
+      JOIN usuarios u ON u.id = sb.usuario_id
+      WHERE sb.id = ?
+    `, [solicitacao_id]);
+
+    if (!solicitacao || !coordenador?.equipe || solicitacao.equipe !== coordenador.equipe) {
+      return res.status(403).json({ erro: 'Apenas o coordenador da equipe pode alterar esta camisa' });
+    }
+
+    if (solicitacao.tamanho === tamanho) {
+      return res.json({ mensagem: 'Tamanho mantido', id: solicitacao_id, tamanho });
+    }
+
+    await database.run(
+      'UPDATE solicitacoes_blusa SET tamanho = ?, tamanho_atualizado_por = ?, tamanho_atualizado_em = CURRENT_TIMESTAMP WHERE id = ?',
+      [tamanho, req.usuario.id, solicitacao_id]
+    );
+    await registrarHistorico(solicitacao.usuario_id, 'tamanho_blusa_atualizado_pelo_coordenador', {
+      solicitacao_id,
+      tamanho_anterior: solicitacao.tamanho,
+      tamanho_novo: tamanho,
+      coordenador_id: req.usuario.id
+    });
+
+    res.json({ mensagem: 'Tamanho da camisa atualizado', id: solicitacao_id, tamanho });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar tamanho da camisa' });
   }
 });
 
@@ -719,8 +885,10 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
     const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
 
     const usuarios = await database.all(`
-      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.foto_perfil, u.movimento_origem, u.equipe, u.perfil,
-             p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento
+      SELECT u.id AS usuario_id, u.nome_completo, u.email,
+             CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             u.movimento_origem, u.equipe, u.perfil,
+             p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento, p.confirmado_por
       FROM usuarios u
       LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo = 'taxa'
       WHERE u.equipe IS NOT NULL
@@ -732,7 +900,8 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
     `, filtroEquipeParams);
 
     const pagamentos = [];
-    for (const usuario of usuarios) {
+    for (const usuarioBase of usuarios.map(trocarFotoPorUrl(req, 'usuario'))) {
+      const usuario = usuarioBase;
       const movimento = normalizarMovimentoOrigem(usuario.movimento_origem);
       const valorTaxa = TAXAS_POR_MOVIMENTO[movimento] || 0;
       let pagamento = usuario;
@@ -754,10 +923,18 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
         };
       }
 
+      const valorComTaxa = Number(pagamento.valor || valorTaxa || 0);
+      const deveMostrarValorSemTaxa = pagamento.status !== 'confirmado' && ['pix', 'cartao_credito'].includes(pagamento.forma_pagamento);
+      const valorConfirmacaoManual = deveMostrarValorSemTaxa
+        ? calcularValorSemTaxaManual(valorComTaxa, pagamento.forma_pagamento)
+        : arredondarMoeda(valorComTaxa);
+
       pagamentos.push({
         ...pagamento,
         tipo: pagamento.tipo || 'taxa',
-        valor: Number(pagamento.valor || valorTaxa || 0),
+        valor_com_taxa: valorComTaxa,
+        valor: valorConfirmacaoManual,
+        valor_confirmacao_manual: valorConfirmacaoManual,
         status: pagamento.status || 'pendente'
       });
     }
@@ -810,13 +987,15 @@ router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe
 
     const reunioes = await database.all(`
       SELECT r.data_reuniao, r.horario_inicio, r.local, u.equipe
-      FROM reunioes r JOIN usuarios u ON u.id = r.criada_por
+      FROM reunioes r
+      JOIN usuarios u ON u.id = r.criada_por
       WHERE COALESCE(r.status, 'agendada') = 'agendada'
     `);
 
     res.status(201).json({
       mensagem: 'Reunião agendada com sucesso',
       id: resultado.lastID,
+      reunioes_whatsapp: reunioes,
       mensagem_whatsapp: montarMensagemWhatsAppReunioes(reunioes)
     });
   } catch (err) {
@@ -870,7 +1049,8 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
     }
 
     const escalados = await database.all(`
-      SELECT u.id, u.nome_completo, u.nome_cracha, u.email, u.telefone, u.perfil, u.equipe, u.foto_perfil,
+      SELECT u.id, u.nome_completo, u.nome_cracha, u.email, u.telefone, u.perfil, u.equipe,
+             CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              pr.status, pr.observacao
       FROM usuarios u
       LEFT JOIN presencas_reuniao pr ON pr.usuario_id = u.id AND pr.reuniao_id = ?
@@ -878,7 +1058,7 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       ORDER BY u.nome_completo ASC
     `, [reuniao_id, coordenador.equipe]);
 
-    res.json(escalados.map(escalado => ({
+    res.json(escalados.map(trocarFotoPorUrl(req, 'usuario')).map(escalado => ({
       ...escalado,
       status: escalado.status || 'presente',
       observacao: escalado.observacao || ''

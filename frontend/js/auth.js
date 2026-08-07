@@ -12,7 +12,7 @@ document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
     const cpf = somenteNumeros(document.getElementById('cpfLogin').value);
     const data_nascimento = somenteNumeros(document.getElementById('dataNascimentoLogin').value);
 
-    if (!cpfValido(cpf)) {
+    if (!cpfValido(cpf, true)) {
         mostrarAlerta('alertaLogin', 'Informe um CPF válido', 'warning');
         return;
     }
@@ -302,8 +302,12 @@ function limitarCampoNumerico(e) {
     e.target.value = somenteNumeros(e.target.value);
 }
 
-function cpfValido(valor) {
+function cpfValido(valor, permitirAdministradorSistema = false) {
     const cpf = somenteNumeros(valor);
+
+    if (permitirAdministradorSistema && cpf === '11111111111') {
+        return true;
+    }
 
     if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) {
         return false;

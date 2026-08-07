@@ -814,7 +814,7 @@ function abrirModalResumoCarografoDev(usuarioId, tipoCadastro = 'usuario') {
         ` : `
             ${botaoAcoes}
             <button type="button" class="btn btn-outline-dark" onclick="abrirHistóricoUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}')">Histórico</button>
-            <button type="button" class="btn btn-secondary" onclick="abrirModalEditarUsuárioDev(${Number(usuario.id)})">Editar</button>
+            <button type="button" class="btn btn-secondary" onclick="abrirModalEditarUsuárioDev(${Number(usuario.id)}, 'usuario')">Editar</button>
             <button type="button" class="btn btn-primary" onclick="abrirModalEscalarDev(${Number(usuario.id)}, 'usuario')">Escalar</button>
             <button type="button" class="btn btn-danger" onclick="excluirUsuárioDev(${Number(usuario.id)}, '${escapeJsAttr(usuario.nome_completo || '')}', 'usuario')">Excluir</button>
         `;
@@ -1059,8 +1059,11 @@ function formatarMotivoImpedimentoServirDevCard(valor) {
     return motivos.join(', ') || '-';
 }
 
-function abrirModalEditarUsuárioDev(usuarioId) {
-    const usuario = carografoDevCache.find(u => Number(u.id) === Number(usuarioId));
+function abrirModalEditarUsuárioDev(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = carografoDevCache.find(u =>
+        Number(u.id) === Number(usuarioId) &&
+        ((u.origem_cadastro || 'usuario') === tipoCadastro)
+    );
     if (!usuario) return;
 
     document.getElementById('editarDevUsuárioId').value = usuario.id;
@@ -1521,6 +1524,7 @@ function obterStatusBadge(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',

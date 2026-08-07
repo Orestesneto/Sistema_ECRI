@@ -5,7 +5,8 @@
   "description": "Sistema de gestao de equipes ECRI",
   "scripts": {
     "start": "node backend/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "migrar:fotos-supabase": "node backend/migrar-fotos-supabase.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -8,7 +8,7 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
-const { normalizarFotoPerfil } = require('../utils/foto');
+const { processarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
 
@@ -171,7 +171,7 @@ router.put('/:token', async (req, res) => {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
-    const fotoValidada = normalizarFotoPerfil(foto_perfil, { obrigatoria: true });
+    const fotoValidada = await processarFotoPerfil(foto_perfil, { obrigatoria: true, prefixo: 'usuarios' });
     if (fotoValidada.erro) {
       return res.status(400).json({ erro: fotoValidada.erro });
     }

@@ -145,7 +145,8 @@ router.post('/criar-dirigente', verificarTokenDesenvolvimento, async (req, res) 
 
     await registrarHistorico(resultado.lastID, 'dirigente_criado_desenvolvimento', {
       email,
-      nome_completo: nomeCompleto
+      nome_completo: nomeCompleto,
+      criado_por: req.dev.usuario
     });
 
     res.status(201).json({
