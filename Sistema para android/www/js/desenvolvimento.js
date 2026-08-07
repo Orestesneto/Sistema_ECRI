@@ -1521,6 +1521,7 @@ function obterStatusBadge(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',

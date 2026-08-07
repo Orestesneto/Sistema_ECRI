@@ -306,17 +306,13 @@
                         <label class="form-label">Nome do evento</label>
                         <input type="text" class="form-control" id="eventoNome" required>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Data</label>
                         <input type="date" class="form-control" id="eventoData" required>
                     </div>
-                    <div class="col-md-5">
-                        <label class="form-label">Local</label>
-                        <input type="text" class="form-control" id="eventoLocal">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Descricao</label>
-                        <textarea class="form-control" id="eventoDescricao" rows="2"></textarea>
+                    <div class="col-md-4">
+                        <label class="form-label">Data de término</label>
+                        <input type="date" class="form-control" id="eventoDataTermino" required>
                     </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-success">Criar Evento</button>
@@ -402,18 +398,24 @@
             <div id="situacao" class="tab-pane fade">
                 <div class="row mt-3">
                     <div class="col-md-12">
-                        <h3>Situação de Pagamentos e Blusas</h3>
+                        <h3>Situação de Pagamentos e Camisas</h3>
                         <div id="cardSituacao"></div>
                     </div>
                 </div>
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <h4>Pagamentos</h4>
-                        <div id="tabelaPagamentosSituacao" class="table-responsive"></div>
+                <ul class="nav nav-pills mt-4" id="submenuSituacao" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="abaSituacaoTaxas" data-bs-toggle="pill" data-bs-target="#painelSituacaoTaxas" type="button" role="tab">Taxas</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="abaSituacaoCamisas" data-bs-toggle="pill" data-bs-target="#painelSituacaoCamisas" type="button" role="tab">Camisas</button>
+                    </li>
+                </ul>
+                <div class="tab-content mt-3">
+                    <div class="tab-pane fade show active" id="painelSituacaoTaxas" role="tabpanel">
+                        <div id="listaEquipesTaxasSituacao" class="table-responsive"></div>
                     </div>
-                    <div class="col-md-6">
-                        <h4>Blusas</h4>
-                        <div id="tabelaBlusasSituacao" class="table-responsive"></div>
+                    <div class="tab-pane fade" id="painelSituacaoCamisas" role="tabpanel">
+                        <div id="listaEquipesCamisasSituacao" class="table-responsive"></div>
                     </div>
                 </div>
             </div>
@@ -523,6 +525,24 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modalAcompanhamentoSituacao" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tituloModalAcompanhamentoSituacao">Acompanhamento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="resumoModalAcompanhamentoSituacao" class="row g-3 mb-3"></div>
+                    <div id="conteudoModalAcompanhamentoSituacao" class="table-responsive"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="modalEscalar" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -534,6 +554,12 @@
                     <form id="formEscalar">
                         <input type="hidden" id="usuarioIdEscalar">
                         <input type="hidden" id="tipoCadastroEscalar" value="usuario">
+                        <div class="mb-3" id="eventoEscalaDiv">
+                            <label class="form-label">Evento</label>
+                            <select class="form-select" id="eventoEscala">
+                                <option value="">Selecione...</option>
+                            </select>
+                        </div>
                         <div class="mb-3" id="acaoEscalarDiv">
                             <label class="form-label">Ação</label>
                             <select class="form-select" id="acaoEscalar" required>

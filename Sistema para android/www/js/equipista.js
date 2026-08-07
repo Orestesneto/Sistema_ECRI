@@ -3,10 +3,13 @@ const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_EQUIPISTA_KEY = 'equipistaAbaAtual';
 const PERCENTUAL_TAXA_CARTAO = 0.08;
+const PERCENTUAL_TAXA_PIX = 0.01;
 let linkCheckoutCartaoAtual = '';
+let ultimoResumoPixPagamento = null;
 let pagamentoMonitoradoId = null;
 let intervaloMonitoramentoPagamento = null;
 let tentativasMonitoramentoPagamento = 0;
+let valorBlusasPendentesPagamento = 0;
 const TAXAS_POR_MOVIMENTO = {
     EC: 25,
     EJC: 25,
@@ -237,7 +240,13 @@ function atualizarValorPagamento() {
         return;
     }
 
-    valorInput.readOnly = false;
+    if (tipo === 'blusa') {
+        valorInput.value = valorBlusasPendentesPagamento || 0;
+        valorInput.readOnly = true;
+        return;
+    }
+
+    valorInput.readOnly = true;
     valorInput.value = '';
 }
 
@@ -246,7 +255,19 @@ function atualizarAvisoTaxaCartao() {
     if (!aviso) return;
 
     const formaPagamento = document.querySelector('input[name="formaPagamentoOnline"]:checked')?.value || '';
-    aviso.style.display = formaPagamento === 'cartao_credito' ? 'block' : 'none';
+    if (formaPagamento === 'cartao_credito') {
+        aviso.textContent = 'Pagamentos por cartao de credito terao acrescimo de 8% referente a taxa da maquineta.';
+        aviso.style.display = 'block';
+        return;
+    }
+
+    if (formaPagamento === 'pix') {
+        aviso.textContent = 'Pagamentos via PIX terao acrescimo de 1% referente a taxa da maquineta.';
+        aviso.style.display = 'block';
+        return;
+    }
+
+    aviso.style.display = 'none';
 }
 
 // Solicitar pagamento
@@ -261,6 +282,11 @@ document.getElementById('formPagamento')?.addEventListener('submit', async (e) =
 });
 
 async function solicitarPagamentoEquipista(tipo, valor, formaPagamento) {
+    if (formaPagamento === 'pix') {
+        const continuar = confirm('O pagamento via PIX tera acrescimo de 1% referente a taxa da maquineta. Deseja continuar?');
+        if (!continuar) return;
+    }
+
     try {
         const response = await fetch(`${API_URL}/equipista/solicitar-pagamento`, {
             method: 'POST',
@@ -278,7 +304,13 @@ async function solicitarPagamentoEquipista(tipo, valor, formaPagamento) {
             }
             if (data.pix_qr_code) {
                 renderizarPixPagamentoMercadoPago(data);
-                abrirModalPix(data.pix_qr_code, data.pix_qr_code_base64);
+                abrirModalPix({
+                    codigoPix: data.pix_qr_code,
+                    qrCodeBase64: data.pix_qr_code_base64,
+                    valorBase: data.valor_base,
+                    acrescimoPix: data.acrescimo_pix,
+                    valorFinal: data.valor_final || data.valor
+                });
             } else {
                 renderizarLinkPagamentoMercadoPago(linkPagamento);
             }
@@ -453,6 +485,7 @@ function normalizarValoresCartao(valorBase, acrescimoCartao, valorFinal) {
 function renderizarPixPagamentoMercadoPago(pagamento) {
     const container = document.getElementById('resultadoPagamentoMercadoPago');
     if (!container) return;
+    ultimoResumoPixPagamento = pagamento || null;
 
     container.innerHTML = `
         <div class="alert alert-info mb-0">
@@ -462,17 +495,28 @@ function renderizarPixPagamentoMercadoPago(pagamento) {
     `;
 }
 
-function abrirModalPixCodificado(codigoPix, qrCodeBase64 = '') {
-    abrirModalPix(decodeURIComponent(codigoPix || ''), decodeURIComponent(qrCodeBase64 || ''));
+function abrirModalPixCodificado(codigoPix, qrCodeBase64 = '', valorFinal = '', valorBase = '', acrescimoPix = '') {
+    const resumoAtual = ultimoResumoPixPagamento || {};
+    abrirModalPix({
+        codigoPix: decodeURIComponent(codigoPix || ''),
+        qrCodeBase64: decodeURIComponent(qrCodeBase64 || ''),
+        valorFinal: valorFinal ? Number(decodeURIComponent(valorFinal)) : Number(resumoAtual.valor_final || resumoAtual.valor || 0),
+        valorBase: valorBase ? Number(decodeURIComponent(valorBase)) : Number(resumoAtual.valor_base || 0),
+        acrescimoPix: acrescimoPix ? Number(decodeURIComponent(acrescimoPix)) : Number(resumoAtual.acrescimo_pix || 0)
+    });
 }
 
-function abrirModalPix(codigoPix, qrCodeBase64 = '') {
+function abrirModalPix({ codigoPix, qrCodeBase64 = '', valorBase, acrescimoPix, valorFinal }) {
     const campoCodigo = document.getElementById('pixCopiaCola');
     const imagem = document.getElementById('pixQrCodeImagem');
     const alerta = document.getElementById('alertaCopiaPix');
 
     if (!campoCodigo || !imagem) return;
 
+    const valores = normalizarValoresPix(valorBase, acrescimoPix, valorFinal);
+    document.getElementById('pixValorBase').textContent = formatarMoedaEquipista(valores.valorBase);
+    document.getElementById('pixTaxa').textContent = formatarMoedaEquipista(valores.acrescimoPix);
+    document.getElementById('pixValorFinal').textContent = formatarMoedaEquipista(valores.valorFinal);
     campoCodigo.value = codigoPix || '';
     alerta.style.display = 'none';
 
@@ -486,6 +530,31 @@ function abrirModalPix(codigoPix, qrCodeBase64 = '') {
 
     const modal = new bootstrap.Modal(document.getElementById('modalPagamentoPix'));
     modal.show();
+}
+
+function normalizarValoresPix(valorBase, acrescimoPix, valorFinal) {
+    const finalInformado = Number(valorFinal || 0);
+    const baseInformada = Number(valorBase || 0);
+    const taxaInformada = Number(acrescimoPix || 0);
+
+    if (baseInformada > 0 || taxaInformada > 0) {
+        return {
+            valorBase: baseInformada,
+            acrescimoPix: taxaInformada,
+            valorFinal: finalInformado || baseInformada + taxaInformada
+        };
+    }
+
+    if (finalInformado > 0) {
+        const valorBaseCalculado = finalInformado / (1 + PERCENTUAL_TAXA_PIX);
+        return {
+            valorBase: valorBaseCalculado,
+            acrescimoPix: finalInformado - valorBaseCalculado,
+            valorFinal: finalInformado
+        };
+    }
+
+    return { valorBase: 0, acrescimoPix: 0, valorFinal: 0 };
 }
 
 document.getElementById('botaoCopiarPix')?.addEventListener('click', async () => {
@@ -523,19 +592,26 @@ async function carregarStatus() {
             let acao = '-';
             if (p.status === 'pendente') {
                 const botaoPix = p.forma_pagamento === 'pix' && p.pix_qr_code
-                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixCodificado('${encodeURIComponent(p.pix_qr_code || '')}', '${encodeURIComponent(p.pix_qr_code_base64 || '')}')">PIX</button>`
+                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixCodificado('${encodeURIComponent(p.pix_qr_code || '')}', '${encodeURIComponent(p.pix_qr_code_base64 || '')}', '${encodeURIComponent(p.valor || '')}')">PIX</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemPendente('${escapeAttr(p.tipo)}', 'pix', ${Number(p.valor || 0)})">PIX</button>`;
                 const botaoCartao = p.forma_pagamento === 'cartao_credito' && linkPagamento
                     ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalCartaoCodificado('${encodeURIComponent(linkPagamento)}', '${encodeURIComponent(p.valor || '')}')">Cartão</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemPendente('${escapeAttr(p.tipo)}', 'cartao_credito', ${Number(p.valor || 0)})">Cartão</button>`;
                 acao = `<div class="d-flex flex-wrap gap-1">${botaoPix}${botaoCartao}</div>`;
             }
-            htmlPagamentos += `<tr><td>${p.tipo}</td><td>${formatarMoedaEquipista(p.valor)}</td><td>${formatarFormaPagamentoEquipista(p.forma_pagamento)}</td><td>${badge}</td><td>${acao}</td></tr>`;
+            htmlPagamentos += `<tr><td>${p.tipo}</td><td>${formatarMoedaEquipista(p.valor)}</td><td>${formatarFormaPagamentoEquipista(p.forma_pagamento)}</td><td>${badge}</td><td>-</td></tr>`;
         });
         htmlPagamentos += '</tbody></table>';
         document.getElementById('listaPagamentos').innerHTML = htmlPagamentos;
         
         const resumoBlusas = data.resumo_blusas || {};
+        valorBlusasPendentesPagamento = Number(resumoBlusas.pendente || 0);
+        if (document.getElementById('tipoPagamento')?.value === 'blusa') {
+            atualizarValorPagamento();
+        }
+        const pagamentoBlusaPendente = (data.pagamentos || [])
+            .find(p => p.tipo === 'blusa' && p.status === 'pendente') || null;
+        const valorPendenteBlusas = Number(resumoBlusas.pendente || 0);
         let htmlBlusas = `
             <div class="row g-2 mb-2">
                 <div class="col-md-4">
@@ -550,14 +626,107 @@ async function carregarStatus() {
             </div>
             <table class="table table-sm"><thead><tr><th>Tamanho</th><th>Valor</th><th>Status</th><th>Confirmação</th></tr></thead><tbody>
         `;
+        htmlBlusas = htmlBlusas.replace('</tr></thead><tbody>', '<th>Ação</th></tr></thead><tbody>');
+        const pedidosBlusaBloqueadosStatus = Boolean(data.configuracoes_blusa?.pedidos_bloqueados);
         data.blusas.forEach(b => {
             const badge = obterBadgeStatusPagamentoEquipista(b.status);
-            htmlBlusas += `<tr><td>${escapeHtml(b.tamanho)}</td><td>${formatarMoedaEquipista(b.valor)}</td><td>${badge}</td><td>${obterTextoConfirmacaoBlusaEquipista(b)}</td></tr>`;
+            htmlBlusas += `<tr><td>${renderizarCampoTamanhoBlusaStatus(b, pedidosBlusaBloqueadosStatus)}</td><td>${formatarMoedaEquipista(b.valor)}</td><td>${badge}</td><td>${obterTextoConfirmacaoBlusaEquipista(b)}</td><td>${renderizarAcaoBlusaStatus(b, pedidosBlusaBloqueadosStatus, pagamentoBlusaPendente, valorPendenteBlusas)}</td></tr>`;
         });
         htmlBlusas += '</tbody></table>';
         document.getElementById('listaBlusas').innerHTML = htmlBlusas;
     } catch (err) {
         console.error(err);
+    }
+}
+
+function obterTamanhosBlusaEquipista() {
+    return Array.from(document.querySelectorAll('#tamanho option'))
+        .map(option => option.value)
+        .filter(Boolean);
+}
+
+function renderizarAcaoBlusaStatus(blusa, bloqueado) {
+    if (!blusa?.id) return '-';
+    if (blusa.status === 'confirmado') return '-';
+    if (bloqueado) return '<span class="text-muted small">Cancelamento encerrado</span>';
+
+    return `<button type="button" class="btn btn-sm btn-outline-danger" onclick="cancelarPedidoBlusaStatus(${Number(blusa.id)})">Cancelar</button>`;
+}
+
+function renderizarCampoTamanhoBlusaStatus(blusa, bloqueado) {
+    if (!blusa?.id) return escapeHtml(blusa?.tamanho || '-');
+    const atualizadoPor = escapeHtml(blusa.tamanho_atualizado_por_nome || 'Sem registro');
+    const atualizadoEm = blusa.tamanho_atualizado_em ? ` em ${escapeHtml(formatarDataHoraEquipista(blusa.tamanho_atualizado_em))}` : '';
+    const textoAtualizacao = `<small class="text-muted d-block mt-1">Tamanho salvo por ${atualizadoPor}${atualizadoEm}</small>`;
+
+    if (bloqueado) {
+        return `
+            <select class="form-select form-select-sm" disabled title="Pedidos de blusa encerrados">
+                <option>${escapeHtml(blusa.tamanho || '-')}</option>
+            </select>
+            ${textoAtualizacao}
+        `;
+    }
+
+    const opcoes = obterTamanhosBlusaEquipista().map(tamanho => `
+        <option value="${escapeAttr(tamanho)}" ${tamanho === blusa.tamanho ? 'selected' : ''}>${escapeHtml(tamanho)}</option>
+    `).join('');
+
+    return `
+        <select class="form-select form-select-sm" onchange="alterarTamanhoBlusaStatus(${Number(blusa.id)}, this.value, '${escapeAttr(blusa.tamanho || '')}')">
+            ${opcoes}
+        </select>
+        ${textoAtualizacao}
+    `;
+}
+
+async function alterarTamanhoBlusaStatus(solicitacaoId, tamanho, tamanhoAnterior) {
+    if (!solicitacaoId || !tamanho || tamanho === tamanhoAnterior) return;
+
+    try {
+        const response = await fetch(`${API_URL}/equipista/solicitacoes-blusa/${solicitacaoId}/tamanho`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({ tamanho })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            mostrarAlerta('alertaEquipista', 'Tamanho da camisa atualizado.', 'success');
+            carregarStatus();
+        } else {
+            mostrarAlerta('alertaEquipista', data.erro || 'Erro ao atualizar tamanho da camisa', 'danger');
+            carregarStatus();
+        }
+    } catch (err) {
+        mostrarAlerta('alertaEquipista', 'Erro ao atualizar tamanho da camisa', 'danger');
+        console.error(err);
+        carregarStatus();
+    }
+}
+
+async function cancelarPedidoBlusaStatus(solicitacaoId) {
+    if (!solicitacaoId) return;
+    if (!confirm('Deseja cancelar este pedido de camisa?')) return;
+
+    try {
+        const response = await fetch(`${API_URL}/equipista/solicitacoes-blusa/${solicitacaoId}`, {
+            method: 'DELETE',
+            headers: getHeaders()
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            mostrarAlerta('alertaEquipista', 'Pedido de camisa cancelado.', 'success');
+            carregarStatus();
+        } else {
+            mostrarAlerta('alertaEquipista', data.erro || 'Erro ao cancelar pedido de camisa', 'danger');
+            carregarStatus();
+        }
+    } catch (err) {
+        mostrarAlerta('alertaEquipista', 'Erro ao cancelar pedido de camisa', 'danger');
+        console.error(err);
+        carregarStatus();
     }
 }
 
@@ -583,6 +752,7 @@ function obterBadgeStatusPagamentoEquipista(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>'
     };
     return mapa[status] || `<span class="badge bg-secondary">${escapeHtml(status || '-')}</span>`;

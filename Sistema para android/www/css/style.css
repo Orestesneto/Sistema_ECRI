@@ -239,6 +239,13 @@ body {
     overflow-wrap: anywhere;
 }
 
+.carografo-observacao {
+    color: #6c757d;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
 .carografo-equipe {
     color: #212529;
     font-weight: 700;
@@ -673,6 +680,36 @@ body {
         line-height: 1.25;
         text-align: left;
         text-transform: uppercase;
+    }
+
+    .tabela-card-mobile td.confirmacoes-usuario {
+        align-items: flex-start;
+    }
+
+    .tabela-card-mobile td.confirmacoes-usuario .confirmacoes-usuario-conteudo {
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 62%;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.2rem;
+    }
+
+    .tabela-card-mobile td.confirmacoes-usuario .confirmacoes-usuario-nome,
+    .tabela-card-mobile td.confirmacoes-usuario .confirmacoes-usuario-cracha {
+        width: 100%;
+        white-space: normal;
+        overflow-wrap: break-word;
+        word-break: normal;
+        text-align: right;
+        line-height: 1.25;
+    }
+
+    .tabela-card-mobile td.confirmacoes-usuario .badge {
+        max-width: 100%;
+        white-space: normal;
+        text-align: center;
     }
 
     .tabela-card-mobile:not(.tabela-usuarios-dirigentes) td:empty,

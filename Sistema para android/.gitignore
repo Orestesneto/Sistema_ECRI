@@ -5,3 +5,7 @@ android/build/
 android/capacitor-cordova-android-plugins/build/
 android/app/google-services.json
 *.apk
+*.aab
+keystore/
+*.jks
+*.keystore

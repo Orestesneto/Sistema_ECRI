@@ -4,12 +4,13 @@ const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
 const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'enviarNotificacao'];
-const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 5000;
-const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 5000;
+const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 60000;
+const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 60000;
 const ABAS_DIRIGENTE_TEMPO_REAL = ['relatorio', 'situacao', 'acompanhamentoFaltas'];
 let usuariosCache = [];
 let pessoasExternasCache = [];
 let eventosCache = [];
+let situacaoEquipesCache = [];
 let perfilDirigenteId = null;
 let intervaloAtualizacaoCarografo = null;
 let atualizacaoCarografoEmAndamento = false;
@@ -69,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
     configurarAtualizacaoAbasDirigenteTempoReal();
-    configurarAtualizacaoCarografoTempoReal();
+    // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
 
 function configurarConfiguraçõesDirigente() {
@@ -488,7 +489,7 @@ async function carregarRelatorio() {
         
         const data = await response.json();
         
-        document.getElementById('totalUsuários').textContent = data.stats.totalUsuários;
+        document.getElementById('totalUsuários').textContent = data.stats.totalUsuarios || 0;
         document.getElementById('confirmados').textContent = data.stats.confirmados;
         document.getElementById('pendentes').textContent = data.stats.pendentes;
         document.getElementById('coordenadores').textContent = data.stats.coordenadores;
@@ -539,6 +540,11 @@ function renderizarResumoEquipes(equipesResumo) {
                 <td>${Number(item.ec || 0)}</td>
                 <td>${casais}</td>
                 <td><strong>${Number(item.totalPonderado || 0)}</strong></td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirModalConfirmacoesEquipeRelatorio('${escapeAttr(item.equipe || '')}')">
+                        Visualizar situação da equipe
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
@@ -554,6 +560,7 @@ function renderizarResumoEquipes(equipesResumo) {
                     <th>EC</th>
                     <th>Casais</th>
                     <th>Total ponderado</th>
+                    <th>Ação</th>
                 </tr>
             </thead>
             <tbody>${linhas}</tbody>
@@ -566,8 +573,108 @@ function renderizarResumoEquipes(equipesResumo) {
                     <th>${totais.ec}</th>
                     <th>${totais.casais}</th>
                     <th>${totais.totalPonderado}</th>
+                    <th></th>
                 </tr>
             </tfoot>
+        </table>
+    `;
+}
+
+async function abrirModalConfirmacoesEquipeRelatorio(equipeNome) {
+    if (!equipeNome) return;
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/participantes-equipe`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao carregar confirmações da equipe.', 'danger');
+            return;
+        }
+
+        const participantes = (Array.isArray(data) ? data : [])
+            .filter(participante => String(participante.equipe || '') === String(equipeNome))
+            .sort(ordenarUsuarioPorNome);
+
+        document.getElementById('tituloModalAcompanhamentoSituacao').textContent = `Confirmações - ${equipeNome}`;
+        document.getElementById('resumoModalAcompanhamentoSituacao').innerHTML = renderizarResumoConfirmacoesEquipeDirigente(participantes);
+        document.getElementById('conteudoModalAcompanhamentoSituacao').innerHTML = renderizarTabelaConfirmacoesEquipeDirigente(participantes);
+
+        new bootstrap.Modal(document.getElementById('modalAcompanhamentoSituacao')).show();
+    } catch (err) {
+        console.error(err);
+        mostrarAlerta('alertaDirigentes', 'Erro ao carregar confirmações da equipe.', 'danger');
+    }
+}
+
+function renderizarResumoConfirmacoesEquipeDirigente(participantes) {
+    const total = participantes.length;
+    const confirmados = participantes.filter(item => item.status === 'confirmado').length;
+    const pendentes = participantes.filter(item => item.status === 'pendente').length;
+    const outros = participantes.filter(item => ['negou', 'desistiu', 'contato_errado'].includes(item.status)).length;
+
+    return [
+        ['Total', total, 'secondary'],
+        ['Confirmados', confirmados, 'success'],
+        ['Pendentes', pendentes, 'warning'],
+        ['Outros status', outros, 'danger']
+    ].map(([label, valor, cor]) => `
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <span class="text-muted">${escapeHtml(label)}</span>
+                <div class="h4 mb-0 text-${cor}">${valor}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
+    if (!participantes.length) {
+        return '<div class="alert alert-info">Nenhum participante encontrado para esta equipe.</div>';
+    }
+
+    const linhas = participantes.map((participante) => {
+        const tipoCadastro = participante.tipo_cadastro === 'externo'
+            ? '<span class="badge bg-secondary">Sem cadastro</span>'
+            : '<span class="badge bg-primary">Cadastrado</span>';
+
+        return `
+            <tr>
+                <td>${renderizarFotoPequenaSituacao(participante)}</td>
+                <td class="confirmacoes-usuario">
+                    <div class="confirmacoes-usuario-conteudo">
+                        <strong class="confirmacoes-usuario-nome">${escapeHtml(participante.nome_completo || '')}</strong>
+                        <small class="text-muted confirmacoes-usuario-cracha">${escapeHtml(participante.nome_cracha || '')}</small>
+                        ${tipoCadastro}
+                    </div>
+                </td>
+                <td>${escapeHtml(participante.telefone || '-')}</td>
+                <td>${escapeHtml(participante.movimento_origem || '-')}</td>
+                <td><span class="badge bg-success">${Number(participante.total_presencas || 0)}</span></td>
+                <td><span class="badge bg-warning text-dark">${Number(participante.total_faltas_justificadas || 0)}</span></td>
+                <td><span class="badge bg-danger">${Number(participante.total_faltas || 0)}</span></td>
+                <td>${obterStatusBadge(participante.status)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Foto</th>
+                    <th>Usuário</th>
+                    <th>Contato</th>
+                    <th>Movimento</th>
+                    <th>Presenças</th>
+                    <th>Faltas justificadas</th>
+                    <th>Faltas</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>${linhas}</tbody>
         </table>
     `;
 }
@@ -866,6 +973,7 @@ function renderizarPessoasExternas() {
                         <span>${escapeHtml(pessoa.nome_completo || '')}</span>
                         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="abrirModalEditarPessoaExterna(${Number(pessoa.id)})">Editar</button>
                     </div>
+                    ${pessoa.observacao ? `<small class="text-muted d-block mt-1">${escapeHtml(pessoa.observacao)}</small>` : ''}
                 </td>
                 <td>${escapeHtml(pessoa.telefone || '')}</td>
                 <td>${escapeHtml(pessoa.movimento_origem || '-')}</td>
@@ -1169,9 +1277,44 @@ async function carregarEventos() {
 
         eventosCache = await response.json();
         renderizarEventos();
+        carregarOpcoesEventoEscala();
     } catch (err) {
         console.error(err);
     }
+}
+
+function carregarOpcoesEventoEscala() {
+    const select = document.getElementById('eventoEscala');
+    if (!select) return;
+
+    const eventos = Array.isArray(eventosCache) ? eventosCache : [];
+    const eventoPadrao = obterUltimoEventoEscala(eventos);
+    select.innerHTML = '<option value="">Selecione...</option>' + eventos
+        .map(evento => {
+            const periodo = `${formatarData(evento.data_evento)} a ${formatarData(evento.data_termino || evento.data_evento)}`;
+            return `<option value="${Number(evento.id)}">${escapeHtml(evento.nome || 'Evento')} - ${escapeHtml(periodo)}</option>`;
+        })
+        .join('');
+
+    if (eventoPadrao) {
+        select.value = String(eventoPadrao.id);
+    }
+}
+
+function obterUltimoEventoEscala(eventos) {
+    return [...(eventos || [])]
+        .filter(evento => Number(evento.id))
+        .sort((a, b) => {
+            const dataA = String(a.data_evento || '');
+            const dataB = String(b.data_evento || '');
+            if (dataA !== dataB) return dataB.localeCompare(dataA);
+
+            const criadoA = String(a.data_criacao || '');
+            const criadoB = String(b.data_criacao || '');
+            if (criadoA !== criadoB) return criadoB.localeCompare(criadoA);
+
+            return Number(b.id || 0) - Number(a.id || 0);
+        })[0] || null;
 }
 
 document.getElementById('formEvento')?.addEventListener('submit', async (e) => {
@@ -1179,14 +1322,13 @@ document.getElementById('formEvento')?.addEventListener('submit', async (e) => {
 
     const nome = document.getElementById('eventoNome').value;
     const data_evento = document.getElementById('eventoData').value;
-    const local = document.getElementById('eventoLocal').value;
-    const descricao = document.getElementById('eventoDescricao').value;
+    const data_termino = document.getElementById('eventoDataTermino').value;
 
     try {
         const response = await fetch(`${API_URL}/dirigentes/eventos`, {
             method: 'POST',
             headers: getHeaders(),
-            body: JSON.stringify({ nome, data_evento, local, descricao })
+            body: JSON.stringify({ nome, data_evento, data_termino })
         });
 
         if (response.ok) {
@@ -1274,8 +1416,8 @@ function renderizarEventos() {
                     <div class="d-flex justify-content-between align-items-start gap-3">
                         <div>
                             <h5 class="card-title mb-1">${escapeHtml(evento.nome)}</h5>
-                            <p class="mb-1"><strong>Data:</strong> ${formatarData(evento.data_evento)} ${evento.local ? '<strong>Local:</strong> ' + escapeHtml(evento.local) : ''}</p>
-                            <p class="mb-1">${escapeHtml(evento.descricao || '')}</p>
+                            <p class="mb-1"><strong>Data:</strong> ${formatarData(evento.data_evento)}</p>
+                            <p class="mb-1"><strong>Data de término:</strong> ${formatarData(evento.data_termino || evento.data_evento)}</p>
                             <small class="text-muted">${totalCoordenadores} coordenador(es), ${totalEquipistas} equipista(s)</small>
                         </div>
                         <button class="btn btn-sm btn-outline-danger" onclick="excluirEvento(${evento.id})">Excluir Evento</button>
@@ -1362,6 +1504,10 @@ function renderizarCarografo(usuarios) {
         const movimentoOrigem = escapeHtml(u.movimento_origem || '-');
         const anoEncontro = escapeHtml(u.ano_encontro || '-');
         const telefone = escapeHtml(u.telefone || '-');
+        const observacao = String(u.observacao || '').trim();
+        const observacaoHtml = observacao
+            ? `<div class="carografo-observacao">${escapeHtml(observacao)}</div>`
+            : '';
         const paroquiaValor = obterParoquiaPessoa(u);
         const equipeAtual = escapeHtml(u.equipe || 'SEM EQUIPE');
         const statusBadge = obterStatusBadge(u.status);
@@ -1410,6 +1556,7 @@ function renderizarCarografo(usuarios) {
                     </div>
                     <div class="carografo-linha">${movimentoOrigem} - ${anoEncontro}</div>
                     <div class="carografo-linha">${telefone}</div>
+                    ${observacaoHtml}
                     <div class="carografo-equipe">Equipe: ${equipeAtual}</div>
                     ${motivoImpedimentoCard}
                     <div class="carografo-status">${statusBadge}</div>
@@ -1430,7 +1577,7 @@ function obterPessoasCarografo() {
         ...usuariosCache,
         ...pessoasExternasCache.map(pessoa => ({
             ...pessoa,
-            perfil: 'sem_cadastro',
+            perfil: pessoa.perfil || 'sem_cadastro',
             origem_cadastro: 'externo'
         }))
     ];
@@ -1757,6 +1904,35 @@ function obterTextoStatusDownloadCarografo(statusDownload) {
     return statusDownload === 'pendente' ? 'confirmados ou pendentes' : 'confirmados';
 }
 
+function formatarAdicionadoPorCarografo(pessoa) {
+    const nome = String(pessoa.adicionado_por_nome || '').trim();
+    const data = formatarDataHoraCarografo(pessoa.adicionado_por_data);
+    if (nome && data) return `${nome} - ${data}`;
+    return nome || data || '';
+}
+
+function formatarDataHoraCarografo(valor) {
+    if (!valor) return '';
+
+    const texto = String(valor).trim();
+    const match = texto.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    if (match) {
+        const data = `${match[3]}/${match[2]}/${match[1]}`;
+        return match[4] ? `${data} ${match[4]}:${match[5]}` : data;
+    }
+
+    const data = new Date(texto);
+    if (Number.isNaN(data.getTime())) return texto;
+
+    return data.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
 function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
     if (typeof XLSX === 'undefined') {
         mostrarAlerta('alertaDirigentes', 'Biblioteca de Excel não carregada. Verifique a internet e tente novamente.', 'warning');
@@ -1786,7 +1962,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
                 'Nome do crachá': pessoa.nome_cracha || '',
                 'Movimento de origem': pessoa.movimento_origem || '',
                 'Telefone para contato': pessoa.telefone || '',
-                'Perfil de acesso': formatarPerfilAcesso(pessoa.perfil)
+                'Perfil de acesso': formatarPerfilAcesso(pessoa.perfil),
+                'adicionado por:': formatarAdicionadoPorCarografo(pessoa)
             }));
 
         const worksheet = XLSX.utils.json_to_sheet(linhas, {
@@ -1795,7 +1972,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
                 'Nome do crachá',
                 'Movimento de origem',
                 'Telefone para contato',
-                'Perfil de acesso'
+                'Perfil de acesso',
+                'adicionado por:'
             ]
         });
         worksheet['!cols'] = [
@@ -1803,7 +1981,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
             { wch: 24 },
             { wch: 20 },
             { wch: 22 },
-            { wch: 18 }
+            { wch: 18 },
+            { wch: 34 }
         ];
 
         XLSX.utils.book_append_sheet(workbook, worksheet, nomeAbaExcel(equipe, workbook.SheetNames));
@@ -2116,7 +2295,26 @@ function escapeAttr(valor) {
 }
 
 function sanitizarImagemPerfil(src) {
-    return String(src || '').startsWith('data:image/') ? src : '';
+    const valor = String(src || '');
+    if (valor.startsWith('data:image/')) return valor;
+    if (valor.startsWith('/api/fotos/')) return valor;
+    try {
+        const url = new URL(valor, window.location.origin);
+        if (url.origin === window.location.origin && url.pathname.startsWith('/api/fotos/')) {
+            return url.pathname + url.search;
+        }
+    } catch (err) {
+        return '';
+    }
+    return '';
+}
+
+function formatarResponsavelAuditoria(nome, data) {
+    const responsavel = String(nome || '').trim() || 'Sem registro';
+    const dataFormatada = data ? formatarDataHoraCarografo(data) : '';
+    return dataFormatada
+        ? `${escapeHtml(responsavel)}<br><small class="text-muted">${escapeHtml(dataFormatada)}</small>`
+        : escapeHtml(responsavel);
 }
 
 function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
@@ -2136,6 +2334,13 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
         ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrande('${usuario.foto_perfil}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
     const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+    const usuarioCoordenador = usuario.perfil === 'coordenador';
+    const checkboxCoordenadorHtml = `
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="perfilCoordenadorResumo" ${usuarioCoordenador ? 'checked' : ''} onchange="atualizarPerfilCoordenadorResumo(${Number(usuario.id)}, this, '${tipoCadastro}')">
+            <label class="form-check-label" for="perfilCoordenadorResumo">Coordenador</label>
+        </div>
+    `;
     const motivosImpedimentoHtml = renderizarMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
 
     titulo.textContent = 'Resumo do Usuário';
@@ -2157,12 +2362,15 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
                 <tr><th>Instrumentos</th><td>${escapeHtml(usuario.instrumentos || '-')}</td></tr>
                 <tr><th>Canta?</th><td>${formatarSimNao(usuario.canta)}</td></tr>
                 <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
+                <tr><th>Incluído por</th><td>${formatarResponsavelAuditoria(usuario.incluido_por_nome || usuario.adicionado_por_nome, usuario.incluido_por_data || usuario.adicionado_por_data)}</td></tr>
+                <tr><th>Última edição por</th><td>${formatarResponsavelAuditoria(usuario.ultima_edicao_por_nome, usuario.ultima_edicao_data)}</td></tr>
             </tbody>
         </table>
         <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this)">
-            <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa imperdida de servir no encontro</label>
+            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this, '${tipoCadastro}')">
+            <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa impedida de servir no encontro</label>
         </div>
+        ${checkboxCoordenadorHtml}
         <div id="motivosImpedimentoServirResumoInfo">${motivosImpedimentoHtml}</div>
         <div class="text-end">
             <button type="button" class="btn btn-primary" onclick="abrirModalEscalar(${Number(usuario.id)}, true, '${tipoCadastro}')">Escalar</button>
@@ -2172,7 +2380,52 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
     new bootstrap.Modal(modalEl).show();
 }
 
-async function atualizarPessoaImpedidaServir(usuarioId, checkbox) {
+async function atualizarPerfilCoordenadorResumo(usuarioId, checkbox, tipoCadastro = 'usuario') {
+    const marcado = Boolean(checkbox.checked);
+    const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+    const perfilAnterior = lista.find(usuario => Number(usuario.id) === Number(usuarioId))?.perfil || (tipoCadastro === 'externo' ? 'sem_cadastro' : 'equipista');
+    const novoPerfil = marcado ? 'coordenador' : (tipoCadastro === 'externo' ? 'sem_cadastro' : 'equipista');
+    checkbox.disabled = true;
+
+    try {
+        const url = tipoCadastro === 'externo'
+            ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/perfil-coordenador`
+            : `${API_URL}/dirigentes/${marcado ? 'escalar-coordenador' : 'escalar-equipista'}/${usuarioId}`;
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: tipoCadastro === 'externo' ? JSON.stringify({ coordenador: marcado }) : undefined
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            checkbox.checked = perfilAnterior === 'coordenador';
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao atualizar perfil de acesso.', 'danger');
+            return;
+        }
+
+        if (tipoCadastro === 'externo') {
+            pessoasExternasCache = pessoasExternasCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, perfil: novoPerfil }
+                : usuario);
+        } else {
+            usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, perfil: novoPerfil }
+                : usuario);
+        }
+        aplicarFiltrosCarografo();
+        renderizarTabelaUsuarios();
+        mostrarAlerta('alertaDirigentes', marcado ? 'Perfil alterado para coordenador.' : 'Perfil alterado para equipista.', 'success');
+    } catch (err) {
+        checkbox.checked = perfilAnterior === 'coordenador';
+        mostrarAlerta('alertaDirigentes', 'Erro ao atualizar perfil de acesso.', 'danger');
+        console.error(err);
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+async function atualizarPessoaImpedidaServir(usuarioId, checkbox, tipoCadastro = 'usuario') {
     const marcado = Boolean(checkbox.checked);
     if (!marcado) {
         checkbox.checked = true;
@@ -2181,13 +2434,14 @@ async function atualizarPessoaImpedidaServir(usuarioId, checkbox) {
     }
 
     if (marcado) {
-        abrirModalMotivoImpedimentoServir(usuarioId, checkbox);
+        abrirModalMotivoImpedimentoServir(usuarioId, checkbox, tipoCadastro);
         return;
     }
 }
 
-function abrirModalMotivoImpedimentoServir(usuarioId, checkbox) {
-    const usuario = usuariosCache.find(item => Number(item.id) === Number(usuarioId)) || {};
+function abrirModalMotivoImpedimentoServir(usuarioId, checkbox, tipoCadastro = 'usuario') {
+    const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+    const usuario = lista.find(item => Number(item.id) === Number(usuarioId)) || {};
     const motivosSalvos = obterMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
     const modalEl = obterModalMotivoImpedimentoServir();
     const motivos = motivosSalvos.motivos || [];
@@ -2203,7 +2457,7 @@ function abrirModalMotivoImpedimentoServir(usuarioId, checkbox) {
     outroInput.value = motivosSalvos.outro || '';
     outroCampo.style.display = outroMarcado ? 'block' : 'none';
 
-    modalEl.querySelector('#btnSalvarMotivoImpedimentoServir').onclick = () => confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl);
+    modalEl.querySelector('#btnSalvarMotivoImpedimentoServir').onclick = () => confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl, tipoCadastro);
     modalEl.addEventListener('hidden.bs.modal', () => {
         if (modalEl.dataset.confirmado !== 'true') {
             checkbox.checked = false;
@@ -2265,7 +2519,7 @@ function obterModalMotivoImpedimentoServir() {
     return modalEl;
 }
 
-async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
+async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl, tipoCadastro = 'usuario') {
     const motivos = Array.from(modalEl.querySelectorAll('input[name="motivoImpedimentoServir"]:checked'))
         .map(input => input.value);
     const outro = modalEl.querySelector('#outroMotivoImpedimentoServir').value.trim();
@@ -2288,7 +2542,7 @@ async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
         pessoa_impedida_servir: true,
         motivos_impedimento_servir: motivos,
         outro_motivo_impedimento_servir: outro
-    });
+    }, tipoCadastro);
 
     if (sucesso) {
         modalEl.dataset.confirmado = 'true';
@@ -2296,12 +2550,15 @@ async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
     }
 }
 
-async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload) {
+async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload, tipoCadastro = 'usuario') {
     const marcado = Boolean(payload.pessoa_impedida_servir);
     checkbox.disabled = true;
 
     try {
-        const response = await fetch(`${API_URL}/dirigentes/usuarios/${usuarioId}/impedimento-servir`, {
+        const url = tipoCadastro === 'externo'
+            ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/impedimento-servir`
+            : `${API_URL}/dirigentes/usuarios/${usuarioId}/impedimento-servir`;
+        const response = await fetch(url, {
             method: 'PUT',
             headers: getHeaders(),
             body: JSON.stringify(payload)
@@ -2314,9 +2571,15 @@ async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload) {
             return false;
         }
 
-        usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
-            ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
-            : usuario);
+        if (tipoCadastro === 'externo') {
+            pessoasExternasCache = pessoasExternasCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+                : usuario);
+        } else {
+            usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+                : usuario);
+        }
         checkbox.checked = marcado;
         const info = document.getElementById('motivosImpedimentoServirResumoInfo');
         if (info) {
@@ -2414,6 +2677,7 @@ function obterStatusBadge(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
@@ -2502,6 +2766,235 @@ async function carregarSituacao() {
 }
 
 // Abrir modal para escalar usuário ou pessoa sem cadastro
+// Nova visao de situacao por equipe, usada no lugar da tabela antiga.
+async function carregarSituacao() {
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/situacao`, {
+            headers: getHeaders()
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao carregar situacao', 'danger');
+            return;
+        }
+
+        situacaoEquipesCache = Array.isArray(data.equipes) ? data.equipes : [];
+        const stats = data.stats || {};
+
+        document.getElementById('cardSituacao').innerHTML = `
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="card text-white bg-warning">
+                        <div class="card-body">
+                            <h5>Pagamentos Pendentes</h5>
+                            <h2>${Number(stats.pagamentosPendentes || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-success">
+                        <div class="card-body">
+                            <h5>Pagamentos Confirmados</h5>
+                            <h2>${Number(stats.pagamentosConfirmados || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-info">
+                        <div class="card-body">
+                            <h5>Camisas Pendentes</h5>
+                            <h2>${Number(stats.blusasPendentes || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-primary">
+                        <div class="card-body">
+                            <h5>Camisas Confirmadas</h5>
+                            <h2>${Number(stats.blusasConfirmadas || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        renderizarListaEquipesSituacao('taxas');
+        renderizarListaEquipesSituacao('camisas');
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function renderizarListaEquipesSituacao(tipo) {
+    const container = document.getElementById(tipo === 'taxas' ? 'listaEquipesTaxasSituacao' : 'listaEquipesCamisasSituacao');
+    if (!container) return;
+
+    if (!situacaoEquipesCache.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhuma equipe com usuarios confirmados.</div>';
+        return;
+    }
+
+    const linhas = situacaoEquipesCache.map((equipe) => {
+        const resumo = tipo === 'taxas' ? equipe.resumoTaxas : equipe.resumoCamisas;
+        const semSolicitacao = Number(resumo?.semSolicitacao || 0);
+        const extraCamisas = tipo === 'camisas' ? `<br><small class="text-muted">Sem solicitacao: ${semSolicitacao}</small>` : '';
+        const textoBotao = tipo === 'taxas' ? 'Acompanhar pagamento de taxas' : 'Acompanhar pagamento de camisas';
+
+        return `
+            <tr>
+                <td><strong>${escapeHtml(equipe.equipe || '-')}</strong>${extraCamisas}</td>
+                <td>${Number(resumo?.total || 0)}</td>
+                <td><span class="badge bg-warning text-dark">${Number(resumo?.pendentes || 0)}</span></td>
+                <td><span class="badge bg-success">${Number(resumo?.confirmadas || 0)}</span></td>
+                <td class="text-end">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalAcompanhamentoSituacao('${escapeAttr(tipo)}', '${escapeAttr(equipe.equipe || '')}')">
+                        ${textoBotao}
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Equipe</th>
+                    <th>Total</th>
+                    <th>Pendentes</th>
+                    <th>Confirmados</th>
+                    <th class="text-end">Acao</th>
+                </tr>
+            </thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function abrirModalAcompanhamentoSituacao(tipo, equipeNome) {
+    const equipe = situacaoEquipesCache.find(item => item.equipe === equipeNome);
+    if (!equipe) return;
+
+    const ehTaxas = tipo === 'taxas';
+    const itens = ehTaxas ? (equipe.taxas || []) : (equipe.camisas || []);
+    const resumo = ehTaxas ? equipe.resumoTaxas : equipe.resumoCamisas;
+
+    document.getElementById('tituloModalAcompanhamentoSituacao').textContent = ehTaxas
+        ? `Acompanhar pagamento de taxas - ${equipe.equipe}`
+        : `Acompanhar pagamento de camisas - ${equipe.equipe}`;
+    document.getElementById('resumoModalAcompanhamentoSituacao').innerHTML = renderizarResumoModalSituacao(resumo, ehTaxas);
+    document.getElementById('conteudoModalAcompanhamentoSituacao').innerHTML = ehTaxas
+        ? renderizarTabelaTaxasSituacao(itens)
+        : renderizarTabelaCamisasSituacao(itens);
+
+    new bootstrap.Modal(document.getElementById('modalAcompanhamentoSituacao')).show();
+}
+
+function renderizarResumoModalSituacao(resumo, ehTaxas) {
+    const cards = [
+        ['Total', Number(resumo?.total || 0), 'secondary'],
+        ['Pendentes', Number(resumo?.pendentes || 0), 'warning'],
+        ['Confirmados', Number(resumo?.confirmadas || 0), 'success']
+    ];
+    if (!ehTaxas) {
+        cards.push(['Sem solicitacao', Number(resumo?.semSolicitacao || 0), 'secondary']);
+    }
+
+    return cards.map(([label, valor, cor]) => `
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <span class="text-muted">${escapeHtml(label)}</span>
+                <div class="h4 mb-0 text-${cor}">${valor}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderizarTabelaTaxasSituacao(pagamentos) {
+    if (!pagamentos.length) {
+        return '<div class="alert alert-info">Nenhum usuario nesta equipe.</div>';
+    }
+
+    const linhas = pagamentos.map((p) => `
+        <tr>
+            <td>${renderizarFotoPequenaSituacao(p)}</td>
+            <td>${escapeHtml(p.nome_completo || '')}</td>
+            <td>${escapeHtml(p.tipo || 'taxa')}</td>
+            <td>${formatarMoedaDirigente(p.valor)}</td>
+            <td>${obterStatusBadge(p.status)}</td>
+            <td>${renderizarBaixaSituacao(p)}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Foto</th><th>Usuario</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th></tr></thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function renderizarTabelaCamisasSituacao(camisas) {
+    if (!camisas.length) {
+        return '<div class="alert alert-info">Nenhum usuario nesta equipe.</div>';
+    }
+
+    const linhas = camisas.map((b) => `
+        <tr>
+            <td>${renderizarFotoPequenaSituacao(b)}</td>
+            <td>${escapeHtml(b.nome_completo || '')}</td>
+            <td>${escapeHtml(b.tamanho || '-')}</td>
+            <td>${b.id ? formatarMoedaDirigente(b.valor) : '-'}</td>
+            <td>${b.id ? obterStatusBadge(b.status) : '<span class="badge bg-secondary">Sem camisa</span>'}</td>
+            <td>${b.id ? renderizarBaixaSituacao(b) : '-'}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Foto</th><th>Usuario</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th></tr></thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function renderizarFotoPequenaSituacao(item) {
+    const foto = sanitizarImagemPerfil(item.foto_perfil);
+    if (!foto) {
+        return '<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>';
+    }
+
+    return `<img src="${escapeAttr(foto)}" alt="Foto" class="foto-clickable" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`;
+}
+
+function renderizarBaixaSituacao(item) {
+    if (item.status !== 'confirmado') return '-';
+    const detalhes = [formatarFormaPagamentoDirigente(item.forma_pagamento)];
+    const confirmador = item.confirmado_por_nome || item.confirmado_por_cracha || '';
+    if (confirmador) detalhes.push(`Baixa por ${escapeHtml(confirmador)}`);
+    if (item.data_confirmacao) detalhes.push(formatarDataHoraDirigente(item.data_confirmacao));
+    return detalhes.map(parte => `<small>${parte}</small>`).join('<br>');
+}
+
+function formatarMoedaDirigente(valor) {
+    return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatarFormaPagamentoDirigente(forma) {
+    const mapa = {
+        pix: 'PIX',
+        dinheiro: 'Dinheiro',
+        cartao_credito: 'Cartao de credito'
+    };
+    return mapa[forma] || '-';
+}
+
+function formatarDataHoraDirigente(valor) {
+    if (!valor) return '-';
+    return new Date(valor).toLocaleString('pt-BR');
+}
+
 function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
     if (fecharResumo) {
         const modalResumo = bootstrap.Modal.getInstance(document.getElementById('modalFoto'));
@@ -2516,6 +3009,8 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
     document.getElementById('tipoCadastroEscalar').value = tipoCadastro;
     document.getElementById('nomeEquipe').value = '';
     document.getElementById('nomeEquipe').required = false;
+    document.getElementById('eventoEscala').required = false;
+    carregarOpcoesEventoEscala();
     document.getElementById('acaoEscalarDiv').style.display = 'block';
     document.getElementById('acaoEscalar').value = '';
     document.getElementById('equipeDiv').style.display = 'none';
@@ -2525,6 +3020,7 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
         document.getElementById('acaoEscalar').value = 'equipe';
         document.getElementById('equipeDiv').style.display = 'block';
         document.getElementById('nomeEquipe').required = true;
+        document.getElementById('eventoEscala').required = true;
     }
     
     setTimeout(() => {
@@ -2557,6 +3053,11 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
             body = {};
         } else if (acao === 'equipe') {
             const nomeEquipe = document.getElementById('nomeEquipe').value;
+            const eventoId = document.getElementById('eventoEscala').value;
+            if (!eventoId) {
+                mostrarAlerta('alertaDirigentes', 'Informe o evento antes de escalar para equipe', 'warning');
+                return;
+            }
             if (!nomeEquipe) {
                 mostrarAlerta('alertaDirigentes', 'Informe o nome da equipe', 'warning');
                 return;
@@ -2564,7 +3065,7 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
             url = tipoCadastro === 'externo'
                 ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/equipe`
                 : `${API_URL}/dirigentes/escalar-equipe/${usuarioId}`;
-            body = { equipe: nomeEquipe };
+            body = { equipe: nomeEquipe, evento_id: Number(eventoId) };
         }
         
         const response = await fetch(url, {
@@ -2757,11 +3258,14 @@ function obterTelefonesCasalDirigente(telefone) {
 document.getElementById('acaoEscalar')?.addEventListener('change', (e) => {
     const equipeDiv = document.getElementById('equipeDiv');
     const nomeEquipe = document.getElementById('nomeEquipe');
+    const eventoEscala = document.getElementById('eventoEscala');
     const mostrarEquipe = e.target.value === 'equipe';
     equipeDiv.style.display = mostrarEquipe ? 'block' : 'none';
     nomeEquipe.required = mostrarEquipe;
+    if (eventoEscala) eventoEscala.required = mostrarEquipe;
     if (!mostrarEquipe) {
         nomeEquipe.value = '';
+        if (eventoEscala) eventoEscala.value = '';
     }
 });
 
@@ -3014,7 +3518,24 @@ function abrirModalFoto(fotoSrc) {
 
 function formatarData(data) {
     if (!data) return '-';
-    return new Date(`${data}T00:00:00`).toLocaleDateString('pt-BR');
+
+    const valor = String(data).trim();
+    const iso = valor.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+        return `${iso[3]}/${iso[2]}/${iso[1]}`;
+    }
+
+    const br = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (br) {
+        return valor;
+    }
+
+    const dataObj = new Date(valor);
+    if (!Number.isNaN(dataObj.getTime())) {
+        return dataObj.toLocaleDateString('pt-BR');
+    }
+
+    return '-';
 }
 
 function getToken() {

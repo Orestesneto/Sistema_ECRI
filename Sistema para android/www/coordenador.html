@@ -410,6 +410,9 @@
                 </div>
                 <div class="modal-body">
                     <p id="textoConfirmarPagamento"></p>
+                    <div class="alert alert-info py-2">
+                        Confirmação feita pelo coordenador usa o valor sem taxas de maquineta.
+                    </div>
                     <div class="mb-3">
                         <label class="form-label d-block">Forma de pagamento</label>
                         <div class="form-check">
@@ -503,6 +506,24 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                 </div>
                 <div class="modal-body">
+                    <div class="alert alert-warning">
+                        O pagamento via PIX tem acréscimo de 1% referente à taxa da maquineta.
+                    </div>
+                    <div class="border rounded p-3 mb-3">
+                        <div class="d-flex justify-content-between">
+                            <span>Valor cobrado</span>
+                            <strong id="pixProprioValorBase">R$ 0,00</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mt-2">
+                            <span>Taxa da maquineta (1%)</span>
+                            <strong id="pixProprioTaxa">R$ 0,00</strong>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between">
+                            <span>Total no PIX</span>
+                            <strong id="pixProprioValorFinal">R$ 0,00</strong>
+                        </div>
+                    </div>
                     <div class="text-center mb-3">
                         <img id="pixProprioQrCodeImagem" src="" alt="QR Code PIX" class="img-fluid border rounded p-2" style="max-width:220px; display:none;">
                     </div>
