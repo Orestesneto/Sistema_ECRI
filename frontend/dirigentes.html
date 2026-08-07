@@ -51,6 +51,9 @@
                 <a class="nav-link" data-bs-toggle="tab" href="#acompanhamentoFaltas">Acompanhamento de Faltas</a>
             </li>
             <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#almoxarifado">Controle de almoxarifado</a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#enviarNotificacao">Enviar notificação</a>
             </li>
             <li class="nav-item">
@@ -306,17 +309,13 @@
                         <label class="form-label">Nome do evento</label>
                         <input type="text" class="form-control" id="eventoNome" required>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Data</label>
                         <input type="date" class="form-control" id="eventoData" required>
                     </div>
-                    <div class="col-md-5">
-                        <label class="form-label">Local</label>
-                        <input type="text" class="form-control" id="eventoLocal">
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Descricao</label>
-                        <textarea class="form-control" id="eventoDescricao" rows="2"></textarea>
+                    <div class="col-md-4">
+                        <label class="form-label">Data de término</label>
+                        <input type="date" class="form-control" id="eventoDataTermino" required>
                     </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-success">Criar Evento</button>
@@ -402,18 +401,24 @@
             <div id="situacao" class="tab-pane fade">
                 <div class="row mt-3">
                     <div class="col-md-12">
-                        <h3>Situação de Pagamentos e Blusas</h3>
+                        <h3>Situação de Pagamentos e Camisas</h3>
                         <div id="cardSituacao"></div>
                     </div>
                 </div>
-                <div class="row mt-4">
-                    <div class="col-md-6">
-                        <h4>Pagamentos</h4>
-                        <div id="tabelaPagamentosSituacao" class="table-responsive"></div>
+                <ul class="nav nav-pills mt-4" id="submenuSituacao" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="abaSituacaoTaxas" data-bs-toggle="pill" data-bs-target="#painelSituacaoTaxas" type="button" role="tab">Taxas</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="abaSituacaoCamisas" data-bs-toggle="pill" data-bs-target="#painelSituacaoCamisas" type="button" role="tab">Camisas</button>
+                    </li>
+                </ul>
+                <div class="tab-content mt-3">
+                    <div class="tab-pane fade show active" id="painelSituacaoTaxas" role="tabpanel">
+                        <div id="listaEquipesTaxasSituacao" class="table-responsive"></div>
                     </div>
-                    <div class="col-md-6">
-                        <h4>Blusas</h4>
-                        <div id="tabelaBlusasSituacao" class="table-responsive"></div>
+                    <div class="tab-pane fade" id="painelSituacaoCamisas" role="tabpanel">
+                        <div id="listaEquipesCamisasSituacao" class="table-responsive"></div>
                     </div>
                 </div>
             </div>
@@ -428,6 +433,62 @@
             <div id="acompanhamentoFaltas" class="tab-pane fade">
                 <h3 class="mt-3">Acompanhamento de Faltas</h3>
                 <div id="listaEquipesFaltas" class="table-responsive mt-3"></div>
+            </div>
+
+            <!-- Aba Controle de almoxarifado -->
+            <div id="almoxarifado" class="tab-pane fade">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+                    <div>
+                        <h3 class="mb-1">Controle de almoxarifado</h3>
+                        <p class="text-muted mb-0">Cadastro, estoque, solicitações, entregas e devoluções de itens.</p>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary" id="btnAtualizarAlmoxarifado">Atualizar dados</button>
+                </div>
+
+                <div id="resumoAlmoxarifado" class="row g-3 mt-2"></div>
+
+                <ul class="nav nav-pills mt-4" role="tablist">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#painelItensAlmoxarifado" type="button">Itens e estoque</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#painelProtocolosAlmoxarifado" type="button">Protocolos</button></li>
+                </ul>
+
+                <div class="tab-content mt-3">
+                    <div id="painelItensAlmoxarifado" class="tab-pane fade show active">
+                        <form id="formItemAlmoxarifado" class="border rounded p-3 mb-3">
+                            <h5>Cadastrar item</h5>
+                            <div class="row g-3">
+                                <div class="col-md-7"><label class="form-label" for="almoxItemNome">Nome</label><input class="form-control" id="almoxItemNome" maxlength="120" required></div>
+                                <div class="col-md-3"><label class="form-label" for="almoxItemQuantidade">Quantidade</label><input type="number" class="form-control" id="almoxItemQuantidade" min="0" step="1" value="0" required></div>
+                                <div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Cadastrar</button></div>
+                            </div>
+                        </form>
+                        <div id="tabelaItensAlmoxarifado" class="table-responsive"></div>
+                    </div>
+
+                    <div id="painelProtocolosAlmoxarifado" class="tab-pane fade">
+                        <form id="formProtocoloAlmoxarifado" class="border rounded p-3 mb-3">
+                            <h5>Novo protocolo de solicitação</h5>
+                            <div class="row g-3">
+                                <div class="col-md-4"><label class="form-label" for="almoxProtocoloSolicitante">Solicitante</label><select class="form-select" id="almoxProtocoloSolicitante" required><option value="">Selecione um usuário...</option></select></div>
+                                <div class="col-md-3"><label class="form-label" for="almoxProtocoloEquipe">Equipe/setor</label><input class="form-control" id="almoxProtocoloEquipe" maxlength="100"></div>
+                                <div class="col-md-3"><label class="form-label" for="almoxProtocoloFinalidade">Finalidade</label><input class="form-control" id="almoxProtocoloFinalidade" maxlength="180" required></div>
+                                <div class="col-md-2"><label class="form-label" for="almoxProtocoloData">Previsão de devolução</label><input type="date" class="form-control" id="almoxProtocoloData"></div>
+                                <div class="col-md-7"><label class="form-label" for="almoxProtocoloItem">Item</label><select class="form-select" id="almoxProtocoloItem"></select></div>
+                                <div class="col-md-2"><label class="form-label" for="almoxProtocoloQuantidade">Quantidade</label><input type="number" class="form-control" id="almoxProtocoloQuantidade" min="1" step="1" value="1"></div>
+                                <div class="col-md-3 d-flex align-items-end"><button type="button" class="btn btn-outline-primary w-100" id="btnAdicionarItemProtocolo">Adicionar item</button></div>
+                                <div class="col-12"><div id="itensSelecionadosProtocolo" class="almox-protocolo-itens"></div></div>
+                                <div class="col-md-10"><label class="form-label" for="almoxProtocoloObservacao">Observação</label><input class="form-control" id="almoxProtocoloObservacao" maxlength="250"></div>
+                                <div class="col-md-2 d-flex align-items-end"><button class="btn btn-success w-100" type="submit">Gerar protocolo</button></div>
+                            </div>
+                        </form>
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <select id="filtroStatusProtocolo" class="form-select" style="max-width:240px">
+                                <option value="">Todos os status</option><option value="solicitado">Solicitados</option><option value="entregue">Aguardando devolução</option><option value="parcialmente_devolvido">Devolução parcial</option><option value="devolvido">Devolvidos</option><option value="cancelado">Cancelados</option>
+                            </select>
+                        </div>
+                        <div id="listaProtocolosAlmoxarifado"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Aba Enviar notificação -->
@@ -462,6 +523,7 @@
                             <option value="situacao">Situação</option>
                             <option value="reunioes">Reuniões - Próximos 15 Dias</option>
                             <option value="acompanhamentoFaltas">Acompanhamento de Faltas</option>
+                            <option value="almoxarifado">Controle de almoxarifado</option>
                             <option value="enviarNotificacao">Enviar notificação</option>
                         </select>
                     </div>
@@ -523,6 +585,24 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modalAcompanhamentoSituacao" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tituloModalAcompanhamentoSituacao">Acompanhamento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="resumoModalAcompanhamentoSituacao" class="row g-3 mb-3"></div>
+                    <div id="conteudoModalAcompanhamentoSituacao" class="table-responsive"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="modalEscalar" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -534,6 +614,12 @@
                     <form id="formEscalar">
                         <input type="hidden" id="usuarioIdEscalar">
                         <input type="hidden" id="tipoCadastroEscalar" value="usuario">
+                        <div class="mb-3" id="eventoEscalaDiv">
+                            <label class="form-label">Evento</label>
+                            <select class="form-select" id="eventoEscala">
+                                <option value="">Selecione...</option>
+                            </select>
+                        </div>
                         <div class="mb-3" id="acaoEscalarDiv">
                             <label class="form-label">Ação</label>
                             <select class="form-select" id="acaoEscalar" required>
@@ -775,6 +861,44 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalEditarItensProtocoloAlmoxarifado" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form id="formEditarItensProtocoloAlmoxarifado">
+                    <div class="modal-header"><h5 class="modal-title" id="tituloEditarItensProtocoloAlmoxarifado">Editar itens do protocolo</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+                    <div class="modal-body">
+                        <input type="hidden" id="protocoloEditarItensAlmoxarifado">
+                        <div class="row g-2 align-items-end mb-3"><div class="col-md-7"><label class="form-label" for="itemEditarProtocoloAlmoxarifado">Item</label><select class="form-select" id="itemEditarProtocoloAlmoxarifado"></select></div><div class="col-md-2"><label class="form-label" for="quantidadeEditarProtocoloAlmoxarifado">Quantidade</label><input type="number" class="form-control" id="quantidadeEditarProtocoloAlmoxarifado" min="1" step="1" value="1"></div><div class="col-md-3"><button type="button" class="btn btn-outline-primary w-100" id="btnAdicionarItemEdicaoProtocolo">Adicionar item</button></div></div>
+                        <div id="listaItensEdicaoProtocoloAlmoxarifado"></div>
+                    </div>
+                    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Salvar alterações</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalDevolucaoAlmoxarifado" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form id="formDevolucaoAlmoxarifado">
+                    <div class="modal-header"><h5 class="modal-title" id="tituloDevolucaoAlmoxarifado">Registrar devolução</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+                    <div class="modal-body"><input type="hidden" id="protocoloDevolucaoAlmoxarifado"><p class="text-muted">Informe somente as quantidades recebidas agora. Os itens restantes continuarão pendentes.</p><div id="itensDevolucaoAlmoxarifado"></div></div>
+                    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Confirmar devolução</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalHistoricoItemAlmoxarifado" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="tituloHistoricoItemAlmoxarifado">Histórico do item</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+                <div class="modal-body" id="conteudoHistoricoItemAlmoxarifado"></div>
+                <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button></div>
             </div>
         </div>
     </div>

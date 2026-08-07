@@ -3,6 +3,7 @@ const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_ATUAL_COORDENADOR_KEY = 'coordenadorAbaAtual';
 const PERCENTUAL_TAXA_CARTAO = 0.08;
+const PERCENTUAL_TAXA_PIX = 0.01;
 let participantesEquipeCache = [];
 let alteracaoStatusPendente = null;
 let pagamentosEquipeCache = [];
@@ -90,8 +91,8 @@ function alternarAbasCoordenadorPorEntregaPastas(liberado) {
     document.querySelectorAll('.nav-tabs a[data-bs-toggle="tab"]').forEach((link) => {
         const item = link.closest('.nav-item');
         if (!item) return;
-        const ehMeuPerfil = link.getAttribute('href') === '#meuPerfil';
-        if (!liberado && !ehMeuPerfil) {
+        const abaSempreLiberada = ['#meuPerfil', '#solicitacaoAlmoxarifado'].includes(link.getAttribute('href'));
+        if (!liberado && !abaSempreLiberada) {
             item.dataset.ocultoEntregaPastas = '1';
             item.style.display = 'none';
         } else if (item.dataset.ocultoEntregaPastas === '1') {
@@ -101,8 +102,8 @@ function alternarAbasCoordenadorPorEntregaPastas(liberado) {
     });
 
     document.querySelectorAll('.tab-content > .tab-pane').forEach((pane) => {
-        const ehMeuPerfil = pane.id === 'meuPerfil';
-        if (!liberado && !ehMeuPerfil) {
+        const abaSempreLiberada = ['meuPerfil', 'solicitacaoAlmoxarifado'].includes(pane.id);
+        if (!liberado && !abaSempreLiberada) {
             pane.classList.remove('show', 'active');
         }
     });
@@ -420,7 +421,7 @@ async function carregarBlusas() {
             html += `<tr>
                 <td>${fotoHtml}</td>
                 <td>${usuarioHtml}</td>
-                <td>${escapeHtml(b.tamanho || '-')}</td>
+                <td>${renderizarTamanhoBlusaCoordenador(b, temSolicitacao, pago)}</td>
                 <td>${temSolicitacao ? formatarMoeda(b.valor || 0) : '-'}</td>
                 <td>${badge}</td>
                 <td>${baixaHtml}</td>
@@ -514,6 +515,60 @@ function renderizarResumoBlusas(blusas) {
             </div>
         </div>
     `;
+}
+
+function obterTamanhosBlusaCoordenador() {
+    return Array.from(document.querySelectorAll('#tamanhoBlusaCoordenador option'))
+        .map(option => option.value)
+        .filter(Boolean);
+}
+
+function renderizarTamanhoBlusaCoordenador(blusa, temSolicitacao, pago) {
+    if (!temSolicitacao) return '-';
+
+    const atualizadoPor = escapeHtml(blusa.tamanho_atualizado_por_nome || 'Sem registro');
+    const atualizadoEm = blusa.tamanho_atualizado_em ? ` em ${escapeHtml(formatarDataHora(blusa.tamanho_atualizado_em))}` : '';
+    const textoAtualizacao = `<small class="text-muted d-block mt-1">Tamanho salvo por ${atualizadoPor}${atualizadoEm}</small>`;
+
+    if (pedidosBlusaBloqueadosCoordenador) {
+        return `${escapeHtml(blusa.tamanho || '-')}${textoAtualizacao}`;
+    }
+
+    const opcoes = obterTamanhosBlusaCoordenador().map(tamanho => `
+        <option value="${escapeAttr(tamanho)}" ${tamanho === blusa.tamanho ? 'selected' : ''}>${escapeHtml(tamanho)}</option>
+    `).join('');
+
+    return `
+        <select class="form-select form-select-sm" onchange="alterarTamanhoBlusaCoordenador(${Number(blusa.id)}, this.value, '${escapeAttr(blusa.tamanho || '')}')">
+            ${opcoes}
+        </select>
+        ${textoAtualizacao}
+    `;
+}
+
+async function alterarTamanhoBlusaCoordenador(solicitacaoId, tamanho, tamanhoAnterior) {
+    if (!solicitacaoId || !tamanho || tamanho === tamanhoAnterior) return;
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/solicitacoes-blusa/${solicitacaoId}/tamanho`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({ tamanho })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            mostrarAlerta('alertaCoordenador', 'Tamanho da camisa atualizado.', 'success');
+            carregarBlusas();
+        } else {
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao atualizar tamanho da camisa', 'danger');
+            carregarBlusas();
+        }
+    } catch (err) {
+        mostrarAlerta('alertaCoordenador', 'Erro ao atualizar tamanho da camisa', 'danger');
+        console.error(err);
+        carregarBlusas();
+    }
 }
 
 function abrirModalAdicionarBlusa(usuarioId) {
@@ -1481,7 +1536,7 @@ async function gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro = 'usuar
     const data = await response.json();
 
     if (!response.ok || !data.token_confirmacao) {
-        throw new Error(data.erro || 'Erro ao gerar link de confirmaÃ§Ã£o.');
+        throw new Error(data.erro || 'Erro ao gerar link de confirmação.');
     }
 
     if (usuario) {
@@ -1496,13 +1551,13 @@ async function copiarLinkConfirmacao(usuarioId, tipoCadastro = 'usuario') {
     try {
         linkConfirmacao = await gerarLinkConfirmacaoParticipante(usuarioId, tipoCadastro);
         await copiarTextoParaAreaTransferencia(linkConfirmacao);
-        mostrarAlerta('alertaCoordenador', 'Link de confirmaÃ§Ã£o copiado!', 'success');
+        mostrarAlerta('alertaCoordenador', 'Link de confirmação copiado!', 'success');
     } catch (err) {
         if (linkConfirmacao) {
             mostrarLinkParaCopiaManual(linkConfirmacao);
-            mostrarAlerta('alertaCoordenador', 'O navegador bloqueou a cÃ³pia automÃ¡tica. O link foi selecionado para copiar manualmente.', 'warning');
+            mostrarAlerta('alertaCoordenador', 'O navegador bloqueou a cópia automática. O link foi selecionado para copiar manualmente.', 'warning');
         } else {
-            mostrarAlerta('alertaCoordenador', err.message || 'Erro ao copiar link de confirmaÃ§Ã£o.', 'danger');
+            mostrarAlerta('alertaCoordenador', err.message || 'Erro ao copiar link de confirmação.', 'danger');
         }
         console.error(err);
     }
@@ -1545,7 +1600,7 @@ async function copiarTextoParaAreaTransferencia(texto) {
     textarea.remove();
 
     if (!copiado) {
-        throw new Error('CÃ³pia automÃ¡tica bloqueada pelo navegador.');
+        throw new Error('Cópia automática bloqueada pelo navegador.');
     }
 }
 
@@ -1560,13 +1615,13 @@ function mostrarLinkParaCopiaManual(linkConfirmacao) {
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Copiar link de confirmaÃ§Ã£o</h5>
+                        <h5 class="modal-title">Copiar link de confirmação</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                     </div>
                     <div class="modal-body">
-                        <label class="form-label" for="campoLinkConfirmacaoManual">Link de confirmaÃ§Ã£o</label>
+                        <label class="form-label" for="campoLinkConfirmacaoManual">Link de confirmação</label>
                         <input type="text" class="form-control" id="campoLinkConfirmacaoManual" value="${escapeAttr(linkConfirmacao)}" readonly>
-                        <small class="text-muted d-block mt-2">No iPhone, toque no campo e escolha Copiar se o botÃ£o nÃ£o copiar automaticamente.</small>
+                        <small class="text-muted d-block mt-2">No iPhone, toque no campo e escolha Copiar se o botão não copiar automaticamente.</small>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
@@ -1599,7 +1654,7 @@ function mostrarLinkParaCopiaManual(linkConfirmacao) {
         campo.setSelectionRange(0, campo.value.length);
         try {
             await copiarTextoParaAreaTransferencia(campo.value);
-            mostrarAlerta('alertaCoordenador', 'Link de confirmaÃ§Ã£o copiado!', 'success');
+            mostrarAlerta('alertaCoordenador', 'Link de confirmação copiado!', 'success');
             bootstrap.Modal.getInstance(modalEl)?.hide();
         } catch (err) {
             mostrarAlerta('alertaCoordenador', 'Toque no campo selecionado e escolha Copiar.', 'warning');
@@ -1623,7 +1678,7 @@ function abrirWhatsAppComJanela(janela, url) {
         janela.document.write(`
             <div style="font-family:Arial,sans-serif;padding:16px;line-height:1.4;">
                 <p>Abrindo WhatsApp...</p>
-                <p>Se nÃ£o abrir automaticamente, toque no botÃ£o abaixo.</p>
+                <p>Se não abrir automaticamente, toque no botão abaixo.</p>
                 <p><a href="${escapeAttr(url)}" style="display:inline-block;padding:10px 14px;background:#198754;color:#fff;text-decoration:none;border-radius:6px;font-weight:700;">Abrir WhatsApp</a></p>
             </div>
         `);
@@ -1680,8 +1735,9 @@ function abrirModalConfirmarPagamento(pagamentoId) {
     document.querySelectorAll('input[name="formaPagamento"]').forEach(input => {
         input.checked = false;
     });
+    const valorConfirmacao = pagamento.valor_confirmacao_manual ?? pagamento.valor;
     document.getElementById('textoConfirmarPagamento').textContent =
-        `Confirma o pagamento da taxa de ${pagamento.nome_completo || ''} no valor de ${formatarMoeda(pagamento.valor || 0)}?`;
+        `Confirma o pagamento da taxa de ${pagamento.nome_completo || ''} no valor de ${formatarMoeda(valorConfirmacao || 0)}?`;
 
     new bootstrap.Modal(document.getElementById('modalConfirmarPagamento')).show();
 }
@@ -1739,6 +1795,15 @@ async function carregarPagamentoProprio() {
         const pagamentosProprios = (data.pagamentos || []).filter(pagamento => {
             return !(pagamento.tipo === 'blusa' && pagamento.status === 'pendente' && Number(resumoBlusas.pendente || 0) <= 0);
         });
+        const temCobrancaBlusaPendente = pagamentosProprios.some(pagamento => pagamento.tipo === 'blusa' && pagamento.status === 'pendente');
+        if (Number(resumoBlusas.pendente || 0) > 0 && !temCobrancaBlusaPendente) {
+            pagamentosProprios.unshift({
+                tipo: 'blusa',
+                valor: Number(resumoBlusas.pendente || 0),
+                forma_pagamento: null,
+                status: 'pendente'
+            });
+        }
 
         let htmlPagamentos = '<table class="table table-sm"><thead><tr><th>Tipo</th><th>Valor</th><th>Forma</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
         if (!pagamentosProprios.length) {
@@ -1751,7 +1816,7 @@ async function carregarPagamentoProprio() {
 
             if (pagamento.status === 'pendente') {
                 const botaoPix = pagamento.forma_pagamento === 'pix' && pagamento.pix_qr_code
-                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}')">PIX</button>`
+                    ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}', '${encodeURIComponent(pagamento.valor || '')}', '${encodeURIComponent(pagamento.valor_base || '')}', '${encodeURIComponent(pagamento.acrescimo_pix || '')}')">PIX</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemProprioPendente('${escapeAttr(pagamento.tipo)}', 'pix', ${Number(pagamento.valor || 0)})">PIX</button>`;
                 const botaoCartao = pagamento.forma_pagamento === 'cartao_credito' && linkPagamento
                     ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalCartaoProprioCodificado('${encodeURIComponent(linkPagamento)}', '${encodeURIComponent(pagamento.valor || '')}')">Cartão</button>`
@@ -1816,7 +1881,13 @@ async function pagarItemProprioPendente(tipo, formaPagamento, valorAtual) {
 
         if (data.pix_qr_code) {
             renderizarPixPagamentoProprioMercadoPago(data);
-            abrirModalPixProprio(data.pix_qr_code, data.pix_qr_code_base64);
+            abrirModalPixProprio({
+                codigoPix: data.pix_qr_code,
+                qrCodeBase64: data.pix_qr_code_base64,
+                valorBase: data.valor_base,
+                acrescimoPix: data.acrescimo_pix,
+                valorFinal: data.valor_final || data.valor
+            });
         } else {
             renderizarLinkPagamentoProprioMercadoPago(linkPagamento);
         }
@@ -1917,21 +1988,31 @@ function renderizarPixPagamentoProprioMercadoPago(pagamento) {
     container.innerHTML = `
         <div class="alert alert-info mb-0">
             PIX gerado no Mercado Pago.
-            <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}')">Ver código PIX</button>
+            <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}', '${encodeURIComponent(pagamento.valor_final || pagamento.valor || '')}', '${encodeURIComponent(pagamento.valor_base || '')}', '${encodeURIComponent(pagamento.acrescimo_pix || '')}')">Ver código PIX</button>
         </div>
     `;
 }
 
-function abrirModalPixProprioCodificado(codigoPix, qrCodeBase64 = '') {
-    abrirModalPixProprio(decodeURIComponent(codigoPix || ''), decodeURIComponent(qrCodeBase64 || ''));
+function abrirModalPixProprioCodificado(codigoPix, qrCodeBase64 = '', valorFinal = '', valorBase = '', acrescimoPix = '') {
+    abrirModalPixProprio({
+        codigoPix: decodeURIComponent(codigoPix || ''),
+        qrCodeBase64: decodeURIComponent(qrCodeBase64 || ''),
+        valorFinal: valorFinal ? Number(decodeURIComponent(valorFinal)) : undefined,
+        valorBase: valorBase ? Number(decodeURIComponent(valorBase)) : undefined,
+        acrescimoPix: acrescimoPix ? Number(decodeURIComponent(acrescimoPix)) : undefined
+    });
 }
 
-function abrirModalPixProprio(codigoPix, qrCodeBase64 = '') {
+function abrirModalPixProprio({ codigoPix, qrCodeBase64 = '', valorBase, acrescimoPix, valorFinal }) {
     const campoCodigo = document.getElementById('pixProprioCopiaCola');
     const imagem = document.getElementById('pixProprioQrCodeImagem');
     const alerta = document.getElementById('alertaCopiaPixProprio');
     if (!campoCodigo || !imagem) return;
 
+    const valores = normalizarValoresPixProprio(valorBase, acrescimoPix, valorFinal);
+    document.getElementById('pixProprioValorBase').textContent = formatarMoeda(valores.valorBase);
+    document.getElementById('pixProprioTaxa').textContent = formatarMoeda(valores.acrescimoPix);
+    document.getElementById('pixProprioValorFinal').textContent = formatarMoeda(valores.valorFinal);
     campoCodigo.value = codigoPix || '';
     if (alerta) alerta.style.display = 'none';
 
@@ -1944,6 +2025,31 @@ function abrirModalPixProprio(codigoPix, qrCodeBase64 = '') {
     }
 
     new bootstrap.Modal(document.getElementById('modalPagamentoPixProprio')).show();
+}
+
+function normalizarValoresPixProprio(valorBase, acrescimoPix, valorFinal) {
+    const finalInformado = Number(valorFinal || 0);
+    const baseInformada = Number(valorBase || 0);
+    const taxaInformada = Number(acrescimoPix || 0);
+
+    if (baseInformada > 0 || taxaInformada > 0) {
+        return {
+            valorBase: baseInformada,
+            acrescimoPix: taxaInformada,
+            valorFinal: finalInformado || baseInformada + taxaInformada
+        };
+    }
+
+    if (finalInformado > 0) {
+        const valorBaseCalculado = finalInformado / (1 + PERCENTUAL_TAXA_PIX);
+        return {
+            valorBase: valorBaseCalculado,
+            acrescimoPix: finalInformado - valorBaseCalculado,
+            valorFinal: finalInformado
+        };
+    }
+
+    return { valorBase: 0, acrescimoPix: 0, valorFinal: 0 };
 }
 
 document.getElementById('botaoCopiarPixProprio')?.addEventListener('click', async () => {
@@ -2043,6 +2149,7 @@ function obterBadgeStatusPagamentoProprio(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>'
     };
     return mapa[status] || `<span class="badge bg-secondary">${escapeHtml(status || '-')}</span>`;
@@ -2127,6 +2234,7 @@ function obterStatusBadge(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
@@ -2171,9 +2279,65 @@ function getToken() {
 
 // ===== FUNCOES DE REUNIAO =====
 
+function simbolosWhatsApp(...codigos) {
+    return String.fromCodePoint(...codigos);
+}
+
+function obterCabecalhosReuniaoWhatsApp() {
+    return [
+        { equipe: 'Arco Iris', titulo: simbolosWhatsApp(0x1F308, 0x1F308) + ' Arco-\u00cdris ' + simbolosWhatsApp(0x1F308, 0x1F308) },
+        { equipe: 'Animadores', titulo: simbolosWhatsApp(0x1F3A4, 0x1F3A4) + ' Animadores ' + simbolosWhatsApp(0x1F3A4, 0x1F3A4) },
+        { equipe: 'Anjos da Alegria', titulo: simbolosWhatsApp(0x1F921, 0x1F389, 0x1F47C, 0x1F3FC) + ' Anjos da Alegria ' + simbolosWhatsApp(0x1F921, 0x1F389, 0x1F47C, 0x1F3FC) },
+        { equipe: 'Anjos da Guarda', titulo: simbolosWhatsApp(0x1F607, 0x1F47C, 0x1F3FC) + ' Anjo da Guarda ' + simbolosWhatsApp(0x1F607, 0x1F47C, 0x1F3FC) },
+        { equipe: 'Bandinha', titulo: simbolosWhatsApp(0x1FA97, 0x1F941, 0x1F50A, 0x1F3BB) + ' Bandinha ' + simbolosWhatsApp(0x1FA97, 0x1F941, 0x1F50A, 0x1F3BB) },
+        { equipe: 'Boa Acao', titulo: simbolosWhatsApp(0x1F95B, 0x1F6BD, 0x1F48A) + ' Boa A\u00e7\u00e3o ' + simbolosWhatsApp(0x1F95B, 0x1F6BD, 0x1F48A) },
+        { equipe: 'ECRI SHOP', titulo: simbolosWhatsApp(0x1F6CD, 0xFE0F, 0x1F4B8, 0x1F911) + ' ECRI SHOP ' + simbolosWhatsApp(0x1F6CD, 0xFE0F, 0x1F4B8, 0x1F911) },
+        { equipe: 'Escrita', titulo: simbolosWhatsApp(0x1F5A8, 0xFE0F, 0x1F4BB, 0x270D, 0x1F3FC) + ' Escrita ' + simbolosWhatsApp(0x1F5A8, 0xFE0F, 0x1F4BB, 0x270D, 0x1F3FC) },
+        { equipe: 'Missa e Oracao', titulo: simbolosWhatsApp(0x1F4FF, 0x1F64F, 0x1F3FC, 0x26EA) + ' Missa e Ora\u00e7\u00e3o ' + simbolosWhatsApp(0x1F4FF, 0x1F64F, 0x1F3FC, 0x26EA) },
+        { equipe: 'Papa Lanche', titulo: simbolosWhatsApp(0x1F36A, 0x1F960, 0x1F35F) + ' Papa Lanche ' + simbolosWhatsApp(0x1F36A, 0x1F960, 0x1F35F) },
+        { equipe: 'Pombo Correio', titulo: simbolosWhatsApp(0x1F4EC, 0x1F4EE, 0x1F54A, 0xFE0F) + ' Pombo Correio ' + simbolosWhatsApp(0x1F4EC, 0x1F4EE, 0x1F54A, 0xFE0F) },
+        { equipe: 'Ranguinho', titulo: simbolosWhatsApp(0x1F374, 0x1F37D, 0xFE0F, 0x1F963) + ' Ranguinho ' + simbolosWhatsApp(0x1F374, 0x1F37D, 0xFE0F, 0x1F963) },
+        { equipe: 'Som e Iluminacao', titulo: simbolosWhatsApp(0x1F4A1, 0x1F526, 0x1F50A, 0x1F3A4) + ' Som e Ilumina\u00e7\u00e3o ' + simbolosWhatsApp(0x1F4A1, 0x1F526, 0x1F50A, 0x1F3A4) },
+        { equipe: 'Teatrinho', titulo: simbolosWhatsApp(0x1F3AD, 0x1F3AD, 0x1F3AD) + ' Teatrinho ' + simbolosWhatsApp(0x1F3AD, 0x1F3AD, 0x1F3AD) },
+        { equipe: 'Vassourinha', titulo: simbolosWhatsApp(0x1F6BD, 0x1F9F9, 0x1FAA0, 0x1F6BE) + ' Vassourinha ' + simbolosWhatsApp(0x1F6BD, 0x1F9F9, 0x1FAA0, 0x1F6BE) }
+    ];
+}
+
+function dataIsoMensagemWhatsApp(valor) {
+    const texto = String(valor || '');
+    const iso = texto.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+    if (iso) return iso;
+    const data = new Date(texto);
+    return Number.isNaN(data.getTime()) ? '' : data.toISOString().slice(0, 10);
+}
+
+function montarMensagemReunioesWhatsApp(reunioes) {
+    const agora = new Date();
+    const hoje = [agora.getFullYear(), String(agora.getMonth() + 1).padStart(2, '0'), String(agora.getDate()).padStart(2, '0')].join('-');
+    const horarioAtual = [String(agora.getHours()).padStart(2, '0'), String(agora.getMinutes()).padStart(2, '0')].join(':');
+    const futuras = (Array.isArray(reunioes) ? reunioes : []).filter(reuniao => {
+        const data = dataIsoMensagemWhatsApp(reuniao.data_reuniao);
+        const horario = String(reuniao.horario_inicio || '').slice(0, 5);
+        return data > hoje || (data === hoje && horario >= horarioAtual);
+    });
+
+    return obterCabecalhosReuniaoWhatsApp().map(({ equipe, titulo }) => {
+        const daEquipe = futuras.filter(reuniao => String(reuniao.equipe || '').trim() === equipe);
+        if (!daEquipe.length) return '';
+        const detalhes = daEquipe.map(reuniao => {
+            const [ano, mes, dia] = dataIsoMensagemWhatsApp(reuniao.data_reuniao).split('-');
+            return ['Dia: ' + (dia && mes && ano ? dia + '/' + mes + '/' + ano : ''), 'Hora: ' + String(reuniao.horario_inicio || '').slice(0, 5), 'Local: ' + String(reuniao.local || '')].join('\n');
+        }).join('\n\n');
+        return titulo + '\n' + detalhes;
+    }).filter(Boolean).join('\n\n');
+}
+
 function abrirCompartilhamentoWhatsApp(mensagem, janelaWhatsApp) {
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(mensagem || '')}`;
-    if (janelaWhatsApp && !janelaWhatsApp.closed) return janelaWhatsApp.location.href = url;
+    const url = `https://wa.me/?text=${encodeURIComponent(mensagem || '')}`;
+    if (janelaWhatsApp && !janelaWhatsApp.closed) {
+        janelaWhatsApp.location.href = url;
+        return;
+    }
     window.location.href = url;
 }
 
@@ -2199,8 +2363,7 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
-            if (data.mensagem_whatsapp) abrirCompartilhamentoWhatsApp(data.mensagem_whatsapp, janelaWhatsApp);
-            else janelaWhatsApp?.close();
+            abrirCompartilhamentoWhatsApp(montarMensagemReunioesWhatsApp(data.reunioes_whatsapp) || data.mensagem_whatsapp, janelaWhatsApp);
         } else {
             janelaWhatsApp?.close();
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao agendar reuniao', 'danger');

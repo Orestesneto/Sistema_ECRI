@@ -3,13 +3,18 @@ const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
-const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'enviarNotificacao'];
-const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 5000;
-const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 5000;
+const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'almoxarifado', 'enviarNotificacao'];
+const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 60000;
+const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 60000;
 const ABAS_DIRIGENTE_TEMPO_REAL = ['relatorio', 'situacao', 'acompanhamentoFaltas'];
 let usuariosCache = [];
 let pessoasExternasCache = [];
 let eventosCache = [];
+let situacaoEquipesCache = [];
+let almoxarifadoItensCache = [];
+let almoxarifadoProtocolosCache = [];
+let almoxarifadoItensProtocolo = [];
+let almoxarifadoItensEdicaoProtocolo = [];
 let perfilDirigenteId = null;
 let intervaloAtualizacaoCarografo = null;
 let atualizacaoCarografoEmAndamento = false;
@@ -66,10 +71,12 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarSituacao();
     carregarReunioes();
     carregarAcompanhamentoFaltas();
+    configurarAlmoxarifado();
+    carregarAlmoxarifado();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
     configurarAtualizacaoAbasDirigenteTempoReal();
-    configurarAtualizacaoCarografoTempoReal();
+    // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
 
 function configurarConfiguraçõesDirigente() {
@@ -488,7 +495,7 @@ async function carregarRelatorio() {
         
         const data = await response.json();
         
-        document.getElementById('totalUsuários').textContent = data.stats.totalUsuários;
+        document.getElementById('totalUsuários').textContent = data.stats.totalUsuarios || 0;
         document.getElementById('confirmados').textContent = data.stats.confirmados;
         document.getElementById('pendentes').textContent = data.stats.pendentes;
         document.getElementById('coordenadores').textContent = data.stats.coordenadores;
@@ -539,6 +546,11 @@ function renderizarResumoEquipes(equipesResumo) {
                 <td>${Number(item.ec || 0)}</td>
                 <td>${casais}</td>
                 <td><strong>${Number(item.totalPonderado || 0)}</strong></td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirModalConfirmacoesEquipeRelatorio('${escapeAttr(item.equipe || '')}')">
+                        Visualizar situação da equipe
+                    </button>
+                </td>
             </tr>
         `;
     }).join('');
@@ -554,6 +566,7 @@ function renderizarResumoEquipes(equipesResumo) {
                     <th>EC</th>
                     <th>Casais</th>
                     <th>Total ponderado</th>
+                    <th>Ação</th>
                 </tr>
             </thead>
             <tbody>${linhas}</tbody>
@@ -566,8 +579,108 @@ function renderizarResumoEquipes(equipesResumo) {
                     <th>${totais.ec}</th>
                     <th>${totais.casais}</th>
                     <th>${totais.totalPonderado}</th>
+                    <th></th>
                 </tr>
             </tfoot>
+        </table>
+    `;
+}
+
+async function abrirModalConfirmacoesEquipeRelatorio(equipeNome) {
+    if (!equipeNome) return;
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/participantes-equipe`, {
+            headers: getHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao carregar confirmações da equipe.', 'danger');
+            return;
+        }
+
+        const participantes = (Array.isArray(data) ? data : [])
+            .filter(participante => String(participante.equipe || '') === String(equipeNome))
+            .sort(ordenarUsuarioPorNome);
+
+        document.getElementById('tituloModalAcompanhamentoSituacao').textContent = `Confirmações - ${equipeNome}`;
+        document.getElementById('resumoModalAcompanhamentoSituacao').innerHTML = renderizarResumoConfirmacoesEquipeDirigente(participantes);
+        document.getElementById('conteudoModalAcompanhamentoSituacao').innerHTML = renderizarTabelaConfirmacoesEquipeDirigente(participantes);
+
+        new bootstrap.Modal(document.getElementById('modalAcompanhamentoSituacao')).show();
+    } catch (err) {
+        console.error(err);
+        mostrarAlerta('alertaDirigentes', 'Erro ao carregar confirmações da equipe.', 'danger');
+    }
+}
+
+function renderizarResumoConfirmacoesEquipeDirigente(participantes) {
+    const total = participantes.length;
+    const confirmados = participantes.filter(item => item.status === 'confirmado').length;
+    const pendentes = participantes.filter(item => item.status === 'pendente').length;
+    const outros = participantes.filter(item => ['negou', 'desistiu', 'contato_errado'].includes(item.status)).length;
+
+    return [
+        ['Total', total, 'secondary'],
+        ['Confirmados', confirmados, 'success'],
+        ['Pendentes', pendentes, 'warning'],
+        ['Outros status', outros, 'danger']
+    ].map(([label, valor, cor]) => `
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <span class="text-muted">${escapeHtml(label)}</span>
+                <div class="h4 mb-0 text-${cor}">${valor}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
+    if (!participantes.length) {
+        return '<div class="alert alert-info">Nenhum participante encontrado para esta equipe.</div>';
+    }
+
+    const linhas = participantes.map((participante) => {
+        const tipoCadastro = participante.tipo_cadastro === 'externo'
+            ? '<span class="badge bg-secondary">Sem cadastro</span>'
+            : '<span class="badge bg-primary">Cadastrado</span>';
+
+        return `
+            <tr>
+                <td>${renderizarFotoPequenaSituacao(participante)}</td>
+                <td class="confirmacoes-usuario">
+                    <div class="confirmacoes-usuario-conteudo">
+                        <strong class="confirmacoes-usuario-nome">${escapeHtml(participante.nome_completo || '')}</strong>
+                        <small class="text-muted confirmacoes-usuario-cracha">${escapeHtml(participante.nome_cracha || '')}</small>
+                        ${tipoCadastro}
+                    </div>
+                </td>
+                <td>${escapeHtml(participante.telefone || '-')}</td>
+                <td>${escapeHtml(participante.movimento_origem || '-')}</td>
+                <td><span class="badge bg-success">${Number(participante.total_presencas || 0)}</span></td>
+                <td><span class="badge bg-warning text-dark">${Number(participante.total_faltas_justificadas || 0)}</span></td>
+                <td><span class="badge bg-danger">${Number(participante.total_faltas || 0)}</span></td>
+                <td>${obterStatusBadge(participante.status)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Foto</th>
+                    <th>Usuário</th>
+                    <th>Contato</th>
+                    <th>Movimento</th>
+                    <th>Presenças</th>
+                    <th>Faltas justificadas</th>
+                    <th>Faltas</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>${linhas}</tbody>
         </table>
     `;
 }
@@ -587,6 +700,7 @@ async function carregarUsuários() {
         aplicarFiltrosCarografo();
         renderizarEventos();
         carregarAcompanhamentoFaltas();
+        renderizarOpcoesSolicitantesAlmoxarifado();
     } catch (err) {
         console.error(err);
     }
@@ -866,6 +980,7 @@ function renderizarPessoasExternas() {
                         <span>${escapeHtml(pessoa.nome_completo || '')}</span>
                         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="abrirModalEditarPessoaExterna(${Number(pessoa.id)})">Editar</button>
                     </div>
+                    ${pessoa.observacao ? `<small class="text-muted d-block mt-1">${escapeHtml(pessoa.observacao)}</small>` : ''}
                 </td>
                 <td>${escapeHtml(pessoa.telefone || '')}</td>
                 <td>${escapeHtml(pessoa.movimento_origem || '-')}</td>
@@ -1169,9 +1284,44 @@ async function carregarEventos() {
 
         eventosCache = await response.json();
         renderizarEventos();
+        carregarOpcoesEventoEscala();
     } catch (err) {
         console.error(err);
     }
+}
+
+function carregarOpcoesEventoEscala() {
+    const select = document.getElementById('eventoEscala');
+    if (!select) return;
+
+    const eventos = Array.isArray(eventosCache) ? eventosCache : [];
+    const eventoPadrao = obterUltimoEventoEscala(eventos);
+    select.innerHTML = '<option value="">Selecione...</option>' + eventos
+        .map(evento => {
+            const periodo = `${formatarData(evento.data_evento)} a ${formatarData(evento.data_termino || evento.data_evento)}`;
+            return `<option value="${Number(evento.id)}">${escapeHtml(evento.nome || 'Evento')} - ${escapeHtml(periodo)}</option>`;
+        })
+        .join('');
+
+    if (eventoPadrao) {
+        select.value = String(eventoPadrao.id);
+    }
+}
+
+function obterUltimoEventoEscala(eventos) {
+    return [...(eventos || [])]
+        .filter(evento => Number(evento.id))
+        .sort((a, b) => {
+            const dataA = String(a.data_evento || '');
+            const dataB = String(b.data_evento || '');
+            if (dataA !== dataB) return dataB.localeCompare(dataA);
+
+            const criadoA = String(a.data_criacao || '');
+            const criadoB = String(b.data_criacao || '');
+            if (criadoA !== criadoB) return criadoB.localeCompare(criadoA);
+
+            return Number(b.id || 0) - Number(a.id || 0);
+        })[0] || null;
 }
 
 document.getElementById('formEvento')?.addEventListener('submit', async (e) => {
@@ -1179,14 +1329,13 @@ document.getElementById('formEvento')?.addEventListener('submit', async (e) => {
 
     const nome = document.getElementById('eventoNome').value;
     const data_evento = document.getElementById('eventoData').value;
-    const local = document.getElementById('eventoLocal').value;
-    const descricao = document.getElementById('eventoDescricao').value;
+    const data_termino = document.getElementById('eventoDataTermino').value;
 
     try {
         const response = await fetch(`${API_URL}/dirigentes/eventos`, {
             method: 'POST',
             headers: getHeaders(),
-            body: JSON.stringify({ nome, data_evento, local, descricao })
+            body: JSON.stringify({ nome, data_evento, data_termino })
         });
 
         if (response.ok) {
@@ -1274,8 +1423,8 @@ function renderizarEventos() {
                     <div class="d-flex justify-content-between align-items-start gap-3">
                         <div>
                             <h5 class="card-title mb-1">${escapeHtml(evento.nome)}</h5>
-                            <p class="mb-1"><strong>Data:</strong> ${formatarData(evento.data_evento)} ${evento.local ? '<strong>Local:</strong> ' + escapeHtml(evento.local) : ''}</p>
-                            <p class="mb-1">${escapeHtml(evento.descricao || '')}</p>
+                            <p class="mb-1"><strong>Data:</strong> ${formatarData(evento.data_evento)}</p>
+                            <p class="mb-1"><strong>Data de término:</strong> ${formatarData(evento.data_termino || evento.data_evento)}</p>
                             <small class="text-muted">${totalCoordenadores} coordenador(es), ${totalEquipistas} equipista(s)</small>
                         </div>
                         <button class="btn btn-sm btn-outline-danger" onclick="excluirEvento(${evento.id})">Excluir Evento</button>
@@ -1362,6 +1511,10 @@ function renderizarCarografo(usuarios) {
         const movimentoOrigem = escapeHtml(u.movimento_origem || '-');
         const anoEncontro = escapeHtml(u.ano_encontro || '-');
         const telefone = escapeHtml(u.telefone || '-');
+        const observacao = String(u.observacao || '').trim();
+        const observacaoHtml = observacao
+            ? `<div class="carografo-observacao">${escapeHtml(observacao)}</div>`
+            : '';
         const paroquiaValor = obterParoquiaPessoa(u);
         const equipeAtual = escapeHtml(u.equipe || 'SEM EQUIPE');
         const statusBadge = obterStatusBadge(u.status);
@@ -1410,6 +1563,7 @@ function renderizarCarografo(usuarios) {
                     </div>
                     <div class="carografo-linha">${movimentoOrigem} - ${anoEncontro}</div>
                     <div class="carografo-linha">${telefone}</div>
+                    ${observacaoHtml}
                     <div class="carografo-equipe">Equipe: ${equipeAtual}</div>
                     ${motivoImpedimentoCard}
                     <div class="carografo-status">${statusBadge}</div>
@@ -1430,7 +1584,7 @@ function obterPessoasCarografo() {
         ...usuariosCache,
         ...pessoasExternasCache.map(pessoa => ({
             ...pessoa,
-            perfil: 'sem_cadastro',
+            perfil: pessoa.perfil || 'sem_cadastro',
             origem_cadastro: 'externo'
         }))
     ];
@@ -1757,6 +1911,35 @@ function obterTextoStatusDownloadCarografo(statusDownload) {
     return statusDownload === 'pendente' ? 'confirmados ou pendentes' : 'confirmados';
 }
 
+function formatarAdicionadoPorCarografo(pessoa) {
+    const nome = String(pessoa.adicionado_por_nome || '').trim();
+    const data = formatarDataHoraCarografo(pessoa.adicionado_por_data);
+    if (nome && data) return `${nome} - ${data}`;
+    return nome || data || '';
+}
+
+function formatarDataHoraCarografo(valor) {
+    if (!valor) return '';
+
+    const texto = String(valor).trim();
+    const match = texto.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    if (match) {
+        const data = `${match[3]}/${match[2]}/${match[1]}`;
+        return match[4] ? `${data} ${match[4]}:${match[5]}` : data;
+    }
+
+    const data = new Date(texto);
+    if (Number.isNaN(data.getTime())) return texto;
+
+    return data.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
 function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
     if (typeof XLSX === 'undefined') {
         mostrarAlerta('alertaDirigentes', 'Biblioteca de Excel não carregada. Verifique a internet e tente novamente.', 'warning');
@@ -1786,7 +1969,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
                 'Nome do crachá': pessoa.nome_cracha || '',
                 'Movimento de origem': pessoa.movimento_origem || '',
                 'Telefone para contato': pessoa.telefone || '',
-                'Perfil de acesso': formatarPerfilAcesso(pessoa.perfil)
+                'Perfil de acesso': formatarPerfilAcesso(pessoa.perfil),
+                'adicionado por:': formatarAdicionadoPorCarografo(pessoa)
             }));
 
         const worksheet = XLSX.utils.json_to_sheet(linhas, {
@@ -1795,7 +1979,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
                 'Nome do crachá',
                 'Movimento de origem',
                 'Telefone para contato',
-                'Perfil de acesso'
+                'Perfil de acesso',
+                'adicionado por:'
             ]
         });
         worksheet['!cols'] = [
@@ -1803,7 +1988,8 @@ function baixarRelatorioCarografoExcel(statusDownload = 'confirmado') {
             { wch: 24 },
             { wch: 20 },
             { wch: 22 },
-            { wch: 18 }
+            { wch: 18 },
+            { wch: 34 }
         ];
 
         XLSX.utils.book_append_sheet(workbook, worksheet, nomeAbaExcel(equipe, workbook.SheetNames));
@@ -2116,7 +2302,26 @@ function escapeAttr(valor) {
 }
 
 function sanitizarImagemPerfil(src) {
-    return String(src || '').startsWith('data:image/') ? src : '';
+    const valor = String(src || '');
+    if (valor.startsWith('data:image/')) return valor;
+    if (valor.startsWith('/api/fotos/')) return valor;
+    try {
+        const url = new URL(valor, window.location.origin);
+        if (url.origin === window.location.origin && url.pathname.startsWith('/api/fotos/')) {
+            return url.pathname + url.search;
+        }
+    } catch (err) {
+        return '';
+    }
+    return '';
+}
+
+function formatarResponsavelAuditoria(nome, data) {
+    const responsavel = String(nome || '').trim() || 'Sem registro';
+    const dataFormatada = data ? formatarDataHoraCarografo(data) : '';
+    return dataFormatada
+        ? `${escapeHtml(responsavel)}<br><small class="text-muted">${escapeHtml(dataFormatada)}</small>`
+        : escapeHtml(responsavel);
 }
 
 function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
@@ -2136,6 +2341,13 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
         ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrande('${usuario.foto_perfil}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
     const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+    const usuarioCoordenador = usuario.perfil === 'coordenador';
+    const checkboxCoordenadorHtml = `
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="perfilCoordenadorResumo" ${usuarioCoordenador ? 'checked' : ''} onchange="atualizarPerfilCoordenadorResumo(${Number(usuario.id)}, this, '${tipoCadastro}')">
+            <label class="form-check-label" for="perfilCoordenadorResumo">Coordenador</label>
+        </div>
+    `;
     const motivosImpedimentoHtml = renderizarMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
 
     titulo.textContent = 'Resumo do Usuário';
@@ -2157,12 +2369,15 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
                 <tr><th>Instrumentos</th><td>${escapeHtml(usuario.instrumentos || '-')}</td></tr>
                 <tr><th>Canta?</th><td>${formatarSimNao(usuario.canta)}</td></tr>
                 <tr><th>Equipes que já serviu</th><td>${equipesHtml}</td></tr>
+                <tr><th>Incluído por</th><td>${formatarResponsavelAuditoria(usuario.incluido_por_nome || usuario.adicionado_por_nome, usuario.incluido_por_data || usuario.adicionado_por_data)}</td></tr>
+                <tr><th>Última edição por</th><td>${formatarResponsavelAuditoria(usuario.ultima_edicao_por_nome, usuario.ultima_edicao_data)}</td></tr>
             </tbody>
         </table>
         <div class="form-check mb-3">
-            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this)">
-            <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa imperdida de servir no encontro</label>
+            <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this, '${tipoCadastro}')">
+            <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa impedida de servir no encontro</label>
         </div>
+        ${checkboxCoordenadorHtml}
         <div id="motivosImpedimentoServirResumoInfo">${motivosImpedimentoHtml}</div>
         <div class="text-end">
             <button type="button" class="btn btn-primary" onclick="abrirModalEscalar(${Number(usuario.id)}, true, '${tipoCadastro}')">Escalar</button>
@@ -2172,7 +2387,52 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
     new bootstrap.Modal(modalEl).show();
 }
 
-async function atualizarPessoaImpedidaServir(usuarioId, checkbox) {
+async function atualizarPerfilCoordenadorResumo(usuarioId, checkbox, tipoCadastro = 'usuario') {
+    const marcado = Boolean(checkbox.checked);
+    const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+    const perfilAnterior = lista.find(usuario => Number(usuario.id) === Number(usuarioId))?.perfil || (tipoCadastro === 'externo' ? 'sem_cadastro' : 'equipista');
+    const novoPerfil = marcado ? 'coordenador' : (tipoCadastro === 'externo' ? 'sem_cadastro' : 'equipista');
+    checkbox.disabled = true;
+
+    try {
+        const url = tipoCadastro === 'externo'
+            ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/perfil-coordenador`
+            : `${API_URL}/dirigentes/${marcado ? 'escalar-coordenador' : 'escalar-equipista'}/${usuarioId}`;
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: tipoCadastro === 'externo' ? JSON.stringify({ coordenador: marcado }) : undefined
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            checkbox.checked = perfilAnterior === 'coordenador';
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao atualizar perfil de acesso.', 'danger');
+            return;
+        }
+
+        if (tipoCadastro === 'externo') {
+            pessoasExternasCache = pessoasExternasCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, perfil: novoPerfil }
+                : usuario);
+        } else {
+            usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, perfil: novoPerfil }
+                : usuario);
+        }
+        aplicarFiltrosCarografo();
+        renderizarTabelaUsuarios();
+        mostrarAlerta('alertaDirigentes', marcado ? 'Perfil alterado para coordenador.' : 'Perfil alterado para equipista.', 'success');
+    } catch (err) {
+        checkbox.checked = perfilAnterior === 'coordenador';
+        mostrarAlerta('alertaDirigentes', 'Erro ao atualizar perfil de acesso.', 'danger');
+        console.error(err);
+    } finally {
+        checkbox.disabled = false;
+    }
+}
+
+async function atualizarPessoaImpedidaServir(usuarioId, checkbox, tipoCadastro = 'usuario') {
     const marcado = Boolean(checkbox.checked);
     if (!marcado) {
         checkbox.checked = true;
@@ -2181,13 +2441,14 @@ async function atualizarPessoaImpedidaServir(usuarioId, checkbox) {
     }
 
     if (marcado) {
-        abrirModalMotivoImpedimentoServir(usuarioId, checkbox);
+        abrirModalMotivoImpedimentoServir(usuarioId, checkbox, tipoCadastro);
         return;
     }
 }
 
-function abrirModalMotivoImpedimentoServir(usuarioId, checkbox) {
-    const usuario = usuariosCache.find(item => Number(item.id) === Number(usuarioId)) || {};
+function abrirModalMotivoImpedimentoServir(usuarioId, checkbox, tipoCadastro = 'usuario') {
+    const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+    const usuario = lista.find(item => Number(item.id) === Number(usuarioId)) || {};
     const motivosSalvos = obterMotivosImpedimentoServir(usuario.pessoa_impedida_motivos);
     const modalEl = obterModalMotivoImpedimentoServir();
     const motivos = motivosSalvos.motivos || [];
@@ -2203,7 +2464,7 @@ function abrirModalMotivoImpedimentoServir(usuarioId, checkbox) {
     outroInput.value = motivosSalvos.outro || '';
     outroCampo.style.display = outroMarcado ? 'block' : 'none';
 
-    modalEl.querySelector('#btnSalvarMotivoImpedimentoServir').onclick = () => confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl);
+    modalEl.querySelector('#btnSalvarMotivoImpedimentoServir').onclick = () => confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl, tipoCadastro);
     modalEl.addEventListener('hidden.bs.modal', () => {
         if (modalEl.dataset.confirmado !== 'true') {
             checkbox.checked = false;
@@ -2265,7 +2526,7 @@ function obterModalMotivoImpedimentoServir() {
     return modalEl;
 }
 
-async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
+async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl, tipoCadastro = 'usuario') {
     const motivos = Array.from(modalEl.querySelectorAll('input[name="motivoImpedimentoServir"]:checked'))
         .map(input => input.value);
     const outro = modalEl.querySelector('#outroMotivoImpedimentoServir').value.trim();
@@ -2288,7 +2549,7 @@ async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
         pessoa_impedida_servir: true,
         motivos_impedimento_servir: motivos,
         outro_motivo_impedimento_servir: outro
-    });
+    }, tipoCadastro);
 
     if (sucesso) {
         modalEl.dataset.confirmado = 'true';
@@ -2296,12 +2557,15 @@ async function confirmarMotivoImpedimentoServir(usuarioId, checkbox, modalEl) {
     }
 }
 
-async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload) {
+async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload, tipoCadastro = 'usuario') {
     const marcado = Boolean(payload.pessoa_impedida_servir);
     checkbox.disabled = true;
 
     try {
-        const response = await fetch(`${API_URL}/dirigentes/usuarios/${usuarioId}/impedimento-servir`, {
+        const url = tipoCadastro === 'externo'
+            ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/impedimento-servir`
+            : `${API_URL}/dirigentes/usuarios/${usuarioId}/impedimento-servir`;
+        const response = await fetch(url, {
             method: 'PUT',
             headers: getHeaders(),
             body: JSON.stringify(payload)
@@ -2314,9 +2578,15 @@ async function salvarPessoaImpedidaServir(usuarioId, checkbox, payload) {
             return false;
         }
 
-        usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
-            ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
-            : usuario);
+        if (tipoCadastro === 'externo') {
+            pessoasExternasCache = pessoasExternasCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+                : usuario);
+        } else {
+            usuariosCache = usuariosCache.map(usuario => Number(usuario.id) === Number(usuarioId)
+                ? { ...usuario, pessoa_impedida_servir: data.pessoa_impedida_servir, pessoa_impedida_motivos: data.pessoa_impedida_motivos }
+                : usuario);
+        }
         checkbox.checked = marcado;
         const info = document.getElementById('motivosImpedimentoServirResumoInfo');
         if (info) {
@@ -2414,6 +2684,7 @@ function obterStatusBadge(status) {
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',
+        estornado: '<span class="badge bg-secondary">Estornado</span>',
         cancelado: '<span class="badge bg-secondary">Cancelado</span>',
         contato_errado: '<span class="badge bg-dark">Contato errado</span>',
         negou: '<span class="badge bg-danger">Negou</span>',
@@ -2502,6 +2773,235 @@ async function carregarSituacao() {
 }
 
 // Abrir modal para escalar usuário ou pessoa sem cadastro
+// Nova visao de situacao por equipe, usada no lugar da tabela antiga.
+async function carregarSituacao() {
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/situacao`, {
+            headers: getHeaders()
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao carregar situacao', 'danger');
+            return;
+        }
+
+        situacaoEquipesCache = Array.isArray(data.equipes) ? data.equipes : [];
+        const stats = data.stats || {};
+
+        document.getElementById('cardSituacao').innerHTML = `
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="card text-white bg-warning">
+                        <div class="card-body">
+                            <h5>Pagamentos Pendentes</h5>
+                            <h2>${Number(stats.pagamentosPendentes || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-success">
+                        <div class="card-body">
+                            <h5>Pagamentos Confirmados</h5>
+                            <h2>${Number(stats.pagamentosConfirmados || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-info">
+                        <div class="card-body">
+                            <h5>Camisas Pendentes</h5>
+                            <h2>${Number(stats.blusasPendentes || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-white bg-primary">
+                        <div class="card-body">
+                            <h5>Camisas Confirmadas</h5>
+                            <h2>${Number(stats.blusasConfirmadas || 0)}</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        renderizarListaEquipesSituacao('taxas');
+        renderizarListaEquipesSituacao('camisas');
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function renderizarListaEquipesSituacao(tipo) {
+    const container = document.getElementById(tipo === 'taxas' ? 'listaEquipesTaxasSituacao' : 'listaEquipesCamisasSituacao');
+    if (!container) return;
+
+    if (!situacaoEquipesCache.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhuma equipe com usuarios confirmados.</div>';
+        return;
+    }
+
+    const linhas = situacaoEquipesCache.map((equipe) => {
+        const resumo = tipo === 'taxas' ? equipe.resumoTaxas : equipe.resumoCamisas;
+        const semSolicitacao = Number(resumo?.semSolicitacao || 0);
+        const extraCamisas = tipo === 'camisas' ? `<br><small class="text-muted">Sem solicitacao: ${semSolicitacao}</small>` : '';
+        const textoBotao = tipo === 'taxas' ? 'Acompanhar pagamento de taxas' : 'Acompanhar pagamento de camisas';
+
+        return `
+            <tr>
+                <td><strong>${escapeHtml(equipe.equipe || '-')}</strong>${extraCamisas}</td>
+                <td>${Number(resumo?.total || 0)}</td>
+                <td><span class="badge bg-warning text-dark">${Number(resumo?.pendentes || 0)}</span></td>
+                <td><span class="badge bg-success">${Number(resumo?.confirmadas || 0)}</span></td>
+                <td class="text-end">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalAcompanhamentoSituacao('${escapeAttr(tipo)}', '${escapeAttr(equipe.equipe || '')}')">
+                        ${textoBotao}
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Equipe</th>
+                    <th>Total</th>
+                    <th>Pendentes</th>
+                    <th>Confirmados</th>
+                    <th class="text-end">Acao</th>
+                </tr>
+            </thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function abrirModalAcompanhamentoSituacao(tipo, equipeNome) {
+    const equipe = situacaoEquipesCache.find(item => item.equipe === equipeNome);
+    if (!equipe) return;
+
+    const ehTaxas = tipo === 'taxas';
+    const itens = ehTaxas ? (equipe.taxas || []) : (equipe.camisas || []);
+    const resumo = ehTaxas ? equipe.resumoTaxas : equipe.resumoCamisas;
+
+    document.getElementById('tituloModalAcompanhamentoSituacao').textContent = ehTaxas
+        ? `Acompanhar pagamento de taxas - ${equipe.equipe}`
+        : `Acompanhar pagamento de camisas - ${equipe.equipe}`;
+    document.getElementById('resumoModalAcompanhamentoSituacao').innerHTML = renderizarResumoModalSituacao(resumo, ehTaxas);
+    document.getElementById('conteudoModalAcompanhamentoSituacao').innerHTML = ehTaxas
+        ? renderizarTabelaTaxasSituacao(itens)
+        : renderizarTabelaCamisasSituacao(itens);
+
+    new bootstrap.Modal(document.getElementById('modalAcompanhamentoSituacao')).show();
+}
+
+function renderizarResumoModalSituacao(resumo, ehTaxas) {
+    const cards = [
+        ['Total', Number(resumo?.total || 0), 'secondary'],
+        ['Pendentes', Number(resumo?.pendentes || 0), 'warning'],
+        ['Confirmados', Number(resumo?.confirmadas || 0), 'success']
+    ];
+    if (!ehTaxas) {
+        cards.push(['Sem solicitacao', Number(resumo?.semSolicitacao || 0), 'secondary']);
+    }
+
+    return cards.map(([label, valor, cor]) => `
+        <div class="col-md-3">
+            <div class="border rounded p-3 h-100">
+                <span class="text-muted">${escapeHtml(label)}</span>
+                <div class="h4 mb-0 text-${cor}">${valor}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderizarTabelaTaxasSituacao(pagamentos) {
+    if (!pagamentos.length) {
+        return '<div class="alert alert-info">Nenhum usuario nesta equipe.</div>';
+    }
+
+    const linhas = pagamentos.map((p) => `
+        <tr>
+            <td>${renderizarFotoPequenaSituacao(p)}</td>
+            <td>${escapeHtml(p.nome_completo || '')}</td>
+            <td>${escapeHtml(p.tipo || 'taxa')}</td>
+            <td>${formatarMoedaDirigente(p.valor)}</td>
+            <td>${obterStatusBadge(p.status)}</td>
+            <td>${renderizarBaixaSituacao(p)}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Foto</th><th>Usuario</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th></tr></thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function renderizarTabelaCamisasSituacao(camisas) {
+    if (!camisas.length) {
+        return '<div class="alert alert-info">Nenhum usuario nesta equipe.</div>';
+    }
+
+    const linhas = camisas.map((b) => `
+        <tr>
+            <td>${renderizarFotoPequenaSituacao(b)}</td>
+            <td>${escapeHtml(b.nome_completo || '')}</td>
+            <td>${escapeHtml(b.tamanho || '-')}</td>
+            <td>${b.id ? formatarMoedaDirigente(b.valor) : '-'}</td>
+            <td>${b.id ? obterStatusBadge(b.status) : '<span class="badge bg-secondary">Sem camisa</span>'}</td>
+            <td>${b.id ? renderizarBaixaSituacao(b) : '-'}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="table table-hover align-middle">
+            <thead><tr><th>Foto</th><th>Usuario</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th></tr></thead>
+            <tbody>${linhas}</tbody>
+        </table>
+    `;
+}
+
+function renderizarFotoPequenaSituacao(item) {
+    const foto = sanitizarImagemPerfil(item.foto_perfil);
+    if (!foto) {
+        return '<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>';
+    }
+
+    return `<img src="${escapeAttr(foto)}" alt="Foto" class="foto-clickable" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`;
+}
+
+function renderizarBaixaSituacao(item) {
+    if (item.status !== 'confirmado') return '-';
+    const detalhes = [formatarFormaPagamentoDirigente(item.forma_pagamento)];
+    const confirmador = item.confirmado_por_nome || item.confirmado_por_cracha || '';
+    if (confirmador) detalhes.push(`Baixa por ${escapeHtml(confirmador)}`);
+    if (item.data_confirmacao) detalhes.push(formatarDataHoraDirigente(item.data_confirmacao));
+    return detalhes.map(parte => `<small>${parte}</small>`).join('<br>');
+}
+
+function formatarMoedaDirigente(valor) {
+    return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatarFormaPagamentoDirigente(forma) {
+    const mapa = {
+        pix: 'PIX',
+        dinheiro: 'Dinheiro',
+        cartao_credito: 'Cartao de credito'
+    };
+    return mapa[forma] || '-';
+}
+
+function formatarDataHoraDirigente(valor) {
+    if (!valor) return '-';
+    return new Date(valor).toLocaleString('pt-BR');
+}
+
 function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
     if (fecharResumo) {
         const modalResumo = bootstrap.Modal.getInstance(document.getElementById('modalFoto'));
@@ -2516,6 +3016,8 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
     document.getElementById('tipoCadastroEscalar').value = tipoCadastro;
     document.getElementById('nomeEquipe').value = '';
     document.getElementById('nomeEquipe').required = false;
+    document.getElementById('eventoEscala').required = false;
+    carregarOpcoesEventoEscala();
     document.getElementById('acaoEscalarDiv').style.display = 'block';
     document.getElementById('acaoEscalar').value = '';
     document.getElementById('equipeDiv').style.display = 'none';
@@ -2525,6 +3027,7 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
         document.getElementById('acaoEscalar').value = 'equipe';
         document.getElementById('equipeDiv').style.display = 'block';
         document.getElementById('nomeEquipe').required = true;
+        document.getElementById('eventoEscala').required = true;
     }
     
     setTimeout(() => {
@@ -2557,6 +3060,11 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
             body = {};
         } else if (acao === 'equipe') {
             const nomeEquipe = document.getElementById('nomeEquipe').value;
+            const eventoId = document.getElementById('eventoEscala').value;
+            if (!eventoId) {
+                mostrarAlerta('alertaDirigentes', 'Informe o evento antes de escalar para equipe', 'warning');
+                return;
+            }
             if (!nomeEquipe) {
                 mostrarAlerta('alertaDirigentes', 'Informe o nome da equipe', 'warning');
                 return;
@@ -2564,7 +3072,7 @@ document.getElementById('formEscalar')?.addEventListener('submit', async (e) => 
             url = tipoCadastro === 'externo'
                 ? `${API_URL}/dirigentes/pessoas-externas/${usuarioId}/equipe`
                 : `${API_URL}/dirigentes/escalar-equipe/${usuarioId}`;
-            body = { equipe: nomeEquipe };
+            body = { equipe: nomeEquipe, evento_id: Number(eventoId) };
         }
         
         const response = await fetch(url, {
@@ -2757,11 +3265,14 @@ function obterTelefonesCasalDirigente(telefone) {
 document.getElementById('acaoEscalar')?.addEventListener('change', (e) => {
     const equipeDiv = document.getElementById('equipeDiv');
     const nomeEquipe = document.getElementById('nomeEquipe');
+    const eventoEscala = document.getElementById('eventoEscala');
     const mostrarEquipe = e.target.value === 'equipe';
     equipeDiv.style.display = mostrarEquipe ? 'block' : 'none';
     nomeEquipe.required = mostrarEquipe;
+    if (eventoEscala) eventoEscala.required = mostrarEquipe;
     if (!mostrarEquipe) {
         nomeEquipe.value = '';
+        if (eventoEscala) eventoEscala.value = '';
     }
 });
 
@@ -3014,7 +3525,24 @@ function abrirModalFoto(fotoSrc) {
 
 function formatarData(data) {
     if (!data) return '-';
-    return new Date(`${data}T00:00:00`).toLocaleDateString('pt-BR');
+
+    const valor = String(data).trim();
+    const iso = valor.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+        return `${iso[3]}/${iso[2]}/${iso[1]}`;
+    }
+
+    const br = valor.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (br) {
+        return valor;
+    }
+
+    const dataObj = new Date(valor);
+    if (!Number.isNaN(dataObj.getTime())) {
+        return dataObj.toLocaleDateString('pt-BR');
+    }
+
+    return '-';
 }
 
 function getToken() {
@@ -3080,4 +3608,377 @@ function anoEncontroValido(valor) {
     const ano = somenteNumeros(valor);
     const anoAtual = new Date().getFullYear();
     return /^\d{4}$/.test(ano) && Number(ano) >= 1900 && Number(ano) <= anoAtual;
+}
+
+function configurarAlmoxarifado() {
+    document.getElementById('formItemAlmoxarifado')?.addEventListener('submit', cadastrarItemAlmoxarifado);
+    document.getElementById('formProtocoloAlmoxarifado')?.addEventListener('submit', criarProtocoloAlmoxarifado);
+    document.getElementById('btnAdicionarItemProtocolo')?.addEventListener('click', adicionarItemProtocoloAlmoxarifado);
+    document.getElementById('btnAtualizarAlmoxarifado')?.addEventListener('click', carregarAlmoxarifado);
+    document.getElementById('filtroStatusProtocolo')?.addEventListener('change', renderizarProtocolosAlmoxarifado);
+    document.getElementById('formDevolucaoAlmoxarifado')?.addEventListener('submit', confirmarDevolucaoAlmoxarifado);
+    document.getElementById('formEditarItensProtocoloAlmoxarifado')?.addEventListener('submit', salvarItensEdicaoProtocoloAlmoxarifado);
+    document.getElementById('btnAdicionarItemEdicaoProtocolo')?.addEventListener('click', adicionarItemEdicaoProtocoloAlmoxarifado);
+}
+
+async function carregarAlmoxarifado() {
+    try {
+        const [respostaItens, respostaProtocolos] = await Promise.all([
+            fetch(`${API_URL}/dirigentes/almoxarifado/itens`, { headers: getHeaders() }),
+            fetch(`${API_URL}/dirigentes/almoxarifado/protocolos`, { headers: getHeaders() })
+        ]);
+        if (!respostaItens.ok || !respostaProtocolos.ok) throw new Error('Falha ao carregar almoxarifado');
+        almoxarifadoItensCache = await respostaItens.json();
+        almoxarifadoProtocolosCache = await respostaProtocolos.json();
+        renderizarResumoAlmoxarifado();
+        renderizarItensAlmoxarifado();
+        renderizarOpcoesItensProtocolo();
+        renderizarProtocolosAlmoxarifado();
+    } catch (err) {
+        console.error(err);
+        mostrarAlerta('alertaDirigentes', 'Erro ao carregar o controle de almoxarifado', 'danger');
+    }
+}
+
+function renderizarResumoAlmoxarifado() {
+    const container = document.getElementById('resumoAlmoxarifado');
+    if (!container) return;
+    const totalItens = almoxarifadoItensCache.length;
+    const unidadesDisponiveis = almoxarifadoItensCache.reduce((total, item) => total + Number(item.estoque_disponivel || 0), 0);
+    const aguardandoDevolucao = almoxarifadoProtocolosCache.filter(item => ['entregue', 'parcialmente_devolvido'].includes(item.status)).length;
+    const cards = [
+        ['Itens cadastrados', totalItens, 'primary'],
+        ['Unidades disponíveis', unidadesDisponiveis, 'success'],
+        ['Aguardando devolução', aguardandoDevolucao, 'danger']
+    ];
+    container.innerHTML = cards.map(([titulo, valor, cor]) => `
+        <div class="col-6 col-lg-3"><div class="card h-100 border-${cor}"><div class="card-body py-3">
+            <small class="text-muted">${titulo}</small><div class="h3 mb-0 text-${cor}">${valor}</div>
+        </div></div></div>
+    `).join('');
+}
+
+function renderizarItensAlmoxarifado() {
+    const container = document.getElementById('tabelaItensAlmoxarifado');
+    if (!container) return;
+    if (!almoxarifadoItensCache.length) {
+        container.innerHTML = '<div class="alert alert-info mb-0">Nenhum item cadastrado.</div>';
+        return;
+    }
+    const linhas = almoxarifadoItensCache.map(item => {
+        return `<tr>
+            <td><strong>${escapeHtml(item.nome)}</strong></td>
+            <td><span class="badge bg-success">${Number(item.estoque_disponivel)}</span></td>
+            <td><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-primary" onclick="ajustarEstoqueAlmoxarifado(${Number(item.id)})">Ajustar estoque</button><button type="button" class="btn btn-sm btn-outline-secondary" onclick="consultarHistoricoItemAlmoxarifado(${Number(item.id)})">Histórico</button></div></td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `<table class="table table-hover align-middle"><thead><tr><th>Item</th><th>Quantidade disponível</th><th>Ação</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+async function cadastrarItemAlmoxarifado(evento) {
+    evento.preventDefault();
+    const dados = {
+        nome: document.getElementById('almoxItemNome').value.trim(),
+        quantidade: Number(document.getElementById('almoxItemQuantidade').value),
+        categoria: '',
+        unidade: 'unidade',
+        estoque_minimo: 0,
+        observacao: ''
+    };
+    await executarAcaoAlmoxarifado('/dirigentes/almoxarifado/itens', 'POST', dados, () => {
+        evento.target.reset();
+        document.getElementById('almoxItemQuantidade').value = '0';
+    });
+}
+
+async function ajustarEstoqueAlmoxarifado(itemId) {
+    const item = almoxarifadoItensCache.find(registro => Number(registro.id) === Number(itemId));
+    if (!item) return;
+    const total = prompt(`Novo estoque total de ${item.nome}:`, String(item.estoque_total));
+    if (total === null) return;
+    await executarAcaoAlmoxarifado(`/dirigentes/almoxarifado/itens/${itemId}/estoque`, 'PUT', {
+        estoque_total: Number(total), estoque_minimo: 0
+    });
+}
+
+async function consultarHistoricoItemAlmoxarifado(itemId) {
+    const titulo = document.getElementById('tituloHistoricoItemAlmoxarifado');
+    const conteudo = document.getElementById('conteudoHistoricoItemAlmoxarifado');
+    titulo.textContent = 'Histórico do item';
+    conteudo.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHistoricoItemAlmoxarifado')).show();
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/almoxarifado/itens/${itemId}/historico`, { headers: getHeaders() });
+        const dados = await response.json();
+        if (!response.ok) throw new Error(dados.erro || 'Erro ao consultar histórico');
+        titulo.textContent = `Histórico — ${dados.item.nome}`;
+        renderizarHistoricoItemAlmoxarifado(dados.historico || [], dados.devolucoes || []);
+    } catch (err) {
+        conteudo.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderizarHistoricoItemAlmoxarifado(historico, devolucoes) {
+    const conteudo = document.getElementById('conteudoHistoricoItemAlmoxarifado');
+    if (!historico.length) {
+        conteudo.innerHTML = '<div class="alert alert-info mb-0">Este item ainda não possui empréstimos ou solicitações.</div>';
+        return;
+    }
+    const status = {
+        solicitado: '<span class="badge bg-warning text-dark">Aguardando entrega</span>',
+        entregue: '<span class="badge bg-primary">Emprestado</span>',
+        parcialmente_devolvido: '<span class="badge bg-info text-dark">Devolução parcial</span>',
+        devolvido: '<span class="badge bg-success">Devolvido</span>',
+        cancelado: '<span class="badge bg-secondary">Cancelado</span>'
+    };
+    const linhas = historico.map(registro => `<tr>
+        <td>#${Number(registro.protocolo_id)}</td>
+        <td><strong>${escapeHtml(registro.solicitante)}</strong><br><small class="text-muted">${escapeHtml(registro.equipe || '-')}</small></td>
+        <td>${Number(registro.quantidade)}</td>
+        <td>${formatarDataHoraAlmoxarifado(registro.data_criacao)}${registro.data_prevista_retirada ? `<br><small class="text-muted">Retirada prevista: ${formatarData(registro.data_prevista_retirada)}</small>` : ''}${registro.data_prevista_devolucao ? `<br><small class="text-muted">Devolução prevista: ${formatarData(registro.data_prevista_devolucao)}</small>` : ''}</td>
+        <td>${registro.data_entrega ? `${formatarDataHoraAlmoxarifado(registro.data_entrega)}${registro.entregue_por_nome ? `<br><small class="text-muted">por ${escapeHtml(registro.entregue_por_nome)}</small>` : ''}` : '-'}</td>
+        <td>${registro.data_devolucao ? `${formatarDataHoraAlmoxarifado(registro.data_devolucao)}${registro.devolvido_por_nome ? `<br><small class="text-muted">por ${escapeHtml(registro.devolvido_por_nome)}</small>` : ''}` : '-'}</td>
+        <td>${status[registro.status] || escapeHtml(registro.status)}</td>
+    </tr>`).join('');
+    const movimentacoes = devolucoes.length ? `<h6 class="mt-4">Registros de devolução</h6><div class="table-responsive"><table class="table table-sm"><thead><tr><th>Protocolo</th><th>Quantidade</th><th>Data</th><th>Recebido por</th></tr></thead><tbody>${devolucoes.map(item => `<tr><td>#${Number(item.protocolo_id)}</td><td>${Number(item.quantidade)}</td><td>${formatarDataHoraAlmoxarifado(item.data_devolucao)}</td><td>${escapeHtml(item.devolvido_por_nome || '-')}</td></tr>`).join('')}</tbody></table></div>` : '';
+    conteudo.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>Protocolo</th><th>Solicitante</th><th>Quantidade</th><th>Solicitado em</th><th>Entregue em</th><th>Devolvido em</th><th>Status</th></tr></thead><tbody>${linhas}</tbody></table></div>${movimentacoes}`;
+}
+
+function renderizarOpcoesItensProtocolo() {
+    const select = document.getElementById('almoxProtocoloItem');
+    if (!select) return;
+    select.innerHTML = '<option value="">Selecione um item...</option>' + almoxarifadoItensCache.map(item =>
+        `<option value="${Number(item.id)}">${escapeHtml(item.nome)} (${Number(item.estoque_disponivel)} ${escapeHtml(item.unidade)} disponíveis)</option>`
+    ).join('');
+}
+
+function renderizarOpcoesSolicitantesAlmoxarifado() {
+    const select = document.getElementById('almoxProtocoloSolicitante');
+    if (!select) return;
+    const valorAtual = select.value;
+    select.innerHTML = '<option value="">Selecione um usuário...</option>' + usuariosCache
+        .map(usuario => `<option value="${Number(usuario.id)}">${escapeHtml(usuario.nome_completo || usuario.nome_cracha || '')}</option>`)
+        .join('');
+    if (usuariosCache.some(usuario => String(usuario.id) === valorAtual)) select.value = valorAtual;
+}
+
+function adicionarItemProtocoloAlmoxarifado() {
+    const itemId = Number(document.getElementById('almoxProtocoloItem').value);
+    const quantidade = Number(document.getElementById('almoxProtocoloQuantidade').value);
+    const item = almoxarifadoItensCache.find(registro => Number(registro.id) === itemId);
+    if (!item || !Number.isInteger(quantidade) || quantidade <= 0) {
+        mostrarAlerta('alertaDirigentes', 'Selecione um item e informe uma quantidade válida', 'warning');
+        return;
+    }
+    if (almoxarifadoItensProtocolo.some(registro => registro.item_id === itemId)) {
+        mostrarAlerta('alertaDirigentes', 'Este item já foi adicionado ao protocolo', 'warning');
+        return;
+    }
+    almoxarifadoItensProtocolo.push({ item_id: itemId, quantidade, nome: item.nome, unidade: item.unidade });
+    renderizarItensSelecionadosProtocolo();
+}
+
+function renderizarItensSelecionadosProtocolo() {
+    const container = document.getElementById('itensSelecionadosProtocolo');
+    if (!container) return;
+    container.innerHTML = almoxarifadoItensProtocolo.length
+        ? almoxarifadoItensProtocolo.map((item, indice) => `<div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2"><span><strong>${escapeHtml(item.nome)}</strong> — ${item.quantidade} ${escapeHtml(item.unidade)}</span><button type="button" class="btn btn-sm btn-outline-danger" onclick="removerItemProtocoloAlmoxarifado(${indice})">Remover</button></div>`).join('')
+        : '<div class="text-muted small">Nenhum item adicionado ao protocolo.</div>';
+}
+
+function removerItemProtocoloAlmoxarifado(indice) {
+    almoxarifadoItensProtocolo.splice(indice, 1);
+    renderizarItensSelecionadosProtocolo();
+}
+
+async function criarProtocoloAlmoxarifado(evento) {
+    evento.preventDefault();
+    if (!almoxarifadoItensProtocolo.length) {
+        mostrarAlerta('alertaDirigentes', 'Adicione ao menos um item ao protocolo', 'warning');
+        return;
+    }
+    const dados = {
+        solicitante_usuario_id: Number(document.getElementById('almoxProtocoloSolicitante').value),
+        equipe: document.getElementById('almoxProtocoloEquipe').value.trim(),
+        finalidade: document.getElementById('almoxProtocoloFinalidade').value.trim(),
+        data_prevista_devolucao: document.getElementById('almoxProtocoloData').value,
+        observacao: document.getElementById('almoxProtocoloObservacao').value.trim(),
+        itens: almoxarifadoItensProtocolo.map(({ item_id, quantidade }) => ({ item_id, quantidade }))
+    };
+    await executarAcaoAlmoxarifado('/dirigentes/almoxarifado/protocolos', 'POST', dados, () => {
+        evento.target.reset();
+        almoxarifadoItensProtocolo = [];
+        renderizarItensSelecionadosProtocolo();
+    });
+}
+
+function renderizarProtocolosAlmoxarifado() {
+    const container = document.getElementById('listaProtocolosAlmoxarifado');
+    if (!container) return;
+    const filtro = document.getElementById('filtroStatusProtocolo')?.value || '';
+    const protocolos = almoxarifadoProtocolosCache.filter(item => !filtro || item.status === filtro);
+    if (!protocolos.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhum protocolo encontrado.</div>';
+        return;
+    }
+    container.innerHTML = protocolos.map(protocolo => {
+        const mapaStatus = { solicitado: ['warning text-dark', 'Solicitado'], entregue: ['primary', 'Aguardando devolução'], parcialmente_devolvido: ['info text-dark', 'Devolução parcial'], devolvido: ['success', 'Devolvido'], cancelado: ['secondary', 'Cancelado'] };
+        const [cor, texto] = mapaStatus[protocolo.status] || ['secondary', protocolo.status];
+        const itens = (protocolo.itens || []).map(item => {
+            const devolvida = Number(item.quantidade_devolvida || 0);
+            return `<li>${escapeHtml(item.nome)}: <strong>${Number(item.quantidade)} ${escapeHtml(item.unidade)}</strong>${devolvida ? ` <small class="text-success">(${devolvida} devolvida${devolvida !== 1 ? 's' : ''})</small>` : ''}</li>`;
+        }).join('');
+        const acoes = protocolo.status === 'solicitado'
+            ? `<button class="btn btn-sm btn-outline-primary" onclick="abrirEdicaoItensProtocoloAlmoxarifado(${protocolo.id})">Editar itens</button><button class="btn btn-sm btn-success" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'entregar')">Registrar entrega</button><button class="btn btn-sm btn-outline-danger" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'cancelar')">Cancelar</button>`
+            : ['entregue', 'parcialmente_devolvido'].includes(protocolo.status)
+                ? `<button class="btn btn-sm btn-primary" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'devolver')">Registrar devolução</button>` : '';
+        return `<article class="card mb-3 almox-protocolo-card"><div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between gap-2"><div><h5 class="mb-1">Protocolo #${Number(protocolo.id)}</h5><span class="badge bg-${cor}">${texto}</span></div><small class="text-muted">Criado em ${formatarDataHoraAlmoxarifado(protocolo.data_criacao)}</small></div>
+            <div class="row mt-3"><div class="col-md-4"><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</div><div class="col-md-4"><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</div><div class="col-md-4"><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</div></div>
+            <p class="mb-1 mt-2"><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p>${protocolo.observacao ? `<p class="mb-1"><strong>Observação:</strong> ${escapeHtml(protocolo.observacao)}</p>` : ''}
+            <ul class="mb-3">${itens}</ul><div class="d-flex flex-wrap gap-2">${acoes}<button class="btn btn-sm btn-outline-secondary" onclick="imprimirProtocoloAlmoxarifado(${protocolo.id})">Imprimir protocolo</button></div>
+        </div></article>`;
+    }).join('');
+}
+
+function abrirEdicaoItensProtocoloAlmoxarifado(protocoloId) {
+    const protocolo = almoxarifadoProtocolosCache.find(item => Number(item.id) === Number(protocoloId));
+    if (!protocolo || protocolo.status !== 'solicitado') return;
+    almoxarifadoItensEdicaoProtocolo = (protocolo.itens || []).map(item => ({
+        item_id: Number(item.item_id), nome: item.nome, quantidade: Number(item.quantidade)
+    }));
+    document.getElementById('protocoloEditarItensAlmoxarifado').value = String(protocoloId);
+    document.getElementById('tituloEditarItensProtocoloAlmoxarifado').textContent = `Editar itens — Protocolo #${protocoloId}`;
+    renderizarItensEdicaoProtocoloAlmoxarifado();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalEditarItensProtocoloAlmoxarifado')).show();
+}
+
+function renderizarItensEdicaoProtocoloAlmoxarifado() {
+    const select = document.getElementById('itemEditarProtocoloAlmoxarifado');
+    select.innerHTML = '<option value="">Selecione um item...</option>' + almoxarifadoItensCache
+        .filter(item => !almoxarifadoItensEdicaoProtocolo.some(selecionado => selecionado.item_id === Number(item.id)))
+        .map(item => `<option value="${Number(item.id)}">${escapeHtml(item.nome)} (${Number(item.estoque_disponivel)} disponível(is))</option>`).join('');
+    const lista = document.getElementById('listaItensEdicaoProtocoloAlmoxarifado');
+    lista.innerHTML = almoxarifadoItensEdicaoProtocolo.length
+        ? almoxarifadoItensEdicaoProtocolo.map((item, indice) => `<div class="row g-2 align-items-center border-top py-2"><div class="col-md-7"><strong>${escapeHtml(item.nome)}</strong></div><div class="col-md-2"><input type="number" class="form-control quantidade-item-edicao-protocolo" data-item-id="${item.item_id}" min="1" step="1" value="${item.quantidade}" aria-label="Quantidade de ${escapeAttr(item.nome)}"></div><div class="col-md-3"><button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removerItemEdicaoProtocoloAlmoxarifado(${indice})">Remover</button></div></div>`).join('')
+        : '<div class="alert alert-warning mb-0">O protocolo precisa ter ao menos um item.</div>';
+}
+
+function sincronizarQuantidadesEdicaoProtocoloAlmoxarifado() {
+    document.querySelectorAll('.quantidade-item-edicao-protocolo').forEach(input => {
+        const item = almoxarifadoItensEdicaoProtocolo.find(registro => registro.item_id === Number(input.dataset.itemId));
+        if (item) item.quantidade = Number(input.value);
+    });
+}
+
+function adicionarItemEdicaoProtocoloAlmoxarifado() {
+    sincronizarQuantidadesEdicaoProtocoloAlmoxarifado();
+    const itemId = Number(document.getElementById('itemEditarProtocoloAlmoxarifado').value);
+    const quantidade = Number(document.getElementById('quantidadeEditarProtocoloAlmoxarifado').value);
+    const item = almoxarifadoItensCache.find(registro => Number(registro.id) === itemId);
+    if (!item || !Number.isInteger(quantidade) || quantidade <= 0) {
+        mostrarAlerta('alertaDirigentes', 'Selecione um item e informe uma quantidade válida', 'warning');
+        return;
+    }
+    almoxarifadoItensEdicaoProtocolo.push({ item_id: itemId, nome: item.nome, quantidade });
+    document.getElementById('quantidadeEditarProtocoloAlmoxarifado').value = '1';
+    renderizarItensEdicaoProtocoloAlmoxarifado();
+}
+
+function removerItemEdicaoProtocoloAlmoxarifado(indice) {
+    sincronizarQuantidadesEdicaoProtocoloAlmoxarifado();
+    almoxarifadoItensEdicaoProtocolo.splice(indice, 1);
+    renderizarItensEdicaoProtocoloAlmoxarifado();
+}
+
+async function salvarItensEdicaoProtocoloAlmoxarifado(evento) {
+    evento.preventDefault();
+    sincronizarQuantidadesEdicaoProtocoloAlmoxarifado();
+    if (!almoxarifadoItensEdicaoProtocolo.length || almoxarifadoItensEdicaoProtocolo.some(item => !Number.isInteger(item.quantidade) || item.quantidade <= 0)) {
+        mostrarAlerta('alertaDirigentes', 'Mantenha ao menos um item com quantidade válida', 'warning');
+        return;
+    }
+    const protocoloId = Number(document.getElementById('protocoloEditarItensAlmoxarifado').value);
+    const itens = almoxarifadoItensEdicaoProtocolo.map(({ item_id, quantidade }) => ({ item_id, quantidade }));
+    const sucesso = await executarAcaoAlmoxarifado(`/dirigentes/almoxarifado/protocolos/${protocoloId}/itens`, 'PUT', { itens });
+    if (sucesso) bootstrap.Modal.getInstance(document.getElementById('modalEditarItensProtocoloAlmoxarifado'))?.hide();
+}
+
+async function alterarStatusProtocoloAlmoxarifado(protocoloId, acao) {
+    if (acao === 'devolver') {
+        abrirDevolucaoAlmoxarifado(protocoloId);
+        return;
+    }
+    const textos = { entregar: 'registrar a entrega', devolver: 'registrar a devolução', cancelar: 'cancelar o protocolo' };
+    if (!confirm(`Deseja ${textos[acao]} #${protocoloId}?`)) return;
+    await executarAcaoAlmoxarifado(`/dirigentes/almoxarifado/protocolos/${protocoloId}/${acao}`, 'PUT', {});
+}
+
+function abrirDevolucaoAlmoxarifado(protocoloId) {
+    const protocolo = almoxarifadoProtocolosCache.find(item => Number(item.id) === Number(protocoloId));
+    if (!protocolo) return;
+    document.getElementById('protocoloDevolucaoAlmoxarifado').value = String(protocoloId);
+    document.getElementById('tituloDevolucaoAlmoxarifado').textContent = `Registrar devolução — Protocolo #${protocoloId}`;
+    const pendentes = (protocolo.itens || []).map(item => ({
+        ...item,
+        pendente: Number(item.quantidade) - Number(item.quantidade_devolvida || 0)
+    })).filter(item => item.pendente > 0);
+    document.getElementById('itensDevolucaoAlmoxarifado').innerHTML = pendentes.map(item => `
+        <div class="row g-2 align-items-center border-bottom py-2">
+            <div class="col-md-8"><strong>${escapeHtml(item.nome)}</strong><br><small class="text-muted">Pendente: ${item.pendente} ${escapeHtml(item.unidade)}</small></div>
+            <div class="col-md-4"><label class="form-label mb-1" for="devolucaoItem${Number(item.item_id)}">Quantidade devolvida agora</label><input type="number" class="form-control devolucao-item-quantidade" id="devolucaoItem${Number(item.item_id)}" data-item-id="${Number(item.item_id)}" min="0" max="${item.pendente}" step="1" value="0"></div>
+        </div>
+    `).join('');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalDevolucaoAlmoxarifado')).show();
+}
+
+async function confirmarDevolucaoAlmoxarifado(evento) {
+    evento.preventDefault();
+    const protocoloId = Number(document.getElementById('protocoloDevolucaoAlmoxarifado').value);
+    const itens = Array.from(document.querySelectorAll('.devolucao-item-quantidade')).map(input => ({
+        item_id: Number(input.dataset.itemId),
+        quantidade: Number(input.value)
+    })).filter(item => item.quantidade > 0);
+    if (!itens.length) {
+        mostrarAlerta('alertaDirigentes', 'Informe a quantidade recebida de ao menos um item', 'warning');
+        return;
+    }
+    const sucesso = await executarAcaoAlmoxarifado(`/dirigentes/almoxarifado/protocolos/${protocoloId}/devolver`, 'PUT', { itens });
+    if (sucesso) bootstrap.Modal.getInstance(document.getElementById('modalDevolucaoAlmoxarifado'))?.hide();
+}
+
+async function executarAcaoAlmoxarifado(caminho, metodo, dados, aoConcluir) {
+    try {
+        const response = await fetch(`${API_URL}${caminho}`, { method: metodo, headers: getHeaders(), body: JSON.stringify(dados) });
+        const resultado = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            mostrarAlerta('alertaDirigentes', resultado.erro || 'Não foi possível concluir a operação', 'danger');
+            return false;
+        }
+        aoConcluir?.();
+        mostrarAlerta('alertaDirigentes', resultado.mensagem || 'Operação concluída com sucesso', 'success');
+        await carregarAlmoxarifado();
+        return true;
+    } catch (err) {
+        console.error(err);
+        mostrarAlerta('alertaDirigentes', 'Erro de comunicação com o almoxarifado', 'danger');
+        return false;
+    }
+}
+
+function formatarDataHoraAlmoxarifado(valor) {
+    if (!valor) return '-';
+    const data = new Date(valor);
+    return Number.isNaN(data.getTime()) ? escapeHtml(valor) : data.toLocaleString('pt-BR');
+}
+
+function imprimirProtocoloAlmoxarifado(protocoloId) {
+    const protocolo = almoxarifadoProtocolosCache.find(item => Number(item.id) === Number(protocoloId));
+    if (!protocolo) return;
+    const itens = (protocolo.itens || []).map(item => `<tr><td>${escapeHtml(item.nome)}</td><td>${Number(item.quantidade)}</td><td>${escapeHtml(item.unidade)}</td></tr>`).join('');
+    const responsavelAlmoxarifado = protocolo.entregue_por_nome || 'Responsável pelo almoxarifado';
+    const janela = window.open('', '_blank', 'width=800,height=700');
+    if (!janela) return;
+    janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Protocolo #${protocolo.id}</title><style>body{font-family:Arial,sans-serif;margin:40px;color:#222}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #aaa;padding:8px;text-align:left}.assinaturas{display:flex;gap:50px;margin-top:70px}.assinatura{flex:1;border-top:1px solid #333;text-align:center;padding-top:6px}.funcao{display:block;font-size:12px;color:#555;margin-top:3px}@media print{button{display:none}}</style></head><body><h1>Protocolo de Almoxarifado #${protocolo.id}</h1><p><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</p><p><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</p><p><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p><p><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</p><table><thead><tr><th>Item</th><th>Quantidade</th><th>Unidade</th></tr></thead><tbody>${itens}</tbody></table><p><strong>Observação:</strong> ${escapeHtml(protocolo.observacao || '-')}</p><div class="assinaturas"><div class="assinatura">${escapeHtml(responsavelAlmoxarifado)}<span class="funcao">Responsável pela liberação dos itens</span></div><div class="assinatura">${escapeHtml(protocolo.solicitante)}<span class="funcao">Solicitante</span></div></div><button onclick="window.print()">Imprimir</button></body></html>`);
+    janela.document.close();
 }

@@ -9,18 +9,111 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico, normalizarTelefoneCelular, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
-const { normalizarFotoPerfil } = require('../utils/foto');
+const { processarFotoPerfil } = require('../utils/foto');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 const { criarNotificacoesParaUsuarios } = require('../utils/notificacoes');
 
 const router = express.Router();
+const TAXAS_POR_MOVIMENTO = {
+  EC: 25,
+  EJC: 25,
+  ECC: 35,
+  'JOVENS EJC CASADOS': 35,
+  ECRI: 15
+};
 const MOTIVOS_IMPEDIMENTO_SERVIR = [
   'Separação do casal',
   'Não faz parte dos movimentos',
   'Não tem casamento na Igreja',
   'Outros'
 ];
+
+function obterTokenRequisicao(req) {
+  return req.headers.authorization?.split(' ')[1] || '';
+}
+
+function montarUrlFotoPerfil(req, tipo, id, temFoto) {
+  if (!temFoto) return '';
+  const token = encodeURIComponent(obterTokenRequisicao(req));
+  return `/api/fotos/${tipo}/${Number(id)}?token=${token}`;
+}
+
+function trocarFotoPorUrl(req, tipo) {
+  return (item) => {
+    const temFoto = Number(item.tem_foto_perfil || 0) > 0;
+    const { tem_foto_perfil, ...restante } = item;
+    return {
+      ...restante,
+      foto_perfil: montarUrlFotoPerfil(req, tipo, item.id, temFoto)
+    };
+  };
+}
+
+async function sincronizarBlusasComPagamentosOnline() {
+  await database.run(
+    `UPDATE solicitacoes_blusa AS sb
+     SET status = 'pendente',
+     data_confirmacao = NULL,
+     forma_pagamento = NULL,
+     confirmado_por = NULL
+     WHERE sb.status = 'confirmado'
+       AND sb.confirmado_por IS NULL
+       AND sb.forma_pagamento IN ('pix', 'cartao_credito')
+       AND EXISTS (
+         SELECT 1
+         FROM pagamentos p
+         WHERE p.id = (
+           SELECT p2.id
+           FROM pagamentos p2
+           WHERE p2.usuario_id = sb.usuario_id
+             AND p2.tipo = 'blusa'
+             AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+             AND p2.data_solicitacao >= sb.data_solicitacao
+           ORDER BY p2.data_solicitacao DESC, p2.id DESC
+           LIMIT 1
+         )
+           AND p.status IN ('ressarcido', 'estornado')
+       )`
+  );
+
+  await database.run(
+    `UPDATE solicitacoes_blusa AS sb
+     SET status = 'confirmado',
+         data_confirmacao = CURRENT_TIMESTAMP,
+         forma_pagamento = (
+           SELECT p.forma_pagamento
+           FROM pagamentos p
+           WHERE p.id = (
+             SELECT p2.id
+             FROM pagamentos p2
+             WHERE p2.usuario_id = sb.usuario_id
+               AND p2.tipo = 'blusa'
+               AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+               AND p2.data_solicitacao >= sb.data_solicitacao
+             ORDER BY p2.data_solicitacao DESC, p2.id DESC
+             LIMIT 1
+           )
+         ),
+         confirmado_por = NULL
+     WHERE sb.status = 'pendente'
+       AND EXISTS (
+         SELECT 1
+         FROM pagamentos p
+         WHERE p.id = (
+           SELECT p2.id
+           FROM pagamentos p2
+           WHERE p2.usuario_id = sb.usuario_id
+             AND p2.tipo = 'blusa'
+             AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
+             AND p2.data_solicitacao >= sb.data_solicitacao
+           ORDER BY p2.data_solicitacao DESC, p2.id DESC
+           LIMIT 1
+         )
+           AND p.status = 'confirmado'
+       )`
+  );
+}
 
 async function obterUsuariosRelacionadosParaExclusao(usuario) {
   const cpf = usuario?.cpf || '__cpf_inexistente__';
@@ -86,19 +179,180 @@ function montarAssinaturasUsuarioExclusao(usuario) {
 function montarAssinaturasExcluidos(registros) {
   const assinaturas = new Set();
   for (const registro of registros || []) {
-    let dados = {};
-    try {
-      dados = JSON.parse(registro.dados || '{}');
-    } catch (err) {
-      dados = {};
-    }
-
-    montarAssinaturasUsuarioExclusao({
-      ...dados,
-      id: registro.usuario_id || dados.id
-    }).forEach(assinatura => assinaturas.add(assinatura));
+    const idExcluido = Number(registro.usuario_id || 0);
+    if (idExcluido) assinaturas.add(`id:${idExcluido}`);
   }
   return assinaturas;
+}
+
+function tentarParseJson(valor, fallback = {}) {
+  try {
+    return JSON.parse(valor || '{}');
+  } catch (err) {
+    return fallback;
+  }
+}
+
+function placeholders(lista) {
+  return lista.map(() => '?').join(', ');
+}
+
+async function obterNomesUsuariosPorId(ids) {
+  const idsUnicos = [...new Set((ids || []).map(Number).filter(Boolean))];
+  if (!idsUnicos.length) return new Map();
+
+  const usuarios = await database.all(
+    `SELECT id, nome_completo FROM usuarios WHERE id IN (${placeholders(idsUnicos)})`,
+    idsUnicos
+  );
+
+  return new Map(usuarios.map(usuario => [Number(usuario.id), usuario.nome_completo || '']));
+}
+
+const ACOES_INCLUSAO_USUARIO = new Set([
+  'usuario_registrado',
+  'dirigente_criado_desenvolvimento',
+  'participacao_confirmada'
+]);
+
+const ACOES_EDICAO_USUARIO = new Set([
+  'perfil_editado_pela_dirigente',
+  'perfil_editado_pela_area_exclusiva',
+  'perfil_atualizado'
+]);
+
+function obterAtorHistorico(historico, detalhes, usarProprioUsuario = false) {
+  const chaves = ['editado_por', 'alterado_por', 'incluido_por', 'criado_por', 'registrado_por', 'confirmado_por'];
+  for (const chave of chaves) {
+    const valor = detalhes[chave];
+    if (valor !== undefined && valor !== null && valor !== '') {
+      const id = Number(valor);
+      return id ? { id, nome: '' } : { id: null, nome: String(valor) };
+    }
+  }
+  return usarProprioUsuario
+    ? { id: Number(historico.usuario_id) || null, nome: '' }
+    : { id: null, nome: '' };
+}
+
+async function obterAuditoriaCadastroUsuarios(usuarioIds) {
+  const ids = [...new Set((usuarioIds || []).map(Number).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const historicos = await database.all(
+    `SELECT id, usuario_id, acao, detalhes, data_acao
+     FROM historico
+     WHERE usuario_id IN (${placeholders(ids)})
+     ORDER BY data_acao ASC, id ASC`,
+    ids
+  );
+  const auditoria = new Map();
+  const idsAtores = [];
+
+  for (const historico of historicos) {
+    const usuarioId = Number(historico.usuario_id);
+    if (!usuarioId) continue;
+    const info = auditoria.get(usuarioId) || {};
+    const detalhes = tentarParseJson(historico.detalhes);
+
+    if (ACOES_INCLUSAO_USUARIO.has(historico.acao) && !info.incluido_por_data) {
+      const ator = obterAtorHistorico(
+        historico,
+        detalhes,
+        historico.acao === 'usuario_registrado' || historico.acao === 'participacao_confirmada'
+      );
+      info.incluido_por_id = ator.id;
+      info.incluido_por_nome = ator.nome;
+      info.incluido_por_data = historico.data_acao || '';
+      if (ator.id) idsAtores.push(ator.id);
+    }
+
+    if (ACOES_EDICAO_USUARIO.has(historico.acao)) {
+      const ator = obterAtorHistorico(historico, detalhes, historico.acao === 'perfil_atualizado');
+      info.ultima_edicao_por_id = ator.id;
+      info.ultima_edicao_por_nome = ator.nome;
+      info.ultima_edicao_data = historico.data_acao || '';
+      if (ator.id) idsAtores.push(ator.id);
+    }
+    auditoria.set(usuarioId, info);
+  }
+
+  const nomes = await obterNomesUsuariosPorId(idsAtores);
+  auditoria.forEach((info) => {
+    if (info.incluido_por_id) info.incluido_por_nome = nomes.get(Number(info.incluido_por_id)) || info.incluido_por_nome || '';
+    if (info.ultima_edicao_por_id) info.ultima_edicao_por_nome = nomes.get(Number(info.ultima_edicao_por_id)) || info.ultima_edicao_por_nome || '';
+  });
+  return auditoria;
+}
+
+async function obterAuditoriaEscalasUsuarios(usuarioIds) {
+  const ids = [...new Set((usuarioIds || []).map(Number).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const historicos = await database.all(
+    `SELECT usuario_id, detalhes, data_acao
+     FROM historico
+     WHERE acao = 'equipe_alterada'
+       AND usuario_id IN (${placeholders(ids)})
+     ORDER BY data_acao DESC, id DESC`,
+    ids
+  );
+  const actorIds = [];
+  const auditoria = new Map();
+
+  for (const historico of historicos) {
+    const usuarioId = Number(historico.usuario_id);
+    if (!usuarioId || auditoria.has(usuarioId)) continue;
+
+    const detalhes = tentarParseJson(historico.detalhes);
+    const alteradoPor = Number(detalhes.alterado_por);
+    auditoria.set(usuarioId, {
+      adicionado_por_id: alteradoPor || null,
+      adicionado_por_data: historico.data_acao || ''
+    });
+    if (alteradoPor) actorIds.push(alteradoPor);
+  }
+
+  const nomes = await obterNomesUsuariosPorId(actorIds);
+  auditoria.forEach((info) => {
+    info.adicionado_por_nome = nomes.get(Number(info.adicionado_por_id)) || '';
+  });
+
+  return auditoria;
+}
+
+async function obterAuditoriaEscalasPessoasExternas(pessoaIds) {
+  const ids = new Set((pessoaIds || []).map(Number).filter(Boolean));
+  if (!ids.size) return new Map();
+
+  const historicos = await database.all(
+    `SELECT h.usuario_id, h.detalhes, h.data_acao, u.nome_completo AS adicionado_por_nome
+     FROM historico h
+     LEFT JOIN usuarios u ON u.id = h.usuario_id
+     WHERE h.acao IN ('pessoa_sem_cadastro_escalada', 'pessoa_sem_cadastro_adicionada', 'pessoa_sem_cadastro_editada')
+     ORDER BY h.data_acao DESC, h.id DESC`
+  );
+  const auditoria = new Map();
+
+  for (const historico of historicos) {
+    const detalhes = tentarParseJson(historico.detalhes);
+    const pessoaId = Number(detalhes.pessoa_id);
+    if (!ids.has(pessoaId)) continue;
+
+    const info = auditoria.get(pessoaId) || {};
+    if (historico.acao === 'pessoa_sem_cadastro_editada' && !info.ultima_edicao_data) {
+      info.ultima_edicao_por_id = Number(historico.usuario_id) || null;
+      info.ultima_edicao_por_nome = historico.adicionado_por_nome || '';
+      info.ultima_edicao_data = historico.data_acao || '';
+    } else if (!info.adicionado_por_data) {
+      info.adicionado_por_id = Number(historico.usuario_id) || null;
+      info.adicionado_por_nome = historico.adicionado_por_nome || '';
+      info.adicionado_por_data = historico.data_acao || '';
+    }
+    auditoria.set(pessoaId, info);
+  }
+
+  return auditoria;
 }
 
 // Obter dados do próprio perfil
@@ -136,7 +390,7 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
     const anoEncontro = normalizarAnoEncontro(ano_encontro);
     const paroquiaNormalizada = normalizarParoquia(paroquia);
 
-    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    const fotoValidada = await processarFotoPerfil(foto_perfil, { prefixo: 'usuarios' });
     if (fotoValidada.erro) {
       return res.status(400).json({ erro: fotoValidada.erro });
     }
@@ -276,12 +530,29 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
   try {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, pessoa_impedida_servir, pessoa_impedida_motivos,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       ORDER BY data_cadastro DESC
     `);
-    res.json(usuarios);
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
+    const usuariosAtivos = usuarios.filter(usuario => {
+      const assinaturasUsuario = montarAssinaturasUsuarioExclusao(usuario);
+      return !assinaturasUsuario.some(assinatura => assinaturasExcluidas.has(assinatura));
+    });
+    const auditoriaEscalas = await obterAuditoriaEscalasUsuarios(usuariosAtivos.map(usuario => usuario.id));
+    const auditoriaCadastros = await obterAuditoriaCadastroUsuarios(usuariosAtivos.map(usuario => usuario.id));
+    const usuariosComAuditoria = usuariosAtivos
+      .map(trocarFotoPorUrl(req, 'usuario'))
+      .map(usuario => ({
+        ...usuario,
+        ...(auditoriaCadastros.get(Number(usuario.id)) || {}),
+        ...(auditoriaEscalas.get(Number(usuario.id)) || {})
+      }));
+
+    res.json(usuariosComAuditoria);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter usuários' });
@@ -297,7 +568,7 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
 
     const usuario = await database.get(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
@@ -307,7 +578,17 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
       return res.status(404).json({ erro: 'Usuário não encontrado' });
     }
 
-    res.json(usuario);
+    const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
+    const assinaturasExcluidas = montarAssinaturasExcluidos(excluidos);
+    const usuarioExcluido = montarAssinaturasUsuarioExclusao(usuario)
+      .some(assinatura => assinaturasExcluidas.has(assinatura));
+
+    if (usuarioExcluido) {
+      return res.status(404).json({ erro: 'Usuário não encontrado' });
+    }
+
+    const auditoria = await obterAuditoriaCadastroUsuarios([usuario.id]);
+    res.json({ ...usuario, ...(auditoria.get(Number(usuario.id)) || {}) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter usuário' });
@@ -433,7 +714,7 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
 
     const usuarioAtualizado = await database.get(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
@@ -591,7 +872,9 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
     }
 
     const usuarios = await database.all(`
-      SELECT id, cpf, nome_completo, nome_cracha, email, telefone, foto_perfil, perfil, status, equipe,
+      SELECT id, cpf, nome_completo, nome_cracha, email, telefone,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             perfil, status, equipe,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'presente'), 0) AS total_presencas,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta'), 0) AS total_faltas
@@ -601,8 +884,10 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
     `, [equipe]);
     const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
     const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
-    const usuariosAtivos = usuarios.filter(usuario => !montarAssinaturasUsuarioExclusao(usuario)
-      .some(assinatura => assinaturasExcluidos.has(assinatura)));
+    const usuariosAtivos = usuarios
+      .filter(usuario => !montarAssinaturasUsuarioExclusao(usuario)
+        .some(assinatura => assinaturasExcluidos.has(assinatura)))
+      .map(trocarFotoPorUrl(req, 'usuario'));
 
     res.json({ equipe, usuarios: usuariosAtivos });
   } catch (err) {
@@ -614,12 +899,26 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
 router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const pessoas = await database.all(`
-      SELECT id, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro, foto_perfil, status, equipe, data_cadastro
+      SELECT id, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro, observacao,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, evento_id,
+             pessoa_impedida_servir, pessoa_impedida_motivos, data_cadastro, criado_por
       FROM pessoas_externas
       ORDER BY data_cadastro DESC
     `);
+    const auditoriaEscalas = await obterAuditoriaEscalasPessoasExternas(pessoas.map(pessoa => pessoa.id));
+    const criadores = await obterNomesUsuariosPorId(pessoas.map(pessoa => pessoa.criado_por));
+    const pessoasComAuditoria = pessoas.map(trocarFotoPorUrl(req, 'externo')).map(pessoa => {
+      const auditoria = auditoriaEscalas.get(Number(pessoa.id));
+      return {
+        ...pessoa,
+        adicionado_por_id: auditoria?.adicionado_por_id || pessoa.criado_por || null,
+        adicionado_por_nome: auditoria?.adicionado_por_nome || criadores.get(Number(pessoa.criado_por)) || '',
+        adicionado_por_data: auditoria?.adicionado_por_data || pessoa.data_cadastro || ''
+      };
+    });
 
-    res.json(pessoas);
+    res.json(pessoasComAuditoria);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter pessoas sem cadastro' });
@@ -628,7 +927,7 @@ router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigen
 
 router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
-    const { nome_completo, telefone, movimento_origem, ano_encontro, equipe, foto_perfil } = req.body;
+    const { nome_completo, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, observacao } = req.body;
 
     if (!nome_completo || !telefone || !movimento_origem || !equipe) {
       return res.status(400).json({ erro: 'Nome, telefone, movimento e equipe são obrigatórios' });
@@ -655,15 +954,15 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
 
-    const fotoValidada = normalizarFotoPerfil(foto_perfil);
+    const fotoValidada = await processarFotoPerfil(foto_perfil, { prefixo: 'externos' });
     if (fotoValidada.erro) {
       return res.status(400).json({ erro: fotoValidada.erro });
     }
     const fotoPerfil = fotoValidada.fotoPerfil;
 
     const resultado = await database.run(
-      `INSERT INTO pessoas_externas (nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, criado_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pessoas_externas (nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, criado_por, observacao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(nome_completo).trim().toUpperCase(),
         String(nome_completo).trim().toUpperCase(),
@@ -672,7 +971,8 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
         anoEncontroNormalizado,
         equipeNormalizada,
         fotoPerfil,
-        req.usuario.id
+        req.usuario.id,
+        String(observacao || '').trim()
       ]
     );
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_adicionada', {
@@ -737,7 +1037,7 @@ async function registrarPessoaExternaExcluida(pessoa, excluidoPor, origem) {
 router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const pessoa_id = Number(req.params.pessoa_id);
-    const { nome_completo, telefone, movimento_origem } = req.body;
+    const { nome_completo, telefone, movimento_origem, observacao } = req.body;
 
     if (!pessoa_id) {
       return res.status(400).json({ erro: 'Pessoa inválida' });
@@ -769,9 +1069,17 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
     const statusFinal = pessoa.status === 'contato_errado' ? 'pendente' : pessoa.status;
     await database.run(
       `UPDATE pessoas_externas
-       SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?, status = COALESCE(?, status)
+       SET nome_completo = ?, nome_cracha = ?, telefone = ?, movimento_origem = ?, observacao = COALESCE(?, observacao), status = COALESCE(?, status)
        WHERE id = ?`,
-      [nomeNormalizado, nomeNormalizado, telefoneNormalizado, movimentoOrigem, statusFinal, pessoa_id]
+      [
+        nomeNormalizado,
+        nomeNormalizado,
+        telefoneNormalizado,
+        movimentoOrigem,
+        Object.prototype.hasOwnProperty.call(req.body, 'observacao') ? String(observacao || '').trim() : null,
+        statusFinal,
+        pessoa_id
+      ]
     );
 
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_editada', {
@@ -787,10 +1095,99 @@ router.put('/pessoas-externas/:pessoa_id', verificarToken, verificarPerfil(['equ
   }
 });
 
+router.put('/pessoas-externas/:pessoa_id/perfil-coordenador', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const pessoa_id = Number(req.params.pessoa_id);
+    const coordenador = Boolean(req.body?.coordenador);
+    const novoPerfil = coordenador ? 'coordenador' : 'sem_cadastro';
+
+    if (!pessoa_id) {
+      return res.status(400).json({ erro: 'Pessoa inválida' });
+    }
+
+    const pessoa = await database.get('SELECT id FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    await database.run(
+      'UPDATE pessoas_externas SET perfil = ? WHERE id = ?',
+      [novoPerfil, pessoa_id]
+    );
+
+    await registrarHistorico(req.usuario.id, 'perfil_pessoa_sem_cadastro_alterado', {
+      pessoa_id,
+      novo_perfil: novoPerfil
+    });
+
+    res.json({
+      mensagem: coordenador ? 'Pessoa marcada como coordenadora' : 'Pessoa removida como coordenadora',
+      perfil: novoPerfil
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar perfil da pessoa sem cadastro' });
+  }
+});
+
+router.put('/pessoas-externas/:pessoa_id/impedimento-servir', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const pessoa_id = Number(req.params.pessoa_id);
+    const pessoaImpedidaServir = req.body.pessoa_impedida_servir ? 1 : 0;
+    const motivos = pessoaImpedidaServir
+      ? normalizarMotivosImpedimentoServir(req.body.motivos_impedimento_servir, req.body.outro_motivo_impedimento_servir)
+      : null;
+
+    if (!pessoa_id) {
+      return res.status(400).json({ erro: 'Pessoa inválida' });
+    }
+
+    if (pessoaImpedidaServir && motivos.erro) {
+      return res.status(400).json({ erro: motivos.erro });
+    }
+
+    if (!pessoaImpedidaServir) {
+      return res.status(403).json({ erro: 'Somente a área exclusiva pode desmarcar este impedimento' });
+    }
+
+    const pessoa = await database.get('SELECT id FROM pessoas_externas WHERE id = ?', [pessoa_id]);
+    if (!pessoa) {
+      return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+    }
+
+    const responsavel = await database.get('SELECT nome_completo, email FROM usuarios WHERE id = ?', [req.usuario.id]);
+    const motivosComResponsavel = {
+      ...motivos.dados,
+      cadastrado_por_id: req.usuario.id,
+      cadastrado_por_nome: responsavel?.nome_completo || responsavel?.email || `Usuario ID ${req.usuario.id}`
+    };
+
+    await database.run(
+      'UPDATE pessoas_externas SET pessoa_impedida_servir = ?, pessoa_impedida_motivos = ? WHERE id = ?',
+      [pessoaImpedidaServir, JSON.stringify(motivosComResponsavel), pessoa_id]
+    );
+
+    await registrarHistorico(req.usuario.id, 'impedimento_servir_pessoa_sem_cadastro_atualizado', {
+      pessoa_id,
+      pessoa_impedida_servir: Boolean(pessoaImpedidaServir),
+      pessoa_impedida_motivos: motivosComResponsavel
+    });
+
+    res.json({
+      mensagem: 'Informação atualizada com sucesso',
+      pessoa_impedida_servir: pessoaImpedidaServir,
+      pessoa_impedida_motivos: JSON.stringify(motivosComResponsavel)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar impedimento para servir' });
+  }
+});
+
 router.put('/pessoas-externas/:pessoa_id/equipe', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const pessoa_id = Number(req.params.pessoa_id);
-    const { equipe } = req.body;
+    const { equipe, evento_id } = req.body;
 
     if (!pessoa_id) {
       return res.status(400).json({ erro: 'Pessoa inválida' });
@@ -798,6 +1195,16 @@ router.put('/pessoas-externas/:pessoa_id/equipe', verificarToken, verificarPerfi
 
     if (!equipe) {
       return res.status(400).json({ erro: 'Equipe é obrigatória' });
+    }
+
+    const eventoId = Number(evento_id);
+    if (!eventoId) {
+      return res.status(400).json({ erro: 'Informe o evento antes de escalar para equipe' });
+    }
+
+    const evento = await database.get('SELECT id FROM eventos WHERE id = ?', [eventoId]);
+    if (!evento) {
+      return res.status(400).json({ erro: 'Evento inválido' });
     }
 
     const equipeNormalizada = normalizarEquipe(equipe);
@@ -811,13 +1218,14 @@ router.put('/pessoas-externas/:pessoa_id/equipe', verificarToken, verificarPerfi
     }
 
     await database.run(
-      'UPDATE pessoas_externas SET equipe = ? WHERE id = ?',
-      [equipeNormalizada, pessoa_id]
+      'UPDATE pessoas_externas SET equipe = ?, evento_id = ? WHERE id = ?',
+      [equipeNormalizada, eventoId, pessoa_id]
     );
 
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_escalada', {
       pessoa_id,
-      equipe: equipeNormalizada
+      equipe: equipeNormalizada,
+      evento_id: eventoId
     });
 
     res.json({ mensagem: 'Pessoa sem cadastro escalada para equipe' });
@@ -830,7 +1238,7 @@ router.put('/pessoas-externas/:pessoa_id/equipe', verificarToken, verificarPerfi
 router.get('/eventos', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const eventos = await database.all(`
-      SELECT e.id, e.nome, e.descricao, e.data_evento, e.local, e.data_criacao,
+      SELECT e.id, e.nome, e.descricao, e.data_evento, e.data_termino, e.local, e.data_criacao,
              u.nome_completo AS criado_por_nome
       FROM eventos e
       JOIN usuarios u ON e.criado_por = u.id
@@ -859,16 +1267,20 @@ router.get('/eventos', verificarToken, verificarPerfil(['equipe_dirigente']), as
 
 router.post('/eventos', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
-    const { nome, descricao, data_evento, local } = req.body;
+    const { nome, data_evento, data_termino } = req.body;
 
-    if (!nome || !data_evento) {
-      return res.status(400).json({ erro: 'Nome e data do evento sao obrigatorios' });
+    if (!nome || !data_evento || !data_termino) {
+      return res.status(400).json({ erro: 'Nome, data e data de termino do evento sao obrigatorios' });
+    }
+
+    if (String(data_termino) < String(data_evento)) {
+      return res.status(400).json({ erro: 'A data de termino nao pode ser anterior a data do evento' });
     }
 
     const resultado = await database.run(
-      `INSERT INTO eventos (nome, descricao, data_evento, local, criado_por)
-       VALUES (?, ?, ?, ?, ?)`,
-      [nome, descricao || '', data_evento, local || '', req.usuario.id]
+      `INSERT INTO eventos (nome, descricao, data_evento, data_termino, local, criado_por)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [nome, '', data_evento, data_termino, '', req.usuario.id]
     );
 
     res.status(201).json({ mensagem: 'Evento criado com sucesso', evento_id: resultado.lastID });
@@ -1004,10 +1416,20 @@ router.put('/escalar-dirigente/:usuario_id', verificarToken, verificarPerfil(['e
 router.put('/escalar-equipe/:usuario_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuario_id = req.params.usuario_id;
-    const { equipe } = req.body;
+    const { equipe, evento_id } = req.body;
 
     if (!equipe) {
       return res.status(400).json({ erro: 'Equipe é obrigatória' });
+    }
+
+    const eventoId = Number(evento_id);
+    if (!eventoId) {
+      return res.status(400).json({ erro: 'Informe o evento antes de escalar para equipe' });
+    }
+
+    const evento = await database.get('SELECT id FROM eventos WHERE id = ?', [eventoId]);
+    if (!evento) {
+      return res.status(400).json({ erro: 'Evento inválido' });
     }
 
     const equipeNormalizada = normalizarEquipe(equipe);
@@ -1019,11 +1441,12 @@ router.put('/escalar-equipe/:usuario_id', verificarToken, verificarPerfil(['equi
     const statusFinal = statusAtual?.status || 'pendente';
 
     await database.run(
-      `UPDATE usuarios SET equipe = ?, status = ? WHERE id = ?`,
-      [equipeNormalizada, statusFinal, usuario_id]
+      `UPDATE usuarios SET equipe = ?, status = ?, evento_id = ? WHERE id = ?`,
+      [equipeNormalizada, statusFinal, eventoId, usuario_id]
     );
     await registrarHistorico(usuario_id, 'equipe_alterada', {
       equipe: equipeNormalizada,
+      evento_id: eventoId,
       alterado_por: req.usuario.id
     });
 
@@ -1075,6 +1498,10 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
     const usuarios = await database.all(`
       SELECT id, cpf, nome_completo, email, telefone, perfil, status, equipe, movimento_origem FROM usuarios
     `);
+    const pessoasExternas = await database.all(`
+      SELECT id, nome_completo, telefone, COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, movimento_origem
+      FROM pessoas_externas
+    `);
     const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
     const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
     const usuariosAtivos = usuarios.filter(u => {
@@ -1082,8 +1509,20 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
         .some(assinatura => assinaturasExcluidos.has(assinatura));
       return !usuarioExcluido && u.equipe && !equipeSemEquipe(u.equipe);
     });
-    const usuariosEscalados = usuariosAtivos;
-    const equipesResumo = Object.values(usuariosEscalados.reduce((acc, usuario) => {
+    const pessoasExternasAtivas = pessoasExternas
+      .filter(pessoa => pessoa.equipe && !equipeSemEquipe(pessoa.equipe))
+      .map(pessoa => ({
+        ...pessoa,
+        cpf: '',
+        email: '',
+        perfil: pessoa.perfil || 'sem_cadastro',
+        origem_cadastro: 'externo'
+      }));
+    const pessoasEscaladas = [
+      ...usuariosAtivos.map(usuario => ({ ...usuario, origem_cadastro: 'usuario' })),
+      ...pessoasExternasAtivas
+    ];
+    const equipesResumo = Object.values(pessoasEscaladas.reduce((acc, usuario) => {
       const equipe = usuario.equipe;
 
       if (!acc[equipe]) {
@@ -1123,17 +1562,17 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
     }, {})).sort((a, b) => a.equipe.localeCompare(b.equipe, 'pt-BR'));
 
     const stats = {
-      totalUsuarios: usuariosAtivos.length,
+      totalUsuarios: pessoasEscaladas.length,
       equipistas: usuariosAtivos.filter(u => u.perfil === 'equipista').length,
       coordenadores: usuariosAtivos.filter(u => u.perfil === 'coordenador').length,
       dirigentes: usuariosAtivos.filter(u => u.perfil === 'equipe_dirigente').length,
-      confirmados: usuariosAtivos.filter(u => u.status === 'confirmado').length,
-      pendentes: usuariosAtivos.filter(u => u.status === 'pendente').length,
-      totalEscaladosEquipes: usuariosEscalados.length,
+      confirmados: pessoasEscaladas.filter(u => u.status === 'confirmado').length,
+      pendentes: pessoasEscaladas.filter(u => u.status === 'pendente').length,
+      totalEscaladosEquipes: pessoasEscaladas.length,
       totalPonderadoEquipes: equipesResumo.reduce((total, equipe) => total + equipe.totalPonderado, 0)
     };
 
-    res.json({ stats, usuarios: usuariosAtivos, equipesResumo });
+    res.json({ stats, usuarios: pessoasEscaladas, equipesResumo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar relatório' });
@@ -1143,33 +1582,104 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
 // Visualizar situação de pagamentos e blusas
 router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
+    await sincronizarBlusasComPagamentosOnline();
+
     const pagamentos = await database.all(`
-      SELECT p.id, p.tipo, p.valor, p.status, p.data_solicitacao,
-             u.nome_completo, u.email, u.foto_perfil
-      FROM pagamentos p
-      JOIN usuarios u ON p.usuario_id = u.id
+      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.equipe, u.movimento_origem,
+             CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             p.id AS pagamento_id, p.tipo, p.valor, p.status, p.data_solicitacao,
+             p.data_confirmacao, p.forma_pagamento
+      FROM usuarios u
+      LEFT JOIN pagamentos p ON p.id = (
+        SELECT p2.id
+        FROM pagamentos p2
+        WHERE p2.usuario_id = u.id AND p2.tipo = 'taxa'
+        ORDER BY CASE WHEN p2.status = 'confirmado' THEN 0 WHEN p2.status = 'pendente' THEN 1 ELSE 2 END,
+                 p2.data_solicitacao DESC,
+                 p2.id DESC
+        LIMIT 1
+      )
       WHERE u.equipe IS NOT NULL AND UPPER(u.equipe) <> 'SEM EQUIPE'
-        AND NOT (p.tipo = 'taxa' AND u.perfil = 'equipe_dirigente')
-      ORDER BY p.data_solicitacao DESC
+        AND u.status = 'confirmado'
+        AND u.perfil <> 'equipe_dirigente'
+      ORDER BY u.equipe ASC, u.nome_completo ASC
     `);
 
     const blusas = await database.all(`
-      SELECT sb.id, sb.tamanho, sb.status, sb.data_solicitacao,
-             u.nome_completo, u.email, u.foto_perfil
-      FROM solicitacoes_blusa sb
-      JOIN usuarios u ON sb.usuario_id = u.id
+      SELECT u.id AS usuario_id, u.nome_completo, u.email, u.equipe,
+             CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             sb.id AS solicitacao_id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao,
+             sb.data_confirmacao, sb.forma_pagamento,
+             confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha
+      FROM usuarios u
+      LEFT JOIN solicitacoes_blusa sb ON sb.usuario_id = u.id
+      LEFT JOIN usuarios confirmador ON confirmador.id = sb.confirmado_por
       WHERE u.equipe IS NOT NULL AND UPPER(u.equipe) <> 'SEM EQUIPE'
-      ORDER BY sb.data_solicitacao DESC
+        AND u.status = 'confirmado'
+      ORDER BY u.equipe ASC, u.nome_completo ASC, sb.data_solicitacao DESC
     `);
 
+    const pagamentosComFotoUrl = pagamentos.map((pagamento) => ({
+      ...pagamento,
+      id: pagamento.pagamento_id,
+      tipo: pagamento.tipo || 'taxa',
+      valor: Number(pagamento.valor || TAXAS_POR_MOVIMENTO[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
+      status: pagamento.status || 'pendente',
+      foto_perfil: montarUrlFotoPerfil(req, 'usuario', pagamento.usuario_id, pagamento.tem_foto_perfil)
+    }));
+    const blusasComFotoUrl = blusas.map((blusa) => ({
+      ...blusa,
+      id: blusa.solicitacao_id,
+      status: blusa.solicitacao_id ? blusa.status : 'sem_solicitacao',
+      foto_perfil: montarUrlFotoPerfil(req, 'usuario', blusa.usuario_id, blusa.tem_foto_perfil)
+    }));
+
+    const equipesMap = new Map();
+    function obterEquipeSituacao(equipe) {
+      if (!equipesMap.has(equipe)) {
+        equipesMap.set(equipe, {
+          equipe,
+          taxas: [],
+          camisas: []
+        });
+      }
+      return equipesMap.get(equipe);
+    }
+
+    pagamentosComFotoUrl.forEach((pagamento) => {
+      obterEquipeSituacao(pagamento.equipe).taxas.push(pagamento);
+    });
+
+    blusasComFotoUrl.forEach((blusa) => {
+      obterEquipeSituacao(blusa.equipe).camisas.push(blusa);
+    });
+
+    const equipesSituacao = Array.from(equipesMap.values())
+      .map((equipe) => ({
+        ...equipe,
+        resumoTaxas: {
+          total: equipe.taxas.length,
+          pendentes: equipe.taxas.filter(item => item.status === 'pendente').length,
+          confirmadas: equipe.taxas.filter(item => item.status === 'confirmado').length
+        },
+        resumoCamisas: {
+          total: equipe.camisas.length,
+          pendentes: equipe.camisas.filter(item => item.status === 'pendente').length,
+          confirmadas: equipe.camisas.filter(item => item.status === 'confirmado').length,
+          semSolicitacao: equipe.camisas.filter(item => item.status === 'sem_solicitacao').length
+        }
+      }))
+      .sort((a, b) => a.equipe.localeCompare(b.equipe, 'pt-BR'));
+
     const stats = {
-      pagamentosPendentes: pagamentos.filter(p => p.status === 'pendente').length,
-      pagamentosConfirmados: pagamentos.filter(p => p.status === 'confirmado').length,
-      blusasPendentes: blusas.filter(b => b.status === 'pendente').length,
-      blusasConfirmadas: blusas.filter(b => b.status === 'confirmado').length
+      pagamentosPendentes: pagamentosComFotoUrl.filter(p => p.status === 'pendente').length,
+      pagamentosConfirmados: pagamentosComFotoUrl.filter(p => p.status === 'confirmado').length,
+      blusasPendentes: blusasComFotoUrl.filter(b => b.status === 'pendente').length,
+      blusasConfirmadas: blusasComFotoUrl.filter(b => b.status === 'confirmado').length,
+      blusasSemSolicitacao: blusasComFotoUrl.filter(b => b.status === 'sem_solicitacao').length
     };
 
-    res.json({ stats, pagamentos, blusas });
+    res.json({ stats, pagamentos: pagamentosComFotoUrl, blusas: blusasComFotoUrl, equipes: equipesSituacao });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter situação' });
@@ -1200,6 +1710,348 @@ router.get('/reunioes-proximos-dias', verificarToken, verificarPerfil(['equipe_d
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter reuniões' });
+  }
+});
+
+// Controle de almoxarifado
+router.get('/almoxarifado/itens', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const itens = await database.all(`
+      SELECT id, nome, categoria, unidade, estoque_total, estoque_disponivel,
+             estoque_minimo, observacao, ativo, data_criacao, data_atualizacao
+      FROM almoxarifado_itens
+      WHERE ativo = 1
+      ORDER BY nome ASC
+    `);
+    res.json(itens);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao obter itens do almoxarifado' });
+  }
+});
+
+router.post('/almoxarifado/itens', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const nome = String(req.body.nome || '').trim();
+    const categoria = String(req.body.categoria || '').trim();
+    const unidade = String(req.body.unidade || 'unidade').trim();
+    const quantidade = Number(req.body.quantidade);
+    const estoqueMinimo = Number(req.body.estoque_minimo || 0);
+    const observacao = String(req.body.observacao || '').trim();
+
+    if (!nome) return res.status(400).json({ erro: 'Informe o nome do item' });
+    if (!Number.isInteger(quantidade) || quantidade < 0) return res.status(400).json({ erro: 'Informe uma quantidade válida' });
+    if (!Number.isInteger(estoqueMinimo) || estoqueMinimo < 0) return res.status(400).json({ erro: 'Informe um estoque mínimo válido' });
+
+    const result = await database.run(
+      `INSERT INTO almoxarifado_itens
+       (nome, categoria, unidade, estoque_total, estoque_disponivel, estoque_minimo, observacao, criado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nome, categoria, unidade || 'unidade', quantidade, quantidade, estoqueMinimo, observacao, req.usuario.id]
+    );
+    res.status(201).json({ id: result.lastID, mensagem: 'Item cadastrado com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao cadastrar item' });
+  }
+});
+
+router.put('/almoxarifado/itens/:item_id/estoque', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const itemId = Number(req.params.item_id);
+    const novoTotal = Number(req.body.estoque_total);
+    const estoqueMinimo = Number(req.body.estoque_minimo || 0);
+    if (!itemId || !Number.isInteger(novoTotal) || novoTotal < 0 || !Number.isInteger(estoqueMinimo) || estoqueMinimo < 0) {
+      return res.status(400).json({ erro: 'Dados de estoque inválidos' });
+    }
+
+    const item = await database.get('SELECT estoque_total, estoque_disponivel FROM almoxarifado_itens WHERE id = ? AND ativo = 1', [itemId]);
+    if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
+    const emprestado = Number(item.estoque_total) - Number(item.estoque_disponivel);
+    if (novoTotal < emprestado) {
+      return res.status(400).json({ erro: `Existem ${emprestado} unidade(s) emprestada(s); o total não pode ser menor que isso` });
+    }
+
+    await database.run(
+      `UPDATE almoxarifado_itens
+       SET estoque_total = ?, estoque_disponivel = ?, estoque_minimo = ?, data_atualizacao = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [novoTotal, novoTotal - emprestado, estoqueMinimo, itemId]
+    );
+    res.json({ mensagem: 'Estoque atualizado com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar estoque' });
+  }
+});
+
+router.get('/almoxarifado/itens/:item_id/historico', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const itemId = Number(req.params.item_id);
+    const item = await database.get('SELECT id, nome FROM almoxarifado_itens WHERE id = ?', [itemId]);
+    if (!item) return res.status(404).json({ erro: 'Item não encontrado' });
+
+    const historico = await database.all(`
+      SELECT p.id AS protocolo_id, p.solicitante, p.equipe, p.finalidade, p.status,
+             p.data_criacao, p.data_prevista_retirada, p.data_prevista_devolucao, p.data_entrega, p.data_devolucao,
+             pi.quantidade, pi.quantidade_devolvida,
+             ue.nome_completo AS entregue_por_nome,
+             ud.nome_completo AS devolvido_por_nome
+      FROM almoxarifado_protocolo_itens pi
+      JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
+      LEFT JOIN usuarios ue ON ue.id = p.entregue_por
+      LEFT JOIN usuarios ud ON ud.id = p.devolvido_por
+      WHERE pi.item_id = ?
+      ORDER BY p.id DESC
+    `, [itemId]);
+
+    const devolucoes = await database.all(`
+      SELECT d.protocolo_id, d.quantidade, d.data_devolucao,
+             u.nome_completo AS devolvido_por_nome
+      FROM almoxarifado_devolucoes d
+      LEFT JOIN usuarios u ON u.id = d.devolvido_por
+      WHERE d.item_id = ?
+      ORDER BY d.id DESC
+    `, [itemId]);
+
+    res.json({ item, historico, devolucoes });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao consultar histórico do item' });
+  }
+});
+
+router.get('/almoxarifado/protocolos', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const protocolos = await database.all(`
+      SELECT p.*, u.nome_completo AS criado_por_nome,
+             ue.nome_completo AS entregue_por_nome,
+             ud.nome_completo AS devolvido_por_nome
+      FROM almoxarifado_protocolos p
+      LEFT JOIN usuarios u ON u.id = p.criado_por
+      LEFT JOIN usuarios ue ON ue.id = p.entregue_por
+      LEFT JOIN usuarios ud ON ud.id = p.devolvido_por
+      ORDER BY p.id DESC
+    `);
+    const itens = await database.all(`
+      SELECT pi.protocolo_id, pi.item_id, pi.quantidade, pi.quantidade_devolvida,
+             i.nome, i.unidade
+      FROM almoxarifado_protocolo_itens pi
+      JOIN almoxarifado_itens i ON i.id = pi.item_id
+      ORDER BY pi.id ASC
+    `);
+    res.json(protocolos.map(protocolo => ({
+      ...protocolo,
+      itens: itens.filter(item => Number(item.protocolo_id) === Number(protocolo.id))
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao obter protocolos' });
+  }
+});
+
+router.post('/almoxarifado/protocolos', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  let protocoloId = null;
+  try {
+    const solicitanteUsuarioId = Number(req.body.solicitante_usuario_id);
+    const equipe = String(req.body.equipe || '').trim();
+    const finalidade = String(req.body.finalidade || '').trim();
+    const dataPrevista = String(req.body.data_prevista_devolucao || '').trim() || null;
+    const observacao = String(req.body.observacao || '').trim();
+    const itensRecebidos = Array.isArray(req.body.itens) ? req.body.itens : [];
+    const itens = itensRecebidos.map(item => ({ item_id: Number(item.item_id), quantidade: Number(item.quantidade) }));
+
+    if (!solicitanteUsuarioId || !finalidade) return res.status(400).json({ erro: 'Selecione o solicitante e informe a finalidade' });
+    const usuarioSolicitante = await database.get('SELECT id, nome_completo FROM usuarios WHERE id = ?', [solicitanteUsuarioId]);
+    if (!usuarioSolicitante) return res.status(400).json({ erro: 'O solicitante selecionado não foi encontrado' });
+    if (!itens.length || itens.some(item => !item.item_id || !Number.isInteger(item.quantidade) || item.quantidade <= 0)) {
+      return res.status(400).json({ erro: 'Adicione ao menos um item com quantidade válida' });
+    }
+    if (new Set(itens.map(item => item.item_id)).size !== itens.length) {
+      return res.status(400).json({ erro: 'O mesmo item não pode ser adicionado duas vezes' });
+    }
+    for (const item of itens) {
+      const cadastro = await database.get('SELECT id FROM almoxarifado_itens WHERE id = ? AND ativo = 1', [item.item_id]);
+      if (!cadastro) return res.status(400).json({ erro: 'Um dos itens selecionados não está disponível no cadastro' });
+    }
+
+    const result = await database.run(
+      `INSERT INTO almoxarifado_protocolos
+       (solicitante_usuario_id, solicitante, equipe, finalidade, data_prevista_devolucao, observacao, criado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [solicitanteUsuarioId, usuarioSolicitante.nome_completo, equipe, finalidade, dataPrevista, observacao, req.usuario.id]
+    );
+    protocoloId = result.lastID;
+    for (const item of itens) {
+      await database.run(
+        'INSERT INTO almoxarifado_protocolo_itens (protocolo_id, item_id, quantidade) VALUES (?, ?, ?)',
+        [protocoloId, item.item_id, item.quantidade]
+      );
+    }
+    res.status(201).json({ id: protocoloId, mensagem: `Protocolo #${protocoloId} criado com sucesso` });
+  } catch (err) {
+    if (protocoloId) {
+      await database.run('DELETE FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]).catch(() => {});
+      await database.run('DELETE FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]).catch(() => {});
+    }
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao criar protocolo' });
+  }
+});
+
+router.put('/almoxarifado/protocolos/:protocolo_id/itens', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const protocoloId = Number(req.params.protocolo_id);
+    const protocolo = await database.get('SELECT id, status, data_prevista_retirada, data_prevista_devolucao FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]);
+    if (!protocolo) return res.status(404).json({ erro: 'Protocolo não encontrado' });
+    if (protocolo.status !== 'solicitado') return res.status(400).json({ erro: 'Os itens só podem ser alterados antes da entrega' });
+    const recebidos = Array.isArray(req.body.itens) ? req.body.itens : [];
+    const itens = recebidos.map(item => ({ item_id: Number(item.item_id), quantidade: Number(item.quantidade) }));
+    if (!itens.length || itens.some(item => !item.item_id || !Number.isInteger(item.quantidade) || item.quantidade <= 0)) {
+      return res.status(400).json({ erro: 'O protocolo deve possuir ao menos um item com quantidade válida' });
+    }
+    if (new Set(itens.map(item => item.item_id)).size !== itens.length) return res.status(400).json({ erro: 'O mesmo item não pode aparecer duas vezes' });
+
+    for (const solicitado of itens) {
+      const item = await database.get('SELECT id, nome, estoque_total FROM almoxarifado_itens WHERE id = ? AND ativo = 1', [solicitado.item_id]);
+      if (!item) return res.status(400).json({ erro: 'Um dos itens não está mais disponível no cadastro' });
+      let reservadoPorOutros = 0;
+      if (protocolo.data_prevista_retirada && protocolo.data_prevista_devolucao) {
+        const reserva = await database.get(`
+          SELECT COALESCE(SUM(pi.quantidade - pi.quantidade_devolvida), 0) AS total
+          FROM almoxarifado_protocolo_itens pi
+          JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
+          WHERE pi.item_id = ? AND p.id <> ?
+            AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+            AND (p.data_prevista_retirada IS NULL OR p.data_prevista_retirada <= ?)
+            AND COALESCE(p.data_prevista_devolucao, '9999-12-31') >= ?
+        `, [solicitado.item_id, protocoloId, protocolo.data_prevista_devolucao, protocolo.data_prevista_retirada]);
+        reservadoPorOutros = Number(reserva?.total || 0);
+      } else {
+        const reserva = await database.get(`
+          SELECT COALESCE(SUM(pi.quantidade - pi.quantidade_devolvida), 0) AS total
+          FROM almoxarifado_protocolo_itens pi
+          JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
+          WHERE pi.item_id = ? AND p.id <> ? AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+        `, [solicitado.item_id, protocoloId]);
+        reservadoPorOutros = Number(reserva?.total || 0);
+      }
+      const disponivel = Number(item.estoque_total) - reservadoPorOutros;
+      if (solicitado.quantidade > disponivel) return res.status(400).json({ erro: `${item.nome}: há somente ${Math.max(0, disponivel)} unidade(s) disponível(is)` });
+    }
+
+    const antigos = await database.all('SELECT item_id, quantidade, quantidade_devolvida FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]);
+    try {
+      await database.run('DELETE FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]);
+      for (const item of itens) {
+        await database.run('INSERT INTO almoxarifado_protocolo_itens (protocolo_id, item_id, quantidade) VALUES (?, ?, ?)', [protocoloId, item.item_id, item.quantidade]);
+      }
+    } catch (err) {
+      await database.run('DELETE FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]).catch(() => {});
+      for (const item of antigos) {
+        await database.run('INSERT INTO almoxarifado_protocolo_itens (protocolo_id, item_id, quantidade, quantidade_devolvida) VALUES (?, ?, ?, ?)', [protocoloId, item.item_id, item.quantidade, item.quantidade_devolvida]).catch(() => {});
+      }
+      throw err;
+    }
+    res.json({ mensagem: `Itens do protocolo #${protocoloId} atualizados` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar itens do protocolo' });
+  }
+});
+
+router.put('/almoxarifado/protocolos/:protocolo_id/entregar', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  const atualizados = [];
+  try {
+    const protocoloId = Number(req.params.protocolo_id);
+    const protocolo = await database.get('SELECT id, status FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]);
+    if (!protocolo) return res.status(404).json({ erro: 'Protocolo não encontrado' });
+    if (protocolo.status !== 'solicitado') return res.status(400).json({ erro: 'Este protocolo não está aguardando entrega' });
+    const itens = await database.all('SELECT item_id, quantidade FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]);
+
+    for (const item of itens) {
+      const cadastro = await database.get('SELECT nome, estoque_disponivel FROM almoxarifado_itens WHERE id = ?', [item.item_id]);
+      if (!cadastro || Number(cadastro.estoque_disponivel) < Number(item.quantidade)) {
+        return res.status(400).json({ erro: `Estoque insuficiente para ${cadastro?.nome || 'um dos itens'}` });
+      }
+    }
+    for (const item of itens) {
+      const result = await database.run(
+        'UPDATE almoxarifado_itens SET estoque_disponivel = estoque_disponivel - ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = ? AND estoque_disponivel >= ?',
+        [item.quantidade, item.item_id, item.quantidade]
+      );
+      if (!result.changes) throw new Error('Estoque alterado durante a entrega');
+      atualizados.push(item);
+    }
+    await database.run(
+      `UPDATE almoxarifado_protocolos SET status = 'entregue', entregue_por = ?, data_entrega = CURRENT_TIMESTAMP WHERE id = ?`,
+      [req.usuario.id, protocoloId]
+    );
+    res.json({ mensagem: `Entrega do protocolo #${protocoloId} registrada` });
+  } catch (err) {
+    for (const item of atualizados) {
+      await database.run('UPDATE almoxarifado_itens SET estoque_disponivel = estoque_disponivel + ? WHERE id = ?', [item.quantidade, item.item_id]).catch(() => {});
+    }
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao registrar entrega' });
+  }
+});
+
+router.put('/almoxarifado/protocolos/:protocolo_id/devolver', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  const movimentacoes = [];
+  try {
+    const protocoloId = Number(req.params.protocolo_id);
+    const protocolo = await database.get('SELECT id, status FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]);
+    if (!protocolo) return res.status(404).json({ erro: 'Protocolo não encontrado' });
+    if (!['entregue', 'parcialmente_devolvido'].includes(protocolo.status)) return res.status(400).json({ erro: 'Este protocolo não possui itens pendentes de devolução' });
+    const itensProtocolo = await database.all('SELECT item_id, quantidade, quantidade_devolvida FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]);
+    const recebidos = Array.isArray(req.body.itens) ? req.body.itens.map(item => ({ item_id: Number(item.item_id), quantidade: Number(item.quantidade) })) : [];
+    const devolucoes = recebidos.filter(item => Number.isInteger(item.quantidade) && item.quantidade > 0);
+    if (!devolucoes.length) return res.status(400).json({ erro: 'Informe a quantidade devolvida de ao menos um item' });
+    if (new Set(devolucoes.map(item => item.item_id)).size !== devolucoes.length) return res.status(400).json({ erro: 'Item duplicado na devolução' });
+    for (const devolucao of devolucoes) {
+      const item = itensProtocolo.find(registro => Number(registro.item_id) === devolucao.item_id);
+      const pendente = item ? Number(item.quantidade) - Number(item.quantidade_devolvida || 0) : 0;
+      if (!item || devolucao.quantidade > pendente) return res.status(400).json({ erro: 'Quantidade devolvida maior que a quantidade pendente' });
+    }
+    for (const devolucao of devolucoes) {
+      await database.run('UPDATE almoxarifado_itens SET estoque_disponivel = estoque_disponivel + ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = ?', [devolucao.quantidade, devolucao.item_id]);
+      await database.run('UPDATE almoxarifado_protocolo_itens SET quantidade_devolvida = quantidade_devolvida + ? WHERE protocolo_id = ? AND item_id = ?', [devolucao.quantidade, protocoloId, devolucao.item_id]);
+      const registro = await database.run('INSERT INTO almoxarifado_devolucoes (protocolo_id, item_id, quantidade, devolvido_por) VALUES (?, ?, ?, ?)', [protocoloId, devolucao.item_id, devolucao.quantidade, req.usuario.id]);
+      movimentacoes.push({ ...devolucao, registro_id: registro.lastID });
+    }
+    const restante = await database.get('SELECT COALESCE(SUM(quantidade - quantidade_devolvida), 0) AS total FROM almoxarifado_protocolo_itens WHERE protocolo_id = ?', [protocoloId]);
+    const devolucaoCompleta = Number(restante?.total || 0) === 0;
+    await database.run(
+      `UPDATE almoxarifado_protocolos
+       SET status = ?, devolvido_por = ?, data_devolucao = ?
+       WHERE id = ?`,
+      [devolucaoCompleta ? 'devolvido' : 'parcialmente_devolvido', req.usuario.id, devolucaoCompleta ? new Date().toISOString() : null, protocoloId]
+    );
+    res.json({ mensagem: devolucaoCompleta ? `Devolução completa do protocolo #${protocoloId} registrada` : `Devolução parcial do protocolo #${protocoloId} registrada` });
+  } catch (err) {
+    for (const movimento of movimentacoes.reverse()) {
+      if (movimento.registro_id) await database.run('DELETE FROM almoxarifado_devolucoes WHERE id = ?', [movimento.registro_id]).catch(() => {});
+      await database.run('UPDATE almoxarifado_protocolo_itens SET quantidade_devolvida = quantidade_devolvida - ? WHERE protocolo_id = ? AND item_id = ?', [movimento.quantidade, Number(req.params.protocolo_id), movimento.item_id]).catch(() => {});
+      await database.run('UPDATE almoxarifado_itens SET estoque_disponivel = estoque_disponivel - ? WHERE id = ?', [movimento.quantidade, movimento.item_id]).catch(() => {});
+    }
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao registrar devolução' });
+  }
+});
+
+router.put('/almoxarifado/protocolos/:protocolo_id/cancelar', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const protocoloId = Number(req.params.protocolo_id);
+    const result = await database.run(
+      `UPDATE almoxarifado_protocolos SET status = 'cancelado' WHERE id = ? AND status = 'solicitado'`,
+      [protocoloId]
+    );
+    if (!result.changes) return res.status(400).json({ erro: 'Somente protocolos solicitados podem ser cancelados' });
+    res.json({ mensagem: `Protocolo #${protocoloId} cancelado` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao cancelar protocolo' });
   }
 });
 

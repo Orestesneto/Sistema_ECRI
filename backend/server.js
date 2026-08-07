@@ -24,6 +24,8 @@ const dirigentesRoutes = require('./routes/dirigentes');
 const confirmacaoRoutes = require('./routes/confirmacao');
 const desenvolvimentoRoutes = require('./routes/desenvolvimento');
 const notificacoesRoutes = require('./routes/notificacoes');
+const fotosRoutes = require('./routes/fotos');
+const almoxarifadoRoutes = require('./routes/almoxarifado');
 
 app.use('/frontend', express.static(path.join(__dirname, '../frontend')));
 
@@ -34,6 +36,8 @@ app.use('/api/dirigentes', dirigentesRoutes);
 app.use('/api/confirmacao', confirmacaoRoutes);
 app.use('/api/desenvolvimento', desenvolvimentoRoutes);
 app.use('/api/notificacoes', notificacoesRoutes);
+app.use('/api/fotos', fotosRoutes);
+app.use('/api/almoxarifado', almoxarifadoRoutes);
 
 app.get('/c/:codigo', async (req, res) => {
   try {
