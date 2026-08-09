@@ -311,7 +311,7 @@ router.get('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equip
     const usuario = await database.get(
       `SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
               paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil,
-              perfil, status, equipe, toca_instrumento, instrumentos, canta, equipes_servidas
+              perfil, status, equipe, lista_espera, toca_instrumento, instrumentos, canta, equipes_servidas
        FROM usuarios WHERE id = ?`,
       [req.usuario.id]
     );
@@ -492,7 +492,9 @@ router.get('/participantes-equipe', verificarToken, verificarPerfil(['coordenado
       return res.json([]);
     }
 
-    const filtroEquipeSql = filtrarPorEquipe ? 'WHERE equipe = ?' : '';
+    const filtroEquipeSql = filtrarPorEquipe
+      ? 'WHERE equipe = ? AND COALESCE(lista_espera, 0) = 0'
+      : 'WHERE COALESCE(lista_espera, 0) = 0';
     const filtroEquipeParams = filtrarPorEquipe ? [coordenador.equipe] : [];
 
     const usuarios = await database.all(`
@@ -557,12 +559,16 @@ router.post('/participantes-equipe/:tipo/:id/token-confirmacao', verificarToken,
     const filtrarPorEquipe = req.usuario.perfil !== 'equipe_dirigente';
     const tabela = tipo === 'externo' ? 'pessoas_externas' : 'usuarios';
     const participante = await database.get(
-      `SELECT id, nome_completo, telefone, equipe, '${tipo}' AS tipo_cadastro FROM ${tabela} WHERE id = ?`,
+      `SELECT id, nome_completo, telefone, equipe, lista_espera, '${tipo}' AS tipo_cadastro FROM ${tabela} WHERE id = ?`,
       [id]
     );
 
     if (!participante) {
       return res.status(404).json({ erro: 'Participante não encontrado' });
+    }
+
+    if (Number(participante.lista_espera || 0) === 1) {
+      return res.status(403).json({ erro: 'Participante está na lista de espera' });
     }
 
     if (filtrarPorEquipe && participante.equipe !== coordenador?.equipe) {

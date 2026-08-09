@@ -52,7 +52,7 @@ async function carregarPerfil() {
         const equipeUsuario = usuario.equipe || usuarioLocal.equipe || '';
         const revelacaoEquipesAconteceu = responseConfig.ok ? Boolean(configuracoes.reuniao_revelacao_equipes) : true;
 
-        configurarAbasPorEquipe(equipeUsuario, revelacaoEquipesAconteceu);
+        configurarAbasPorEquipe(equipeUsuario, revelacaoEquipesAconteceu, Number(usuario.lista_espera || 0) === 1);
         localStorage.setItem('usuario', JSON.stringify({
             ...usuarioLocal,
             equipe: equipeUsuario
@@ -90,9 +90,9 @@ function usuarioEscalado(equipe) {
     return equipeNormalizada && equipeNormalizada !== 'sem equipe';
 }
 
-function configurarAbasPorEquipe(equipe, revelacaoEquipesAconteceu = true) {
+function configurarAbasPorEquipe(equipe, revelacaoEquipesAconteceu = true, listaEspera = false) {
     const escalado = usuarioEscalado(equipe);
-    const abasLiberadas = escalado && revelacaoEquipesAconteceu;
+    const abasLiberadas = escalado && revelacaoEquipesAconteceu && !listaEspera;
     document.getElementById('abaSolicitarBlusa')?.classList.toggle('d-none', !abasLiberadas);
     document.getElementById('abaPagamentoOnline')?.classList.toggle('d-none', !abasLiberadas);
     document.getElementById('abaStatus')?.classList.toggle('d-none', !abasLiberadas);

@@ -33,10 +33,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('anoEncontroCoordenador')?.addEventListener('input', limitarCampoNumerico);
     configurarPersistenciaAbas(ABA_ATUAL_COORDENADOR_KEY);
     configurarFiltrosCarografoEscrita();
-    carregarPerfilCoordenador();
+    const usuarioPerfil = await carregarPerfilCoordenador();
+    const usuarioListaEspera = Number(usuarioPerfil?.lista_espera || 0) === 1;
     const dashboardLiberado = await aplicarRestricaoEntregaPastasCoordenador();
+    alternarAbasCoordenadorPorListaEspera(usuarioListaEspera);
 
-    if (dashboardLiberado) {
+    if (dashboardLiberado && !usuarioListaEspera) {
         carregarPagamentos();
         carregarBlusas();
         carregarPagamentoProprio();
@@ -109,6 +111,30 @@ function alternarAbasCoordenadorPorEntregaPastas(liberado) {
     });
 }
 
+function alternarAbasCoordenadorPorListaEspera(listaEspera) {
+    document.querySelectorAll('.nav-tabs a[data-bs-toggle="tab"]').forEach((link) => {
+        const item = link.closest('.nav-item');
+        if (!item) return;
+        const abaPermitida = ['#meuPerfil', '#solicitacaoAlmoxarifado'].includes(link.getAttribute('href'));
+        if (listaEspera && !abaPermitida) {
+            item.dataset.ocultoListaEspera = '1';
+            item.style.display = 'none';
+        } else if (item.dataset.ocultoListaEspera === '1') {
+            delete item.dataset.ocultoListaEspera;
+            if (item.dataset.ocultoEntregaPastas !== '1') item.style.display = '';
+        }
+    });
+
+    if (listaEspera) {
+        document.querySelectorAll('.tab-content > .tab-pane').forEach((pane) => {
+            if (!['meuPerfil', 'solicitacaoAlmoxarifado'].includes(pane.id)) {
+                pane.classList.remove('show', 'active');
+            }
+        });
+        abrirAbaCoordenadorMeuPerfil();
+    }
+}
+
 function abrirAbaCoordenadorMeuPerfil() {
     localStorage.setItem(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');
     const abaPerfil = document.querySelector('a[href="#meuPerfil"]');
@@ -153,8 +179,10 @@ async function carregarPerfilCoordenador() {
             document.getElementById('fotoPreviewCoordenador').src = usuario.foto_perfil;
             document.getElementById('fotoPreviewCoordenador').style.display = 'block';
         }
+        return usuario;
     } catch (err) {
         console.error(err);
+        return null;
     }
 }
 

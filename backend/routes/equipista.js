@@ -522,7 +522,7 @@ router.get('/perfil', verificarToken, verificarPerfil(['equipista']), async (req
     const usuario = await database.get(
       `SELECT id, email, nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro,
               paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, foto_perfil, status,
-              equipe, toca_instrumento, instrumentos, canta, equipes_servidas
+              equipe, lista_espera, toca_instrumento, instrumentos, canta, equipes_servidas
        FROM usuarios WHERE id = ?`,
       [req.usuario.id]
     );
