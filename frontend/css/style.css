@@ -163,6 +163,11 @@ body {
     border-color: #2563eb;
 }
 
+.carografo-item-lista-espera {
+    background: #fdba74;
+    border-color: #ea580c;
+}
+
 .carografo-item-removido {
     background: #ffe1e1;
     border-color: #dc3545;

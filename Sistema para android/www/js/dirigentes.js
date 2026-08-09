@@ -1531,10 +1531,12 @@ function renderizarCarografo(usuarios) {
             ? `<div class="carografo-motivo-impedimento"><strong>Motivo:</strong> ${escapeHtml(formatarMotivoImpedimentoServirCard(u.pessoa_impedida_motivos))}</div>`
             : '';
         const coordenador = u.perfil === 'coordenador';
+        const listaEspera = Number(u.lista_espera || 0) === 1;
         const classesCard = [
             'carografo-item',
             destaqueMusical ? 'carografo-item-musical' : '',
             coordenador ? 'carografo-item-coordenador' : '',
+            listaEspera ? 'carografo-item-lista-espera' : '',
             removidoDoEncontro ? 'carografo-item-removido' : '',
             pessoaImpedidaServir ? 'carografo-item-impedido' : ''
         ].filter(Boolean).join(' ');
@@ -2094,6 +2096,10 @@ function baixarCarografoPdf(statusDownload = 'confirmado') {
             background-color: #60a5fa;
             border-color: #2563eb;
         }
+        .card-carografo-lista-espera {
+            background-color: #fdba74;
+            border-color: #ea580c;
+        }
         .foto {
             width: 34mm;
             height: 34mm;
@@ -2169,12 +2175,13 @@ function renderizarCardCarografoPdf(pessoa) {
     const telefone = formatarTelefoneCarografoPdf(pessoa.telefone || '-');
     const movimento = pessoa.movimento_origem || '-';
     const classeCoordenador = pessoa.perfil === 'coordenador' ? ' card-carografo-coordenador' : '';
+    const classeListaEspera = Number(pessoa.lista_espera || 0) === 1 ? ' card-carografo-lista-espera' : '';
     const foto = pessoa.foto_perfil
         ? `<img class="foto" src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto de ${escapeAttr(nomeCracha)}">`
         : '<div class="foto-placeholder">-</div>';
 
     return `
-        <article class="card-carografo${classeCoordenador}">
+        <article class="card-carografo${classeCoordenador}${classeListaEspera}">
             ${foto}
             <div class="nome">${escapeHtml(nomeCracha)}</div>
             ${telefone}
