@@ -294,6 +294,21 @@ function obterTipoPagamentoSelecionado() {
     return document.querySelector('input[name="tipoPagamento"]:checked')?.value || 'taxa';
 }
 
+function atualizarDisponibilidadePagamentoBlusa() {
+    const possuiBlusaPendente = Number(valorBlusasPendentesPagamento || 0) > 0;
+    const radioTaxa = document.getElementById('tipoPagamentoTaxa');
+    const radioBlusa = document.getElementById('tipoPagamentoBlusa');
+    const radioTaxaBlusa = document.getElementById('tipoPagamentoTaxaBlusa');
+
+    if (radioBlusa) radioBlusa.disabled = !possuiBlusaPendente;
+    if (radioTaxaBlusa) radioTaxaBlusa.disabled = !possuiBlusaPendente;
+
+    if (!possuiBlusaPendente && ['blusa', 'taxa_blusa'].includes(obterTipoPagamentoSelecionado())) {
+        if (radioTaxa) radioTaxa.checked = true;
+    }
+    atualizarValorPagamento();
+}
+
 async function solicitarPagamentoEquipista(tipo, valor, formaPagamento) {
     if (formaPagamento === 'pix') {
         const continuar = confirm('O pagamento via PIX tera acrescimo de 1% referente a taxa da maquineta. Deseja continuar?');
@@ -619,9 +634,7 @@ async function carregarStatus() {
         
         const resumoBlusas = data.resumo_blusas || {};
         valorBlusasPendentesPagamento = Number(resumoBlusas.pendente || 0);
-        if (['blusa', 'taxa_blusa'].includes(obterTipoPagamentoSelecionado())) {
-            atualizarValorPagamento();
-        }
+        atualizarDisponibilidadePagamentoBlusa();
         const pagamentoBlusaPendente = (data.pagamentos || [])
             .find(p => p.tipo === 'blusa' && p.status === 'pendente') || null;
         const valorPendenteBlusas = Number(resumoBlusas.pendente || 0);
