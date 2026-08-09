@@ -1015,7 +1015,8 @@ document.getElementById('formPessoaExterna')?.addEventListener('submit', async (
         nome_completo: document.getElementById('pessoaExternaNome').value,
         telefone: telefoneNormalizado,
         movimento_origem: document.getElementById('pessoaExternaMovimento').value,
-        equipe: document.getElementById('pessoaExternaEquipe').value
+        equipe: document.getElementById('pessoaExternaEquipe').value,
+        lista_espera: Boolean(document.getElementById('pessoaExternaListaEspera')?.checked)
     };
 
     try {
@@ -2329,6 +2330,7 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
         ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_completo || '')}" class="mb-3" style="width:160px; height:160px; border-radius:50%; object-fit:cover; cursor:pointer;" title="Clique para ampliar" onclick="abrirModalFotoGrande('${usuario.foto_perfil}')">`
         : '<div class="mx-auto mb-3" style="width:160px; height:160px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
     const pessoaImpedidaServir = Number(usuario.pessoa_impedida_servir || 0) === 1;
+    const usuarioListaEspera = Number(usuario.lista_espera || 0) === 1;
     const usuarioCoordenador = usuario.perfil === 'coordenador';
     const checkboxCoordenadorHtml = `
         <div class="form-check mb-3">
@@ -2365,6 +2367,10 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
             <input class="form-check-input" type="checkbox" id="pessoaImpedidaServirResumo" ${pessoaImpedidaServir ? 'checked disabled' : ''} onchange="atualizarPessoaImpedidaServir(${Number(usuario.id)}, this, '${tipoCadastro}')">
             <label class="form-check-label" for="pessoaImpedidaServirResumo">Pessoa impedida de servir no encontro</label>
         </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="listaEsperaResumo" ${usuarioListaEspera ? 'checked' : ''} onchange="atualizarListaEsperaResumo(${Number(usuario.id)}, this, '${tipoCadastro}')">
+            <label class="form-check-label" for="listaEsperaResumo">Adicionar na Lista de Espera</label>
+        </div>
         ${checkboxCoordenadorHtml}
         <div id="motivosImpedimentoServirResumoInfo">${motivosImpedimentoHtml}</div>
         <div class="text-end">
@@ -2373,6 +2379,40 @@ function abrirModalResumoUsuário(usuarioId, tipoCadastro = 'usuario') {
     `;
 
     new bootstrap.Modal(modalEl).show();
+}
+
+async function atualizarListaEsperaResumo(usuarioId, checkbox, tipoCadastro = 'usuario') {
+    const marcado = Boolean(checkbox.checked);
+    checkbox.disabled = true;
+
+    try {
+        const recurso = tipoCadastro === 'externo' ? 'pessoas-externas' : 'usuarios';
+        const response = await fetch(`${API_URL}/dirigentes/${recurso}/${usuarioId}/lista-espera`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({ lista_espera: marcado })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            checkbox.checked = !marcado;
+            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao atualizar lista de espera.', 'danger');
+            return;
+        }
+
+        const lista = tipoCadastro === 'externo' ? pessoasExternasCache : usuariosCache;
+        const listaAtualizada = lista.map(usuario => Number(usuario.id) === Number(usuarioId)
+            ? { ...usuario, lista_espera: data.lista_espera }
+            : usuario);
+        if (tipoCadastro === 'externo') pessoasExternasCache = listaAtualizada;
+        else usuariosCache = listaAtualizada;
+        mostrarAlerta('alertaDirigentes', marcado ? 'Pessoa adicionada à lista de espera.' : 'Pessoa removida da lista de espera.', 'success');
+    } catch (err) {
+        checkbox.checked = !marcado;
+        mostrarAlerta('alertaDirigentes', 'Erro ao atualizar lista de espera.', 'danger');
+        console.error(err);
+    } finally {
+        checkbox.disabled = false;
+    }
 }
 
 async function atualizarPerfilCoordenadorResumo(usuarioId, checkbox, tipoCadastro = 'usuario') {

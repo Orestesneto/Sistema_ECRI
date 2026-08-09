@@ -530,7 +530,7 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
   try {
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, pessoa_impedida_servir, pessoa_impedida_motivos,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, lista_espera, pessoa_impedida_servir, pessoa_impedida_motivos,
              CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
@@ -568,7 +568,7 @@ router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dir
 
     const usuario = await database.get(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
-             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
+             paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, lista_espera, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas
       FROM usuarios
       WHERE id = ?
@@ -728,6 +728,27 @@ router.put('/usuarios/:usuario_id/perfil', verificarToken, verificarPerfil(['equ
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao atualizar perfil do usuário' });
+  }
+});
+
+router.put('/usuarios/:usuario_id/lista-espera', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const usuarioId = Number(req.params.usuario_id);
+    const listaEspera = req.body.lista_espera ? 1 : 0;
+    if (!usuarioId) return res.status(400).json({ erro: 'Usuário inválido' });
+
+    const usuario = await database.get('SELECT id FROM usuarios WHERE id = ?', [usuarioId]);
+    if (!usuario) return res.status(404).json({ erro: 'Usuário não encontrado' });
+
+    await database.run('UPDATE usuarios SET lista_espera = ? WHERE id = ?', [listaEspera, usuarioId]);
+    await registrarHistorico(usuarioId, 'lista_espera_atualizada', {
+      editado_por: req.usuario.id,
+      lista_espera: Boolean(listaEspera)
+    });
+    res.json({ mensagem: 'Lista de espera atualizada', lista_espera: listaEspera });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar lista de espera' });
   }
 });
 
@@ -901,7 +922,7 @@ router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigen
     const pessoas = await database.all(`
       SELECT id, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro, observacao,
              CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
-             COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, evento_id,
+             COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, evento_id, lista_espera,
              pessoa_impedida_servir, pessoa_impedida_motivos, data_cadastro, criado_por
       FROM pessoas_externas
       ORDER BY data_cadastro DESC
@@ -927,7 +948,7 @@ router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigen
 
 router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
-    const { nome_completo, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, observacao } = req.body;
+    const { nome_completo, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, observacao, lista_espera } = req.body;
 
     if (!nome_completo || !telefone || !movimento_origem || !equipe) {
       return res.status(400).json({ erro: 'Nome, telefone, movimento e equipe são obrigatórios' });
@@ -961,8 +982,8 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
     const fotoPerfil = fotoValidada.fotoPerfil;
 
     const resultado = await database.run(
-      `INSERT INTO pessoas_externas (nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, criado_por, observacao)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pessoas_externas (nome_completo, nome_cracha, telefone, movimento_origem, ano_encontro, equipe, foto_perfil, criado_por, observacao, lista_espera)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(nome_completo).trim().toUpperCase(),
         String(nome_completo).trim().toUpperCase(),
@@ -972,7 +993,8 @@ router.post('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirige
         equipeNormalizada,
         fotoPerfil,
         req.usuario.id,
-        String(observacao || '').trim()
+        String(observacao || '').trim(),
+        lista_espera ? 1 : 0
       ]
     );
     await registrarHistorico(req.usuario.id, 'pessoa_sem_cadastro_adicionada', {
@@ -1127,6 +1149,27 @@ router.put('/pessoas-externas/:pessoa_id/perfil-coordenador', verificarToken, ve
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao atualizar perfil da pessoa sem cadastro' });
+  }
+});
+
+router.put('/pessoas-externas/:pessoa_id/lista-espera', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const pessoaId = Number(req.params.pessoa_id);
+    const listaEspera = req.body.lista_espera ? 1 : 0;
+    if (!pessoaId) return res.status(400).json({ erro: 'Pessoa inválida' });
+
+    const pessoa = await database.get('SELECT id FROM pessoas_externas WHERE id = ?', [pessoaId]);
+    if (!pessoa) return res.status(404).json({ erro: 'Pessoa sem cadastro não encontrada' });
+
+    await database.run('UPDATE pessoas_externas SET lista_espera = ? WHERE id = ?', [listaEspera, pessoaId]);
+    await registrarHistorico(req.usuario.id, 'lista_espera_pessoa_sem_cadastro_atualizada', {
+      pessoa_id: pessoaId,
+      lista_espera: Boolean(listaEspera)
+    });
+    res.json({ mensagem: 'Lista de espera atualizada', lista_espera: listaEspera });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao atualizar lista de espera' });
   }
 });
 
@@ -1496,10 +1539,10 @@ router.get('/relatorio/equipe/:equipe', verificarToken, verificarPerfil(['equipe
 router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuarios = await database.all(`
-      SELECT id, cpf, nome_completo, email, telefone, perfil, status, equipe, movimento_origem FROM usuarios
+      SELECT id, cpf, nome_completo, email, telefone, perfil, status, equipe, movimento_origem, lista_espera FROM usuarios
     `);
     const pessoasExternas = await database.all(`
-      SELECT id, nome_completo, telefone, COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, movimento_origem
+      SELECT id, nome_completo, telefone, COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, movimento_origem, lista_espera
       FROM pessoas_externas
     `);
     const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
@@ -1522,7 +1565,8 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
       ...usuariosAtivos.map(usuario => ({ ...usuario, origem_cadastro: 'usuario' })),
       ...pessoasExternasAtivas
     ];
-    const equipesResumo = Object.values(pessoasEscaladas.reduce((acc, usuario) => {
+    const pessoasContabilizadas = pessoasEscaladas.filter(pessoa => Number(pessoa.lista_espera || 0) !== 1);
+    const equipesResumo = Object.values(pessoasContabilizadas.reduce((acc, usuario) => {
       const equipe = usuario.equipe;
 
       if (!acc[equipe]) {
@@ -1568,7 +1612,7 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
       dirigentes: usuariosAtivos.filter(u => u.perfil === 'equipe_dirigente').length,
       confirmados: pessoasEscaladas.filter(u => u.status === 'confirmado').length,
       pendentes: pessoasEscaladas.filter(u => u.status === 'pendente').length,
-      totalEscaladosEquipes: pessoasEscaladas.length,
+      totalEscaladosEquipes: pessoasContabilizadas.length,
       totalPonderadoEquipes: equipesResumo.reduce((total, equipe) => total + equipe.totalPonderado, 0)
     };
 

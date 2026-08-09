@@ -191,6 +191,7 @@ async function initPostgres() {
       status TEXT DEFAULT 'pendente',
       data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       equipe TEXT,
+      lista_espera INTEGER DEFAULT 0,
       pessoa_impedida_servir INTEGER DEFAULT 0,
       pessoa_impedida_motivos TEXT
     )
@@ -204,6 +205,7 @@ async function initPostgres() {
   await addColumnIfMissing('usuarios', 'canta TEXT');
   await addColumnIfMissing('usuarios', 'equipes_servidas TEXT');
   await addColumnIfMissing('usuarios', 'paroquia TEXT');
+  await addColumnIfMissing('usuarios', 'lista_espera INTEGER DEFAULT 0');
   await addColumnIfMissing('usuarios', 'pessoa_impedida_servir INTEGER DEFAULT 0');
   await addColumnIfMissing('usuarios', 'pessoa_impedida_motivos TEXT');
   await addColumnIfMissing('usuarios', 'evento_id INTEGER');
@@ -385,6 +387,7 @@ async function initPostgres() {
       perfil TEXT DEFAULT 'sem_cadastro',
       status TEXT DEFAULT 'pendente',
       equipe TEXT NOT NULL,
+      lista_espera INTEGER DEFAULT 0,
       pessoa_impedida_servir INTEGER DEFAULT 0,
       pessoa_impedida_motivos TEXT,
       criado_por INTEGER NOT NULL REFERENCES usuarios(id),
@@ -401,6 +404,7 @@ async function initPostgres() {
   await addColumnIfMissing('pessoas_externas', 'evento_id INTEGER');
   await addColumnIfMissing('pessoas_externas', 'observacao TEXT');
   await addColumnIfMissing('pessoas_externas', "perfil TEXT DEFAULT 'sem_cadastro'");
+  await addColumnIfMissing('pessoas_externas', 'lista_espera INTEGER DEFAULT 0');
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_servir INTEGER DEFAULT 0');
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_motivos TEXT');
 
@@ -562,6 +566,7 @@ async function initSqlite() {
       status TEXT DEFAULT 'pendente',
       data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP,
       equipe TEXT,
+      lista_espera INTEGER DEFAULT 0,
       pessoa_impedida_servir INTEGER DEFAULT 0,
       pessoa_impedida_motivos TEXT
     )
@@ -575,6 +580,7 @@ async function initSqlite() {
   await addColumnIfMissing('usuarios', 'canta TEXT');
   await addColumnIfMissing('usuarios', 'equipes_servidas TEXT');
   await addColumnIfMissing('usuarios', 'paroquia TEXT');
+  await addColumnIfMissing('usuarios', 'lista_espera INTEGER DEFAULT 0');
   await addColumnIfMissing('usuarios', 'pessoa_impedida_servir INTEGER DEFAULT 0');
   await addColumnIfMissing('usuarios', 'pessoa_impedida_motivos TEXT');
   await addColumnIfMissing('usuarios', 'evento_id INTEGER');
@@ -672,6 +678,7 @@ async function initSqlite() {
       perfil TEXT DEFAULT 'sem_cadastro',
       status TEXT DEFAULT 'pendente',
       equipe TEXT NOT NULL,
+      lista_espera INTEGER DEFAULT 0,
       pessoa_impedida_servir INTEGER DEFAULT 0,
       pessoa_impedida_motivos TEXT,
       criado_por INTEGER NOT NULL,
@@ -689,6 +696,7 @@ async function initSqlite() {
   await addColumnIfMissing('pessoas_externas', 'evento_id INTEGER');
   await addColumnIfMissing('pessoas_externas', 'observacao TEXT');
   await addColumnIfMissing('pessoas_externas', "perfil TEXT DEFAULT 'sem_cadastro'");
+  await addColumnIfMissing('pessoas_externas', 'lista_espera INTEGER DEFAULT 0');
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_servir INTEGER DEFAULT 0');
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_motivos TEXT');
   await executar(`CREATE TABLE IF NOT EXISTS presencas_reuniao (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')), observacao TEXT, registrada_por INTEGER NOT NULL, data_registro DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(registrada_por) REFERENCES usuarios(id))`);
