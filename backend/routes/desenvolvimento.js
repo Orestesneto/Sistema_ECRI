@@ -172,10 +172,12 @@ router.get('/logs', verificarTokenDesenvolvimento, async (req, res) => {
       LIMIT 500
     `);
 
-    res.json(logs.map(log => ({
+    const logsFormatados = logs.map(log => ({
       ...log,
       detalhes: parseDetalhes(log.detalhes)
-    })));
+    }));
+    await preencherNomesPessoasNosDetalhes(logsFormatados);
+    res.json(logsFormatados);
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar logs' });
@@ -736,6 +738,37 @@ async function registrarUsuarioExcluido(usuario, excluidoPor, origem) {
       origem
     ]
   );
+}
+
+async function preencherNomesPessoasNosDetalhes(logs) {
+  const nomesPorId = new Map();
+
+  for (const log of logs) {
+    const detalhes = log.detalhes || {};
+    const pessoaId = Number(detalhes.pessoa_id);
+    const nome = String(detalhes.nome_completo || detalhes.pessoa_nome || '').trim();
+    if (pessoaId && nome) nomesPorId.set(pessoaId, nome);
+  }
+
+  const idsSemNome = [...new Set(logs
+    .map(log => Number(log.detalhes?.pessoa_id))
+    .filter(id => id && !nomesPorId.has(id)))];
+
+  if (idsSemNome.length) {
+    const placeholders = idsSemNome.map(() => '?').join(', ');
+    const pessoas = await database.all(
+      `SELECT id, nome_completo FROM pessoas_externas WHERE id IN (${placeholders})`,
+      idsSemNome
+    );
+    pessoas.forEach(pessoa => nomesPorId.set(Number(pessoa.id), pessoa.nome_completo));
+  }
+
+  logs.forEach(log => {
+    const pessoaId = Number(log.detalhes?.pessoa_id);
+    if (pessoaId && nomesPorId.has(pessoaId)) {
+      log.detalhes.pessoa_nome = nomesPorId.get(pessoaId);
+    }
+  });
 }
 
 async function registrarPessoaExternaExcluida(pessoa, excluidoPor, origem) {

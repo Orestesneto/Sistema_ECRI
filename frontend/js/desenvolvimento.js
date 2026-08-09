@@ -6,6 +6,7 @@ let carografoDevCache = [];
 let equipesDevCache = [];
 let blusasDevCache = [];
 let excluidosDevCache = [];
+let logsDevCache = [];
 
 const EQUIPES_SERVIDAS_DEV = [
     'Apresentadores',
@@ -69,6 +70,7 @@ document.getElementById('sairDev')?.addEventListener('click', () => {
 });
 
 document.getElementById('atualizarLogsDev')?.addEventListener('click', carregarLogsDev);
+document.getElementById('filtroLogsDevUsuario')?.addEventListener('input', aplicarFiltroLogsDev);
 document.getElementById('atualizarBlusasDev')?.addEventListener('click', carregarBlusasDev);
 document.getElementById('atualizarExcluidosDev')?.addEventListener('click', carregarExcluidosDev);
 document.getElementById('pararPedidosBlusaDev')?.addEventListener('change', salvarConfiguracoesDev);
@@ -129,7 +131,8 @@ async function carregarLogsDev() {
             return;
         }
 
-        renderizarLogsDev(logs);
+        logsDevCache = Array.isArray(logs) ? logs : [];
+        aplicarFiltroLogsDev();
     } catch (err) {
         mostrarAlertaDev('Erro ao carregar logs', 'danger');
         console.error(err);
@@ -847,6 +850,17 @@ function abrirModalResumoCarografoDev(usuarioId, tipoCadastro = 'usuario') {
     `;
 
     new bootstrap.Modal(modalEl).show();
+}
+
+function aplicarFiltroLogsDev() {
+    const termo = normalizarTextoFiltroDev(document.getElementById('filtroLogsDevUsuario')?.value || '');
+    const logs = termo
+        ? logsDevCache.filter(log => {
+            const usuario = log.nome_completo || log.detalhes?.pessoa_nome || log.detalhes?.nome_completo || `ID ${log.usuario_id}`;
+            return normalizarTextoFiltroDev(usuario).includes(termo);
+        })
+        : logsDevCache;
+    renderizarLogsDev(logs);
 }
 
 async function atualizarPessoaImpedidaServirDev(usuarioId, checkbox) {
@@ -1637,7 +1651,14 @@ function formatarDataHora(valor) {
 function formatarDetalhes(detalhes) {
     if (!detalhes || typeof detalhes !== 'object') return '';
     return Object.entries(detalhes)
-        .map(([chave, valor]) => `${chave}: ${valor}`)
+        .filter(([chave]) => chave !== 'pessoa_nome' && !(chave === 'nome_completo' && detalhes.pessoa_id))
+        .map(([chave, valor]) => {
+            if (chave === 'pessoa_id') {
+                const nome = detalhes.pessoa_nome || detalhes.nome_completo;
+                return `pessoa: ${nome || `ID ${valor}`}`;
+            }
+            return `${chave}: ${valor}`;
+        })
         .join(' | ');
 }
 
