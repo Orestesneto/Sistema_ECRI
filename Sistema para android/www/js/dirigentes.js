@@ -513,7 +513,6 @@ function renderizarResumoEquipes(equipesResumo) {
 
     const totais = equipesResumo.reduce((acc, item) => {
         const casais = Number(item.ecc || 0) + Number(item.jovensEjcCasados || 0);
-        acc.quantidadePessoas += Number(item.quantidadePessoas || 0);
         acc.ejc += Number(item.ejc || 0);
         acc.ec += Number(item.ec || 0);
         acc.casais += casais;
@@ -521,7 +520,6 @@ function renderizarResumoEquipes(equipesResumo) {
         acc.totalPonderado += Number(item.totalPonderado || 0);
         return acc;
     }, {
-        quantidadePessoas: 0,
         ejc: 0,
         ec: 0,
         casais: 0,
@@ -534,7 +532,6 @@ function renderizarResumoEquipes(equipesResumo) {
         return `
             <tr>
                 <td><strong>${escapeHtml(item.equipe)}</strong></td>
-                <td>${Number(item.quantidadePessoas || 0)}</td>
                 <td>${Number(item.ecri || 0)}</td>
                 <td>${Number(item.ejc || 0)}</td>
                 <td>${Number(item.ec || 0)}</td>
@@ -554,7 +551,6 @@ function renderizarResumoEquipes(equipesResumo) {
             <thead>
                 <tr>
                     <th>Equipe</th>
-                    <th>Pessoas escaladas</th>
                     <th>ECRI</th>
                     <th>EJC</th>
                     <th>EC</th>
@@ -567,7 +563,6 @@ function renderizarResumoEquipes(equipesResumo) {
             <tfoot>
                 <tr class="table-secondary">
                     <th>Total</th>
-                    <th>${totais.quantidadePessoas}</th>
                     <th>${totais.ecri}</th>
                     <th>${totais.ejc}</th>
                     <th>${totais.ec}</th>
