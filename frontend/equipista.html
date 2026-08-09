@@ -215,11 +215,19 @@
                 <form id="formPagamento" class="mt-3">
                     <div class="row g-3">
                         <div class="col-md-4">
-                            <label class="form-label" for="tipoPagamento">Tipo</label>
-                            <select class="form-select" id="tipoPagamento" required>
-                                <option value="taxa">Taxa do encontro</option>
-                                <option value="blusa">Camisa / Blusa</option>
-                            </select>
+                            <label class="form-label d-block">Tipo</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="tipoPagamento" id="tipoPagamentoTaxa" value="taxa" checked>
+                                <label class="form-check-label" for="tipoPagamentoTaxa">Taxa</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="tipoPagamento" id="tipoPagamentoBlusa" value="blusa">
+                                <label class="form-check-label" for="tipoPagamentoBlusa">Blusa</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="tipoPagamento" id="tipoPagamentoTaxaBlusa" value="taxa_blusa">
+                                <label class="form-check-label" for="tipoPagamentoTaxaBlusa">Taxa + Blusa</label>
+                            </div>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="valorPagamento">Valor</label>

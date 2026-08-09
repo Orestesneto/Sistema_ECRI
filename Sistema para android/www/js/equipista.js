@@ -222,7 +222,9 @@ document.getElementById('formBlusa')?.addEventListener('submit', async (e) => {
     }
 });
 
-document.getElementById('tipoPagamento')?.addEventListener('change', atualizarValorPagamento);
+document.querySelectorAll('input[name="tipoPagamento"]').forEach((radio) => {
+    radio.addEventListener('change', atualizarValorPagamento);
+});
 document.getElementById('anoEncontro')?.addEventListener('input', limitarCampoNumerico);
 document.querySelectorAll('input[name="formaPagamentoOnline"]').forEach((radio) => {
     radio.addEventListener('change', atualizarAvisoTaxaCartao);
@@ -230,7 +232,7 @@ document.querySelectorAll('input[name="formaPagamentoOnline"]').forEach((radio) 
 atualizarAvisoTaxaCartao();
 
 function atualizarValorPagamento() {
-    const tipo = document.getElementById('tipoPagamento').value;
+    const tipo = obterTipoPagamentoSelecionado();
     const valorInput = document.getElementById('valorPagamento');
 
     if (tipo === 'taxa') {
@@ -242,6 +244,13 @@ function atualizarValorPagamento() {
 
     if (tipo === 'blusa') {
         valorInput.value = valorBlusasPendentesPagamento || 0;
+        valorInput.readOnly = true;
+        return;
+    }
+
+    if (tipo === 'taxa_blusa') {
+        const valorTaxa = Number(TAXAS_POR_MOVIMENTO[movimentoOrigemUsuário] || 0);
+        valorInput.value = valorTaxa + Number(valorBlusasPendentesPagamento || 0);
         valorInput.readOnly = true;
         return;
     }
@@ -274,12 +283,16 @@ function atualizarAvisoTaxaCartao() {
 document.getElementById('formPagamento')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    const tipo = document.getElementById('tipoPagamento').value;
+    const tipo = obterTipoPagamentoSelecionado();
     const valor = parseFloat(document.getElementById('valorPagamento').value);
     const formaPagamento = document.querySelector('input[name="formaPagamentoOnline"]:checked')?.value || '';
 
     await solicitarPagamentoEquipista(tipo, valor, formaPagamento);
 });
+
+function obterTipoPagamentoSelecionado() {
+    return document.querySelector('input[name="tipoPagamento"]:checked')?.value || 'taxa';
+}
 
 async function solicitarPagamentoEquipista(tipo, valor, formaPagamento) {
     if (formaPagamento === 'pix') {
@@ -606,7 +619,7 @@ async function carregarStatus() {
         
         const resumoBlusas = data.resumo_blusas || {};
         valorBlusasPendentesPagamento = Number(resumoBlusas.pendente || 0);
-        if (document.getElementById('tipoPagamento')?.value === 'blusa') {
+        if (['blusa', 'taxa_blusa'].includes(obterTipoPagamentoSelecionado())) {
             atualizarValorPagamento();
         }
         const pagamentoBlusaPendente = (data.pagamentos || [])

@@ -1637,7 +1637,7 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       LEFT JOIN pagamentos p ON p.id = (
         SELECT p2.id
         FROM pagamentos p2
-        WHERE p2.usuario_id = u.id AND p2.tipo = 'taxa'
+        WHERE p2.usuario_id = u.id AND p2.tipo IN ('taxa', 'taxa_blusa')
         ORDER BY CASE WHEN p2.status = 'confirmado' THEN 0 WHEN p2.status = 'pendente' THEN 1 ELSE 2 END,
                  p2.data_solicitacao DESC,
                  p2.id DESC

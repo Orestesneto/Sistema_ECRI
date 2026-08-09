@@ -416,7 +416,7 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
     }
 
     const pagamento = await database.get(`
-      SELECT p.id, p.tipo, p.valor, p.forma_pagamento, u.equipe, u.perfil
+      SELECT p.id, p.usuario_id, p.tipo, p.valor, p.forma_pagamento, u.equipe, u.perfil
       FROM pagamentos p
       JOIN usuarios u ON p.usuario_id = u.id
       WHERE p.id = ?
@@ -443,6 +443,14 @@ router.put('/confirmar-pagamento/:id', verificarToken, verificarPerfil(['coorden
        WHERE id = ?`,
       [valorConfirmacaoManual, usuario_id, forma_pagamento, pagamento_id]
     );
+    if (pagamento.tipo === 'taxa_blusa') {
+      await database.run(
+        `UPDATE solicitacoes_blusa
+         SET status = 'confirmado', data_confirmacao = CURRENT_TIMESTAMP, forma_pagamento = ?, confirmado_por = ?
+         WHERE usuario_id = ? AND status = 'pendente'`,
+        [forma_pagamento, usuario_id, pagamento.usuario_id]
+      );
+    }
     await registrarHistorico(usuario_id, 'pagamento_confirmado', {
       pagamento_id,
       forma_pagamento,
@@ -896,7 +904,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
              u.movimento_origem, u.equipe, u.perfil,
              p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento, p.confirmado_por
       FROM usuarios u
-      LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo = 'taxa'
+      LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo IN ('taxa', 'taxa_blusa')
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'

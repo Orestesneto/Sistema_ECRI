@@ -54,6 +54,7 @@ function obterEmailPagadorMercadoPago(usuario) {
 function obterDescricaoItemPagamento(tipo) {
   if (tipo === 'taxa') return 'Taxa do encontro ECRI';
   if (tipo === 'blusa') return 'Blusas ECRI';
+  if (tipo === 'taxa_blusa') return 'Taxa do encontro + Blusas ECRI';
   return 'Pagamento ECRI';
 }
 
@@ -331,7 +332,7 @@ async function sincronizarBlusasComPagamentosOnline(usuarioId = null) {
            SELECT p2.id
            FROM pagamentos p2
            WHERE p2.usuario_id = sb.usuario_id
-             AND p2.tipo = 'blusa'
+             AND p2.tipo IN ('blusa', 'taxa_blusa')
              AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
              AND p2.data_solicitacao >= sb.data_solicitacao
            ORDER BY p2.data_solicitacao DESC, p2.id DESC
@@ -353,7 +354,7 @@ async function sincronizarBlusasComPagamentosOnline(usuarioId = null) {
              SELECT p2.id
              FROM pagamentos p2
              WHERE p2.usuario_id = sb.usuario_id
-               AND p2.tipo = 'blusa'
+               AND p2.tipo IN ('blusa', 'taxa_blusa')
                AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
                AND p2.data_solicitacao >= sb.data_solicitacao
              ORDER BY p2.data_solicitacao DESC, p2.id DESC
@@ -370,7 +371,7 @@ async function sincronizarBlusasComPagamentosOnline(usuarioId = null) {
            SELECT p2.id
            FROM pagamentos p2
            WHERE p2.usuario_id = sb.usuario_id
-             AND p2.tipo = 'blusa'
+             AND p2.tipo IN ('blusa', 'taxa_blusa')
              AND p2.status IN ('confirmado', 'ressarcido', 'estornado')
              AND p2.data_solicitacao >= sb.data_solicitacao
            ORDER BY p2.data_solicitacao DESC, p2.id DESC
@@ -418,7 +419,7 @@ router.post('/mercado-pago/webhook', async (req, res) => {
         [statusReversao, formaPagamento, pagamentoLocal.id]
       );
 
-      if (pagamentoLocal.tipo === 'blusa') {
+      if (['blusa', 'taxa_blusa'].includes(pagamentoLocal.tipo)) {
         await reabrirBlusasConfirmadasPorPagamentoOnline(pagamentoLocal.usuario_id, formaPagamento);
       }
 
@@ -442,7 +443,7 @@ router.post('/mercado-pago/webhook', async (req, res) => {
         [formaPagamento, pagamentoLocal.id]
       );
 
-      if (pagamentoLocal.tipo === 'blusa') {
+      if (['blusa', 'taxa_blusa'].includes(pagamentoLocal.tipo)) {
         await confirmarBlusasPendentes(pagamentoLocal.usuario_id, formaPagamento, null);
       }
 
@@ -689,7 +690,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     const usuario_id = req.usuario.id;
     const formasPermitidas = ['pix', 'cartao_credito'];
 
-    if (!tipo || !['taxa', 'blusa'].includes(tipo)) {
+    if (!tipo || !['taxa', 'blusa', 'taxa_blusa'].includes(tipo)) {
       return res.status(400).json({ erro: 'Tipo inválido' });
     }
 
@@ -724,7 +725,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
       ? TAXAS_POR_MOVIMENTO[movimentoOrigem]
       : Number(valor);
 
-    if (tipo === 'blusa') {
+    if (['blusa', 'taxa_blusa'].includes(tipo)) {
       await sincronizarBlusasComPagamentosOnline(usuario_id);
       const resumoBlusas = await database.get(
         `SELECT COALESCE(SUM(valor), 0) AS total
@@ -732,7 +733,13 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
          WHERE usuario_id = ? AND status = 'pendente'`,
         [usuario_id]
       );
-      valorPagamento = Number(resumoBlusas?.total || 0);
+      const valorBlusas = Number(resumoBlusas?.total || 0);
+      if (tipo === 'taxa_blusa' && valorBlusas <= 0) {
+        return res.status(400).json({ erro: 'Não há blusa pendente para pagamento' });
+      }
+      valorPagamento = tipo === 'taxa_blusa'
+        ? Number(TAXAS_POR_MOVIMENTO[movimentoOrigem] || 0) + valorBlusas
+        : valorBlusas;
     }
 
     if (!valorPagamento || valorPagamento <= 0) {
@@ -742,14 +749,14 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     const valoresPagamento = aplicarTaxasPagamento(valorPagamento, forma_pagamento);
     valorPagamento = valoresPagamento.valorFinal;
 
-    if (tipo === 'taxa' || tipo === 'blusa') {
+    if (['taxa', 'blusa', 'taxa_blusa'].includes(tipo)) {
       const pagamentoExistente = await database.get(
         `SELECT id, valor, status, forma_pagamento, mercado_pago_preference_id, mercado_pago_payment_id,
                 mercado_pago_init_point, mercado_pago_sandbox_init_point, pix_qr_code, pix_qr_code_base64
          FROM pagamentos
          WHERE usuario_id = ?
            AND tipo = ?
-           AND ((? = 'taxa' AND status IN ('pendente', 'confirmado')) OR (? = 'blusa' AND status = 'pendente'))
+           AND ((? IN ('taxa', 'taxa_blusa') AND status IN ('pendente', 'confirmado')) OR (? IN ('blusa', 'taxa_blusa') AND status = 'pendente'))
          ORDER BY CASE WHEN status = 'confirmado' THEN 0 ELSE 1 END, id ASC
          LIMIT 1`,
         [usuario_id, tipo, tipo, tipo]
