@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarAcompanhamentoFaltas();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
-    configurarAtualizacaoAbasDirigenteTempoReal();
+    // Os dados são atualizados somente ao carregar a página ou após ações explícitas.
     // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
 

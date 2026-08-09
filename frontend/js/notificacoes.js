@@ -1,7 +1,6 @@
 (function iniciarNotificacoesApp() {
     const API_NOTIFICACOES = (window.SISTEMA_ECRI_CONFIG && window.SISTEMA_ECRI_CONFIG.apiUrl)
         || (window.location.protocol === 'file:' ? 'https://sistema-ecri.vercel.app/api' : window.location.origin + '/api');
-    const INTERVALO_NOTIFICACOES_MS = 70000;
     const idsExibidos = new Set();
     let buscando = false;
 
@@ -190,6 +189,5 @@
         renovarSessaoLonga();
         iniciarPushNativo();
         buscarNotificacoes();
-        setInterval(buscarNotificacoes, INTERVALO_NOTIFICACOES_MS);
     });
 })();
