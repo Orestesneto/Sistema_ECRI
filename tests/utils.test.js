@@ -123,13 +123,15 @@ test('Telefone: normaliza celular e campo de casal', () => {
   assert.equal(normalizarCampoTelefoneContato('Esposa: 8388887777 | Marido: 83977776666'), 'Esposa: 83988887777 | Marido: 83977776666');
 });
 
-test('Telefone unico: bloqueia telefone repetido e permite ECC/ECRI', async () => {
+test('Telefone unico: permite duplicidade envolvendo ECRI com EC, EJC, ECC ou ECRI', async () => {
   const database = {
     async all(sql) {
       if (sql.includes('FROM usuarios')) {
         return [
           { id: 1, nome_completo: 'Usuario EC', telefone: '83999999999', movimento_origem: 'EC', tipo: 'usuario' },
-          { id: 2, nome_completo: 'Usuario ECC', telefone: '83888888888', movimento_origem: 'ECC', tipo: 'usuario' }
+          { id: 2, nome_completo: 'Usuario ECC', telefone: '83888888888', movimento_origem: 'ECC', tipo: 'usuario' },
+          { id: 3, nome_completo: 'Usuario EJC', telefone: '83777777777', movimento_origem: 'EJC', tipo: 'usuario' },
+          { id: 4, nome_completo: 'Usuario ECRI', telefone: '83666666666', movimento_origem: 'ECRI', tipo: 'usuario' }
         ];
       }
       return [];
@@ -147,7 +149,29 @@ test('Telefone unico: bloqueia telefone repetido e permite ECC/ECRI', async () =
   assert.deepEqual(await validarTelefoneUnico(database, '83888888888', 'ECRI'), {
     valido: true
   });
-  assert.deepEqual(await validarTelefoneUnico(database, '83777777777', 'EJC'), {
+  assert.deepEqual(await validarTelefoneUnico(database, '83999999999', 'ECRI'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83777777777', 'ECRI'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83666666666', 'EC'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83666666666', 'EJC'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83666666666', 'ECC'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83666666666', 'ECRI'), {
+    valido: true
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83777777777', 'EC'), {
+    valido: false,
+    erro: 'Telefone j\u00e1 cadastrado para Usuario EJC'
+  });
+  assert.deepEqual(await validarTelefoneUnico(database, '83555555555', 'EJC'), {
     valido: true
   });
 });

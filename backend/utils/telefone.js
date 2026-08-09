@@ -2,8 +2,15 @@
 const { normalizarMovimentoOrigem } = require('./movimentoOrigem');
 
 function duplicidadePermitidaPorMovimento(movimentoA, movimentoB) {
-  const movimentos = [normalizarMovimentoOrigem(movimentoA), normalizarMovimentoOrigem(movimentoB)].sort();
-  return movimentos[0] === 'ECC' && movimentos[1] === 'ECRI';
+  const movimentoNormalizadoA = normalizarMovimentoOrigem(movimentoA);
+  const movimentoNormalizadoB = normalizarMovimentoOrigem(movimentoB);
+  const outroMovimento = movimentoNormalizadoA === 'ECRI'
+    ? movimentoNormalizadoB
+    : movimentoNormalizadoB === 'ECRI'
+      ? movimentoNormalizadoA
+      : '';
+
+  return ['EC', 'EJC', 'ECC', 'ECRI'].includes(outroMovimento);
 }
 
 function normalizarTelefoneCelular(valor) {
