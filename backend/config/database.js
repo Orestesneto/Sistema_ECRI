@@ -516,10 +516,24 @@ async function initPostgres() {
     )
   `);
 
+  await corrigirMovimentoOrigemCadastrosEc();
+
   if (process.env.SKIP_DB_SEED !== '1') {
     await seedDirigenteInicial();
   }
   console.log('Tabelas do banco PostgreSQL criadas/verificadas');
+}
+
+async function corrigirMovimentoOrigemCadastrosEc() {
+  const nomes = `(
+    'ANACLARAFREIRE(EC)',
+    'MAGNA(EC)',
+    'MARIACRISTINAXAVIER(EC)',
+    'ROSALIA(EC)'
+  )`;
+
+  await executar(`UPDATE usuarios SET movimento_origem = 'EC' WHERE UPPER(REPLACE(nome_completo, ' ', '')) IN ${nomes} AND movimento_origem <> 'EC'`);
+  await executar(`UPDATE pessoas_externas SET movimento_origem = 'EC' WHERE UPPER(REPLACE(nome_completo, ' ', '')) IN ${nomes} AND movimento_origem <> 'EC'`);
 }
 
 async function initSqlite() {
@@ -687,6 +701,8 @@ async function initSqlite() {
   await addColumnIfMissing('almoxarifado_protocolos', 'data_prevista_retirada DATE');
   await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_protocolo_itens (id INTEGER PRIMARY KEY AUTOINCREMENT, protocolo_id INTEGER NOT NULL, item_id INTEGER NOT NULL, quantidade INTEGER NOT NULL, quantidade_devolvida INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(protocolo_id) REFERENCES almoxarifado_protocolos(id), FOREIGN KEY(item_id) REFERENCES almoxarifado_itens(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_devolucoes (id INTEGER PRIMARY KEY AUTOINCREMENT, protocolo_id INTEGER NOT NULL, item_id INTEGER NOT NULL, quantidade INTEGER NOT NULL, devolvido_por INTEGER NOT NULL, data_devolucao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(protocolo_id) REFERENCES almoxarifado_protocolos(id), FOREIGN KEY(item_id) REFERENCES almoxarifado_itens(id), FOREIGN KEY(devolvido_por) REFERENCES usuarios(id))`);
+
+  await corrigirMovimentoOrigemCadastrosEc();
 
   if (process.env.SKIP_DB_SEED !== '1') {
     await seedDirigenteInicial();
