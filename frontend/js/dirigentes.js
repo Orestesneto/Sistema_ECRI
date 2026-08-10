@@ -3950,11 +3950,16 @@ function renderizarProtocolosAlmoxarifado() {
             ? `<button class="btn btn-sm btn-outline-primary" onclick="abrirEdicaoItensProtocoloAlmoxarifado(${protocolo.id})">Editar itens</button><button class="btn btn-sm btn-success" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'entregar')">Registrar entrega</button><button class="btn btn-sm btn-outline-danger" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'cancelar')">Cancelar</button>`
             : ['entregue', 'parcialmente_devolvido'].includes(protocolo.status)
                 ? `<button class="btn btn-sm btn-primary" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'devolver')">Registrar devolução</button>` : '';
+        const aceite = protocolo.aceite_data
+            ? `<span class="badge bg-success align-self-center">Recebimento assinado em ${formatarDataHoraAlmoxarifado(protocolo.aceite_data)}</span>`
+            : ['entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)
+                ? `<button class="btn btn-sm btn-success" onclick="enviarLinkRecebimentoWhatsappAlmoxarifado(${protocolo.id})">Enviar recebimento pelo WhatsApp</button>`
+                : '';
         return `<article class="card mb-3 almox-protocolo-card"><div class="card-body">
             <div class="d-flex flex-wrap justify-content-between gap-2"><div><h5 class="mb-1">Protocolo #${Number(protocolo.id)}</h5><span class="badge bg-${cor}">${texto}</span></div><small class="text-muted">Criado em ${formatarDataHoraAlmoxarifado(protocolo.data_criacao)}</small></div>
             <div class="row mt-3"><div class="col-md-4"><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</div><div class="col-md-4"><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</div><div class="col-md-4"><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</div></div>
             <p class="mb-1 mt-2"><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p>${protocolo.observacao ? `<p class="mb-1"><strong>Observação:</strong> ${escapeHtml(protocolo.observacao)}</p>` : ''}
-            <ul class="mb-3">${itens}</ul><div class="d-flex flex-wrap gap-2">${acoes}<button class="btn btn-sm btn-outline-secondary" onclick="imprimirProtocoloAlmoxarifado(${protocolo.id})">Imprimir protocolo</button></div>
+            <ul class="mb-3">${itens}</ul><div class="d-flex flex-wrap gap-2">${acoes}${aceite}</div>
         </div></article>`;
     }).join('');
 }
@@ -4090,17 +4095,41 @@ function formatarDataHoraAlmoxarifado(valor) {
     return Number.isNaN(data.getTime()) ? escapeHtml(valor) : data.toLocaleString('pt-BR');
 }
 
-function imprimirProtocoloAlmoxarifado(protocoloId) {
+async function enviarLinkRecebimentoWhatsappAlmoxarifado(protocoloId) {
     const protocolo = almoxarifadoProtocolosCache.find(item => Number(item.id) === Number(protocoloId));
-    if (!protocolo) return;
-    const itens = (protocolo.itens || []).map(item => `<tr><td>${escapeHtml(item.nome)}</td><td>${Number(item.quantidade)}</td><td>${escapeHtml(item.unidade)}</td></tr>`).join('');
-    const responsavelAlmoxarifado = protocolo.entregue_por_nome || 'Responsável pelo almoxarifado';
-    const cpfSolicitante = formatarCpfProtocoloAlmoxarifado(protocolo.solicitante_cpf);
-    const telefoneSolicitante = formatarTelefoneProtocoloAlmoxarifado(protocolo.solicitante_telefone);
-    const janela = window.open('', '_blank', 'width=800,height=700');
-    if (!janela) return;
-    janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Protocolo #${protocolo.id}</title><style>body{font-family:Arial,sans-serif;margin:40px;color:#222}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #aaa;padding:8px;text-align:left}.assinaturas{display:flex;gap:50px;margin-top:70px}.assinatura{flex:1;border-top:1px solid #333;text-align:center;padding-top:6px}.funcao{display:block;font-size:12px;color:#555;margin-top:3px}@media print{button{display:none}}</style></head><body><h1>Protocolo de Almoxarifado #${protocolo.id}</h1><p><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</p><p><strong>CPF:</strong> ${escapeHtml(cpfSolicitante)}</p><p><strong>Telefone:</strong> ${escapeHtml(telefoneSolicitante)}</p><p><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</p><p><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p><p><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</p><table><thead><tr><th>Item</th><th>Quantidade</th><th>Unidade</th></tr></thead><tbody>${itens}</tbody></table><p><strong>Observação:</strong> ${escapeHtml(protocolo.observacao || '-')}</p><div class="assinaturas"><div class="assinatura">${escapeHtml(responsavelAlmoxarifado)}<span class="funcao">Responsável pela liberação dos itens</span></div><div class="assinatura">${escapeHtml(protocolo.solicitante)}<span class="funcao">Solicitante</span></div></div><button onclick="window.print()">Imprimir</button></body></html>`);
-    janela.document.close();
+    const telefone = normalizarTelefoneWhatsappAlmoxarifado(protocolo?.solicitante_telefone);
+    if (!telefone) {
+        mostrarAlerta('alertaDirigentes', 'O solicitante não possui um telefone válido para envio pelo WhatsApp.', 'warning');
+        return;
+    }
+    const janelaWhatsapp = window.open('about:blank', '_blank');
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/almoxarifado/protocolos/${protocoloId}/link-recebimento`, {
+            method: 'POST', headers: getHeaders(), body: '{}'
+        });
+        const resultado = await response.json();
+        if (!response.ok) throw new Error(resultado.erro || 'Não foi possível gerar o link');
+        const mensagem = `Olá, ${protocolo.solicitante}. Confirme o recebimento dos materiais do protocolo #${protocoloId} acessando o link: ${resultado.link}`;
+        const linkWhatsapp = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
+        if (janelaWhatsapp) {
+            janelaWhatsapp.location.href = linkWhatsapp;
+        } else {
+            window.location.href = linkWhatsapp;
+        }
+        mostrarAlerta('alertaDirigentes', 'WhatsApp aberto com a mensagem de confirmação pronta para envio.', 'success');
+        await carregarAlmoxarifado();
+    } catch (err) {
+        janelaWhatsapp?.close();
+        console.error(err);
+        mostrarAlerta('alertaDirigentes', err.message || 'Erro ao abrir o envio pelo WhatsApp', 'danger');
+    }
+}
+
+function normalizarTelefoneWhatsappAlmoxarifado(valor) {
+    let numeros = String(valor || '').replace(/\D/g, '');
+    if (numeros.startsWith('55') && (numeros.length === 12 || numeros.length === 13)) return numeros;
+    if (numeros.length === 10 || numeros.length === 11) numeros = `55${numeros}`;
+    return numeros.length === 12 || numeros.length === 13 ? numeros : '';
 }
 
 function formatarCpfProtocoloAlmoxarifado(valor) {

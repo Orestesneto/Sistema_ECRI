@@ -1,5 +1,6 @@
 ﻿const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const database = require('../config/database');
 const { verificarToken, verificarPerfil } = require('../middleware/auth');
 const { normalizarMovimentoOrigem, movimentoOrigemValido } = require('../utils/movimentoOrigem');
@@ -15,6 +16,22 @@ const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoe
 const { criarNotificacoesParaUsuarios } = require('../utils/notificacoes');
 
 const router = express.Router();
+
+function obterBaseUrlAlmoxarifado(req) {
+  const protocolo = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.get('host') || '').split(',')[0].trim();
+  return `${protocolo}://${host}`;
+}
+
+async function gerarCodigoAceiteAlmoxarifado() {
+  for (let tentativa = 0; tentativa < 6; tentativa += 1) {
+    const codigo = crypto.randomBytes(5).toString('base64url');
+    const existente = await database.get('SELECT codigo FROM almoxarifado_aceites WHERE codigo = ?', [codigo]);
+    const linkExistente = await database.get('SELECT codigo FROM links_encurtados WHERE codigo = ?', [codigo]);
+    if (!existente && !linkExistente) return codigo;
+  }
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+}
 const TAXAS_POR_MOVIMENTO = {
   EC: 25,
   EJC: 25,
@@ -1903,12 +1920,17 @@ router.get('/almoxarifado/protocolos', verificarToken, verificarPerfil(['equipe_
              us.cpf AS solicitante_cpf,
              us.telefone AS solicitante_telefone,
              ue.nome_completo AS entregue_por_nome,
-             ud.nome_completo AS devolvido_por_nome
+             ud.nome_completo AS devolvido_por_nome,
+             aa.codigo AS aceite_codigo,
+             aa.data_aceite AS aceite_data,
+             ua.nome_completo AS aceite_usuario_nome
       FROM almoxarifado_protocolos p
       LEFT JOIN usuarios u ON u.id = p.criado_por
       LEFT JOIN usuarios us ON us.id = p.solicitante_usuario_id
       LEFT JOIN usuarios ue ON ue.id = p.entregue_por
       LEFT JOIN usuarios ud ON ud.id = p.devolvido_por
+      LEFT JOIN almoxarifado_aceites aa ON aa.protocolo_id = p.id
+      LEFT JOIN usuarios ua ON ua.id = aa.usuario_id
       ORDER BY p.id DESC
     `);
     const itens = await database.all(`
@@ -1925,6 +1947,37 @@ router.get('/almoxarifado/protocolos', verificarToken, verificarPerfil(['equipe_
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter protocolos' });
+  }
+});
+
+router.post('/almoxarifado/protocolos/:protocolo_id/link-recebimento', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const protocoloId = Number(req.params.protocolo_id);
+    const protocolo = await database.get('SELECT id, status, solicitante_usuario_id FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]);
+    if (!protocolo) return res.status(404).json({ erro: 'Protocolo não encontrado' });
+    if (!protocolo.solicitante_usuario_id) return res.status(400).json({ erro: 'O protocolo não possui um solicitante cadastrado' });
+    if (!['entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)) {
+      return res.status(400).json({ erro: 'Registre a entrega antes de gerar o link de recebimento' });
+    }
+
+    let aceite = await database.get('SELECT codigo, data_aceite FROM almoxarifado_aceites WHERE protocolo_id = ?', [protocoloId]);
+    if (!aceite) {
+      const codigo = await gerarCodigoAceiteAlmoxarifado();
+      await database.run('INSERT INTO almoxarifado_aceites (protocolo_id, codigo) VALUES (?, ?)', [protocoloId, codigo]);
+      aceite = { codigo, data_aceite: null };
+    }
+
+    const destino = `/frontend/aceite-almoxarifado.html?codigo=${encodeURIComponent(aceite.codigo)}`;
+    const linkExistente = await database.get('SELECT codigo FROM links_encurtados WHERE codigo = ?', [aceite.codigo]);
+    if (!linkExistente) await database.run('INSERT INTO links_encurtados (codigo, destino) VALUES (?, ?)', [aceite.codigo, destino]);
+    res.json({
+      mensagem: aceite.data_aceite ? 'O recebimento já foi confirmado' : 'Link de recebimento gerado',
+      link: `${obterBaseUrlAlmoxarifado(req)}/c/${aceite.codigo}`,
+      assinado: Boolean(aceite.data_aceite)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao gerar link de recebimento' });
   }
 });
 

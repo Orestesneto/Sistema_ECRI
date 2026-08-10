@@ -41,7 +41,7 @@ function prepararSqlPostgres(sql, params = []) {
     texto += ' ON CONFLICT (jti) DO NOTHING';
   }
 
-  const tabelaSemId = /^\s*INSERT\s+INTO\s+(configuracoes|tokens_confirmacao_utilizados|links_encurtados)\b/i.test(texto);
+  const tabelaSemId = /^\s*INSERT\s+INTO\s+(configuracoes|tokens_confirmacao_utilizados|links_encurtados|almoxarifado_aceites)\b/i.test(texto);
   if (/^\s*INSERT\s+INTO/i.test(texto) && !tabelaSemId && !/RETURNING\b/i.test(texto) && !/ON\s+CONFLICT\s*\([^)]+\)\s*DO\s+UPDATE/i.test(texto)) {
     texto += ' RETURNING id';
   }
@@ -520,6 +520,18 @@ async function initPostgres() {
     )
   `);
 
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS almoxarifado_aceites (
+      protocolo_id INTEGER PRIMARY KEY REFERENCES almoxarifado_protocolos(id),
+      codigo TEXT UNIQUE NOT NULL,
+      usuario_id INTEGER REFERENCES usuarios(id),
+      data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      data_aceite TIMESTAMP,
+      ip_aceite TEXT,
+      navegador_aceite TEXT
+    )
+  `);
+
   await corrigirMovimentoOrigemCadastrosEc();
 
   if (process.env.SKIP_DB_SEED !== '1') {
@@ -709,6 +721,7 @@ async function initSqlite() {
   await addColumnIfMissing('almoxarifado_protocolos', 'data_prevista_retirada DATE');
   await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_protocolo_itens (id INTEGER PRIMARY KEY AUTOINCREMENT, protocolo_id INTEGER NOT NULL, item_id INTEGER NOT NULL, quantidade INTEGER NOT NULL, quantidade_devolvida INTEGER NOT NULL DEFAULT 0, FOREIGN KEY(protocolo_id) REFERENCES almoxarifado_protocolos(id), FOREIGN KEY(item_id) REFERENCES almoxarifado_itens(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_devolucoes (id INTEGER PRIMARY KEY AUTOINCREMENT, protocolo_id INTEGER NOT NULL, item_id INTEGER NOT NULL, quantidade INTEGER NOT NULL, devolvido_por INTEGER NOT NULL, data_devolucao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(protocolo_id) REFERENCES almoxarifado_protocolos(id), FOREIGN KEY(item_id) REFERENCES almoxarifado_itens(id), FOREIGN KEY(devolvido_por) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_aceites (protocolo_id INTEGER PRIMARY KEY, codigo TEXT UNIQUE NOT NULL, usuario_id INTEGER, data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP, data_aceite DATETIME, ip_aceite TEXT, navegador_aceite TEXT, FOREIGN KEY(protocolo_id) REFERENCES almoxarifado_protocolos(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id))`);
 
   await corrigirMovimentoOrigemCadastrosEc();
 

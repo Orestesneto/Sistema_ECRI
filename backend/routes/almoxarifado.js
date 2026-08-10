@@ -5,6 +5,62 @@ const { verificarToken, verificarPerfil } = require('../middleware/auth');
 const router = express.Router();
 const autenticarUsuario = [verificarToken, verificarPerfil(['equipista', 'coordenador', 'equipe_dirigente'])];
 
+router.get('/recebimento/:codigo', async (req, res) => {
+  try {
+    const protocolo = await database.get(`
+      SELECT p.id, p.solicitante, p.equipe, p.finalidade, p.status, p.data_entrega,
+             aa.data_aceite, u.nome_completo AS assinado_por
+      FROM almoxarifado_aceites aa
+      JOIN almoxarifado_protocolos p ON p.id = aa.protocolo_id
+      LEFT JOIN usuarios u ON u.id = aa.usuario_id
+      WHERE aa.codigo = ?
+    `, [String(req.params.codigo || '')]);
+    if (!protocolo) return res.status(404).json({ erro: 'Link de recebimento inválido' });
+    const itens = await database.all(`
+      SELECT i.nome, i.unidade, pi.quantidade
+      FROM almoxarifado_protocolo_itens pi
+      JOIN almoxarifado_itens i ON i.id = pi.item_id
+      WHERE pi.protocolo_id = ? ORDER BY pi.id ASC
+    `, [protocolo.id]);
+    res.json({ ...protocolo, itens });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar o recebimento' });
+  }
+});
+
+router.post('/recebimento/:codigo/assinar', ...autenticarUsuario, async (req, res) => {
+  try {
+    const aceite = await database.get(`
+      SELECT aa.protocolo_id, aa.data_aceite, p.solicitante_usuario_id, p.status
+      FROM almoxarifado_aceites aa
+      JOIN almoxarifado_protocolos p ON p.id = aa.protocolo_id
+      WHERE aa.codigo = ?
+    `, [String(req.params.codigo || '')]);
+    if (!aceite) return res.status(404).json({ erro: 'Link de recebimento inválido' });
+    if (Number(aceite.solicitante_usuario_id) !== Number(req.usuario.id)) {
+      return res.status(403).json({ erro: 'Este recebimento só pode ser assinado pelo solicitante do protocolo' });
+    }
+    if (!['entregue', 'parcialmente_devolvido', 'devolvido'].includes(aceite.status)) {
+      return res.status(400).json({ erro: 'A entrega ainda não foi registrada pelo almoxarifado' });
+    }
+    if (aceite.data_aceite) return res.json({ mensagem: 'Recebimento já confirmado', data_aceite: aceite.data_aceite });
+
+    const ip = String(req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim().slice(0, 120);
+    const navegador = String(req.headers['user-agent'] || '').slice(0, 500);
+    const result = await database.run(`
+      UPDATE almoxarifado_aceites
+      SET usuario_id = ?, data_aceite = CURRENT_TIMESTAMP, ip_aceite = ?, navegador_aceite = ?
+      WHERE protocolo_id = ? AND data_aceite IS NULL
+    `, [req.usuario.id, ip, navegador, aceite.protocolo_id]);
+    if (!result.changes) return res.status(409).json({ erro: 'O recebimento já foi confirmado' });
+    res.json({ mensagem: `Recebimento do protocolo #${aceite.protocolo_id} confirmado com sucesso` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao confirmar o recebimento' });
+  }
+});
+
 router.get('/itens', ...autenticarUsuario, async (req, res) => {
   try {
     const inicio = String(req.query.inicio || '').trim();
