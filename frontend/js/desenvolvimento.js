@@ -7,6 +7,7 @@ let equipesDevCache = [];
 let blusasDevCache = [];
 let excluidosDevCache = [];
 let logsDevCache = [];
+const abasDevCarregadas = new Set();
 
 const EQUIPES_SERVIDAS_DEV = [
     'Apresentadores',
@@ -107,13 +108,32 @@ function mostrarAreaDev(usuario) {
     document.getElementById('cardAreaDev').style.display = 'block';
     document.getElementById('usuarioDevLogado').textContent = `Usuário: ${usuario}`;
     document.getElementById('alertaDev').style.display = 'none';
-    carregarEquipesDev();
-    carregarLogsDev();
-    carregarCarografoDev();
-    carregarBlusasDev();
-    carregarExcluidosDev();
-    carregarConfiguracoesDev();
+    configurarCarregamentoAbasDev();
     abrirAbaPersistida(ABA_ATUAL_DEV_KEY, 'painelLogsDev');
+    const abaAtiva = document.querySelector('#cardAreaDev .tab-pane.active')?.id || 'painelLogsDev';
+    carregarDadosAbaDev(abaAtiva);
+}
+
+function configurarCarregamentoAbasDev() {
+    document.querySelectorAll('#cardAreaDev [data-bs-toggle="tab"]').forEach(botao => {
+        if (botao.dataset.lazyConfigurado) return;
+        botao.dataset.lazyConfigurado = '1';
+        botao.addEventListener('shown.bs.tab', event => carregarDadosAbaDev(event.target.dataset.bsTarget?.replace('#', '')));
+    });
+}
+
+async function carregarDadosAbaDev(idAba) {
+    if (!idAba || abasDevCarregadas.has(idAba)) return;
+    abasDevCarregadas.add(idAba);
+    try {
+        if (idAba === 'painelLogsDev') await carregarLogsDev();
+        if (idAba === 'painelAbaCarografoDev') await Promise.all([carregarEquipesDev(), carregarCarografoDev()]);
+        if (idAba === 'painelBlusasDev') await Promise.all([carregarConfiguracoesDev(), carregarBlusasDev()]);
+        if (idAba === 'painelExcluidosDev') await carregarExcluidosDev();
+    } catch (err) {
+        abasDevCarregadas.delete(idAba);
+        console.error(err);
+    }
 }
 
 async function carregarLogsDev() {
@@ -522,7 +542,7 @@ function renderizarExcluidosDev() {
             const origem = usuario.origem === 'equipe_dirigente' ? 'Equipe dirigente' : 'Área exclusiva';
             const excluidoPor = usuario.excluido_por_nome || usuario.excluido_por || '-';
             const fotoHtml = usuario.foto_perfil
-                ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
+                ? `<img loading="lazy" src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
                 : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
 
             return `
@@ -680,7 +700,7 @@ function renderizarCarografoDev(usuarios) {
         const tipoCadastroResumo = usuario.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(usuario.id);
         const fotoHtml = usuario.foto_perfil
-            ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
+            ? `<img loading="lazy" src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
             : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquiaDev(paroquiaValor);
         const logoParoquiaHtml = logoParoquia

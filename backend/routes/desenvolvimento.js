@@ -255,10 +255,13 @@ router.get('/usuarios/:usuario_id/acoes', verificarTokenDesenvolvimento, async (
 
 router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   try {
+    const tokenFoto = encodeURIComponent((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
-             perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos, foto_perfil, toca_instrumento, instrumentos, canta, equipes_servidas,
+             perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             toca_instrumento, instrumentos, canta, equipes_servidas,
              'usuario' AS origem_cadastro
       FROM usuarios
       ORDER BY nome_completo ASC
@@ -268,12 +271,18 @@ router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
       SELECT id, NULL AS email, nome_completo, nome_cracha, telefone, NULL AS cpf, NULL AS data_nascimento,
              movimento_origem, ano_encontro, paroquia, NULL AS restricao_medica, NULL AS restricao_alimentar,
              NULL AS restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe, 0 AS pessoa_impedida_servir,
-             NULL AS pessoa_impedida_motivos, foto_perfil, 'nao' AS toca_instrumento, '' AS instrumentos,
+             NULL AS pessoa_impedida_motivos,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             'nao' AS toca_instrumento, '' AS instrumentos,
              'nao' AS canta, NULL AS equipes_servidas, 'externo' AS origem_cadastro
       FROM pessoas_externas
     `);
 
-    res.json([...usuarios, ...pessoasExternas].sort((a, b) =>
+    const pessoas = [
+      ...usuarios.map(usuario => ({ ...usuario, foto_perfil: usuario.tem_foto_perfil ? `/api/fotos/usuario/${usuario.id}?token=${tokenFoto}` : '' })),
+      ...pessoasExternas.map(pessoa => ({ ...pessoa, foto_perfil: pessoa.tem_foto_perfil ? `/api/fotos/externo/${pessoa.id}?token=${tokenFoto}` : '' }))
+    ];
+    res.json(pessoas.sort((a, b) =>
       String(a.nome_completo || '').localeCompare(String(b.nome_completo || ''), 'pt-BR', { sensitivity: 'base' })
     ));
   } catch (err) {

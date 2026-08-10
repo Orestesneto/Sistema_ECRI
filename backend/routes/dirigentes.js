@@ -528,6 +528,10 @@ router.post('/notificacoes/equipes', verificarToken, verificarPerfil(['equipe_di
 // Obter todos os cadastros
 router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
+    const pagina = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limite = Math.min(200, Math.max(10, Number.parseInt(req.query.limit, 10) || 50));
+    const busca = String(req.query.search || '').trim().toLocaleLowerCase('pt-BR');
+    const respostaPaginada = req.query.page !== undefined || req.query.limit !== undefined || req.query.search !== undefined;
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, status, equipe, evento_id, lista_espera, pessoa_impedida_servir, pessoa_impedida_motivos,
@@ -542,9 +546,17 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
       const assinaturasUsuario = montarAssinaturasUsuarioExclusao(usuario);
       return !assinaturasUsuario.some(assinatura => assinaturasExcluidas.has(assinatura));
     });
-    const auditoriaEscalas = await obterAuditoriaEscalasUsuarios(usuariosAtivos.map(usuario => usuario.id));
-    const auditoriaCadastros = await obterAuditoriaCadastroUsuarios(usuariosAtivos.map(usuario => usuario.id));
-    const usuariosComAuditoria = usuariosAtivos
+    const usuariosFiltrados = busca
+      ? usuariosAtivos.filter(usuario => {
+        const texto = `${usuario.nome_completo || ''} ${usuario.nome_cracha || ''} ${usuario.email || ''} ${usuario.telefone || ''}`.toLocaleLowerCase('pt-BR');
+        return texto.includes(busca);
+      })
+      : usuariosAtivos;
+    const total = usuariosFiltrados.length;
+    const usuariosPaginados = respostaPaginada ? usuariosFiltrados.slice((pagina - 1) * limite, pagina * limite) : usuariosFiltrados;
+    const auditoriaEscalas = await obterAuditoriaEscalasUsuarios(usuariosPaginados.map(usuario => usuario.id));
+    const auditoriaCadastros = await obterAuditoriaCadastroUsuarios(usuariosPaginados.map(usuario => usuario.id));
+    const usuariosComAuditoria = usuariosPaginados
       .map(trocarFotoPorUrl(req, 'usuario'))
       .map(usuario => ({
         ...usuario,
@@ -552,7 +564,8 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
         ...(auditoriaEscalas.get(Number(usuario.id)) || {})
       }));
 
-    res.json(usuariosComAuditoria);
+    if (!respostaPaginada) return res.json(usuariosComAuditoria);
+    res.json({ dados: usuariosComAuditoria, total, pagina, limite, total_paginas: Math.max(1, Math.ceil(total / limite)) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter usuários' });
@@ -919,17 +932,34 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
 
 router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
+    const pagina = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limite = Math.min(200, Math.max(10, Number.parseInt(req.query.limit, 10) || 50));
+    const busca = String(req.query.search || '').trim().toLocaleLowerCase('pt-BR');
+    const respostaPaginada = req.query.page !== undefined || req.query.limit !== undefined || req.query.search !== undefined;
+    const termoBusca = `%${busca}%`;
+    const filtroSql = busca
+      ? `WHERE LOWER(COALESCE(nome_completo, '') || ' ' || COALESCE(nome_cracha, '') || ' ' || COALESCE(telefone, '')) LIKE ?`
+      : '';
+    const parametrosFiltro = busca ? [termoBusca] : [];
+    const totalRegistro = await database.get(`SELECT COUNT(*) AS total FROM pessoas_externas ${filtroSql}`, parametrosFiltro);
+    const parametrosPagina = respostaPaginada
+      ? [...parametrosFiltro, limite, (pagina - 1) * limite]
+      : parametrosFiltro;
     const pessoas = await database.all(`
       SELECT id, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro, observacao,
              CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe, evento_id, lista_espera,
              pessoa_impedida_servir, pessoa_impedida_motivos, data_cadastro, criado_por
       FROM pessoas_externas
+      ${filtroSql}
       ORDER BY data_cadastro DESC
-    `);
-    const auditoriaEscalas = await obterAuditoriaEscalasPessoasExternas(pessoas.map(pessoa => pessoa.id));
-    const criadores = await obterNomesUsuariosPorId(pessoas.map(pessoa => pessoa.criado_por));
-    const pessoasComAuditoria = pessoas.map(trocarFotoPorUrl(req, 'externo')).map(pessoa => {
+      ${respostaPaginada ? 'LIMIT ? OFFSET ?' : ''}
+    `, parametrosPagina);
+    const total = Number(totalRegistro?.total || 0);
+    const pessoasPaginadas = pessoas;
+    const auditoriaEscalas = await obterAuditoriaEscalasPessoasExternas(pessoasPaginadas.map(pessoa => pessoa.id));
+    const criadores = await obterNomesUsuariosPorId(pessoasPaginadas.map(pessoa => pessoa.criado_por));
+    const pessoasComAuditoria = pessoasPaginadas.map(trocarFotoPorUrl(req, 'externo')).map(pessoa => {
       const auditoria = auditoriaEscalas.get(Number(pessoa.id));
       return {
         ...pessoa,
@@ -939,7 +969,8 @@ router.get('/pessoas-externas', verificarToken, verificarPerfil(['equipe_dirigen
       };
     });
 
-    res.json(pessoasComAuditoria);
+    if (!respostaPaginada) return res.json(pessoasComAuditoria);
+    res.json({ dados: pessoasComAuditoria, total, pagina, limite, total_paginas: Math.max(1, Math.ceil(total / limite)) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao obter pessoas sem cadastro' });
@@ -1616,7 +1647,7 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
       totalPonderadoEquipes: equipesResumo.reduce((total, equipe) => total + equipe.totalPonderado, 0)
     };
 
-    res.json({ stats, usuarios: pessoasEscaladas, equipesResumo });
+    res.json({ stats, equipesResumo });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao gerar relatório' });
@@ -1869,10 +1900,13 @@ router.get('/almoxarifado/protocolos', verificarToken, verificarPerfil(['equipe_
   try {
     const protocolos = await database.all(`
       SELECT p.*, u.nome_completo AS criado_por_nome,
+             us.cpf AS solicitante_cpf,
+             us.telefone AS solicitante_telefone,
              ue.nome_completo AS entregue_por_nome,
              ud.nome_completo AS devolvido_por_nome
       FROM almoxarifado_protocolos p
       LEFT JOIN usuarios u ON u.id = p.criado_por
+      LEFT JOIN usuarios us ON us.id = p.solicitante_usuario_id
       LEFT JOIN usuarios ue ON ue.id = p.entregue_por
       LEFT JOIN usuarios ud ON ud.id = p.devolvido_por
       ORDER BY p.id DESC

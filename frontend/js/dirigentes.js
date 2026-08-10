@@ -3,12 +3,19 @@ const TAMANHO_MAXIMO_FOTO_MB = 3;
 const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const ABA_INICIAL_DIRIGENTE_KEY = 'dirigentesAbaInicial';
 const ABA_ATUAL_DIRIGENTE_KEY = 'dirigentesAbaAtual';
-const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'almoxarifado', 'enviarNotificacao'];
+const ABAS_DIRIGENTE = ['relatorio', 'meuPerfil', 'usuarios', 'eventos', 'carografo', 'situacao', 'reunioes', 'acompanhamentoFaltas', 'almoxarifado', 'enviarNotificacao', 'configuracoes'];
 const INTERVALO_ATUALIZACAO_CAROGRAFO_MS = 60000;
 const INTERVALO_ATUALIZACAO_ABAS_DIRIGENTE_MS = 60000;
 const ABAS_DIRIGENTE_TEMPO_REAL = ['relatorio', 'situacao', 'acompanhamentoFaltas'];
 let usuariosCache = [];
 let pessoasExternasCache = [];
+let paginaUsuarios = 1;
+let paginaPessoasExternas = 1;
+let totalPaginasUsuarios = 1;
+let totalPaginasPessoasExternas = 1;
+let buscaUsuariosTimer = null;
+const abasDirigenteCarregadas = new Set();
+const consultasCompletasDirigente = new Map();
 let eventosCache = [];
 let situacaoEquipesCache = [];
 let almoxarifadoItensCache = [];
@@ -61,23 +68,52 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('editarAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
     configurarFiltrosUsuarios();
     configurarFiltrosCarografo();
-    carregarOpcoesEquipe();
-    carregarPerfilDirigente();
-    carregarConfiguracoesEncontroDirigente();
-    carregarRelatorio();
-    carregarUsuários();
-    carregarPessoasExternas();
-    carregarEventos();
-    carregarSituacao();
-    carregarReunioes();
-    carregarAcompanhamentoFaltas();
     configurarAlmoxarifado();
-    carregarAlmoxarifado();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
+    configurarCarregamentoAbasDirigente();
     aplicarAbaInicialDirigente();
+    const abaAtiva = document.querySelector('.tab-pane.active')?.id || obterAbaInicialDirigente();
+    carregarDadosAbaDirigente(abaAtiva);
     // Os dados são atualizados somente ao carregar a página ou após ações explícitas.
     // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
+
+function configurarCarregamentoAbasDirigente() {
+    document.querySelectorAll('[data-bs-toggle="tab"]').forEach(link => {
+        link.addEventListener('shown.bs.tab', event => {
+            const idAba = String(event.target.getAttribute('href') || '').replace('#', '');
+            carregarDadosAbaDirigente(idAba);
+        });
+    });
+}
+
+async function carregarDadosAbaDirigente(idAba, forcar = false) {
+    if (!ABAS_DIRIGENTE.includes(idAba) || (!forcar && abasDirigenteCarregadas.has(idAba))) return;
+    abasDirigenteCarregadas.add(idAba);
+    try {
+        if (idAba === 'relatorio') await carregarRelatorio();
+        if (idAba === 'meuPerfil') await Promise.all([carregarPerfilDirigente(), carregarConfiguracoesEncontroDirigente()]);
+        if (idAba === 'usuarios') await Promise.all([carregarOpcoesEquipe(), carregarUsuários(1), carregarPessoasExternas(1)]);
+        if (idAba === 'eventos') {
+            usuariosCache = (await buscarTodasPaginas('/dirigentes/usuarios')).map(aplicarFallbackParóquiaPessoa).sort(ordenarUsuarioPorNome);
+            await carregarEventos();
+        }
+        if (idAba === 'carografo') await carregarCadastrosCompletosCarografo();
+        if (idAba === 'situacao') await carregarSituacao();
+        if (idAba === 'reunioes') await carregarReunioes();
+        if (idAba === 'acompanhamentoFaltas') await carregarAcompanhamentoFaltas();
+        if (idAba === 'almoxarifado') {
+            usuariosCache = (await buscarTodasPaginas('/dirigentes/usuarios')).map(aplicarFallbackParóquiaPessoa).sort(ordenarUsuarioPorNome);
+            renderizarOpcoesSolicitantesAlmoxarifado();
+            await carregarAlmoxarifado();
+        }
+        if (idAba === 'enviarNotificacao') await carregarOpcoesEquipe();
+        if (idAba === 'configuracoes') await carregarConfiguracoesEncontroDirigente();
+    } catch (err) {
+        abasDirigenteCarregadas.delete(idAba);
+        console.error(err);
+    }
+}
 
 function configurarConfiguraçõesDirigente() {
     const selectAbaInicial = document.getElementById('abaInicialDirigente');
@@ -680,21 +716,21 @@ function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
     `;
 }
 
-async function carregarUsuários() {
+async function carregarUsuários(pagina = paginaUsuarios) {
     try {
-        const response = await fetch(`${API_URL}/dirigentes/usuarios`, {
+        const busca = document.getElementById('filtroUsuariosBusca')?.value?.trim() || '';
+        const response = await fetch(`${API_URL}/dirigentes/usuarios?page=${pagina}&limit=50&search=${encodeURIComponent(busca)}`, {
             headers: getHeaders()
         });
         
-        const usuarios = await response.json();
-        usuariosCache = usuarios
+        const resposta = await response.json();
+        usuariosCache = (resposta.dados || [])
             .map(aplicarFallbackParóquiaPessoa)
             .sort(ordenarUsuarioPorNome);
+        paginaUsuarios = resposta.pagina || 1;
+        totalPaginasUsuarios = resposta.total_paginas || 1;
 
         renderizarTabelaUsuarios();
-        aplicarFiltrosCarografo();
-        renderizarEventos();
-        carregarAcompanhamentoFaltas();
         renderizarOpcoesSolicitantesAlmoxarifado();
     } catch (err) {
         console.error(err);
@@ -702,11 +738,14 @@ async function carregarUsuários() {
 }
 
 function configurarFiltrosUsuarios() {
-    document.getElementById('filtroUsuariosBusca')?.addEventListener('input', aplicarFiltroGerenciarUsuarios);
+    document.getElementById('filtroUsuariosBusca')?.addEventListener('input', () => {
+        clearTimeout(buscaUsuariosTimer);
+        buscaUsuariosTimer = setTimeout(() => Promise.all([carregarUsuários(1), carregarPessoasExternas(1)]), 350);
+    });
     document.getElementById('limparFiltrosUsuarios')?.addEventListener('click', () => {
         const filtroBusca = document.getElementById('filtroUsuariosBusca');
         if (filtroBusca) filtroBusca.value = '';
-        aplicarFiltroGerenciarUsuarios();
+        Promise.all([carregarUsuários(1), carregarPessoasExternas(1)]);
     });
 }
 
@@ -719,19 +758,7 @@ function renderizarTabelaUsuarios() {
     const container = document.getElementById('tabelaUsuários');
     if (!container) return;
 
-    const busca = document.getElementById('filtroUsuariosBusca')?.value || '';
-    const filtroNome = normalizarTextoFiltro(busca);
-    const filtroTelefone = normalizarTelefoneFiltro(busca);
-    const usuariosFiltrados = usuariosCache
-        .filter((usuario) => {
-            const nomeUsuario = normalizarTextoFiltro(`${usuario.nome_completo || ''} ${usuario.nome_cracha || ''}`);
-            const telefoneUsuario = normalizarTelefoneFiltro(usuario.telefone || '');
-            if (!filtroNome && !filtroTelefone) return true;
-            if (filtroTelefone && telefoneUsuario.includes(filtroTelefone)) return true;
-            if (filtroNome && nomeUsuario.includes(filtroNome)) return true;
-            return false;
-        })
-        .sort(ordenarUsuarioPorNome);
+    const usuariosFiltrados = usuariosCache;
 
     let html = '<table class="table table-hover tabela-usuarios-dirigentes"><thead><tr><th class="col-foto">Foto</th><th class="col-nome">Nome</th><th class="col-email">Email</th><th class="col-perfil">Perfil</th><th class="col-equipe">Equipe</th><th class="col-status">Status</th><th class="col-acao">Ação</th></tr></thead><tbody>';
 
@@ -741,7 +768,7 @@ function renderizarTabelaUsuarios() {
 
     usuariosFiltrados.forEach(u => {
         const fotoHtml = u.foto_perfil
-            ? `<img src="${escapeAttr(sanitizarImagemPerfil(u.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
+            ? `<img data-src="${escapeAttr(sanitizarImagemPerfil(u.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
             : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
 
         const perfilBadge = {
@@ -766,8 +793,65 @@ function renderizarTabelaUsuarios() {
         </tr>`;
     });
 
-    html += '</tbody></table>';
+    html += `</tbody></table>${renderizarPaginacao('Usuários', paginaUsuarios, totalPaginasUsuarios, 'carregarUsuários')}`;
     container.innerHTML = html;
+    observarFotosLazy(container);
+}
+
+function renderizarPaginacao(rotulo, pagina, totalPaginas, funcao) {
+    if (totalPaginas <= 1) return '';
+    const anteriorDesabilitado = pagina <= 1 ? 'disabled' : '';
+    const proximaDesabilitada = pagina >= totalPaginas ? 'disabled' : '';
+    return `<nav class="d-flex align-items-center justify-content-center gap-3 mt-3" aria-label="Paginação de ${escapeAttr(rotulo)}">
+        <button class="btn btn-sm btn-outline-primary" ${anteriorDesabilitado} onclick="${funcao}(${pagina - 1})">Anterior</button>
+        <span>${pagina} de ${totalPaginas}</span>
+        <button class="btn btn-sm btn-outline-primary" ${proximaDesabilitada} onclick="${funcao}(${pagina + 1})">Próxima</button>
+    </nav>`;
+}
+
+function observarFotosLazy(container = document) {
+    const fotos = container.querySelectorAll('img[data-src]');
+    if (!('IntersectionObserver' in window)) {
+        fotos.forEach(foto => { foto.src = foto.dataset.src; foto.removeAttribute('data-src'); });
+        return;
+    }
+    const observer = new IntersectionObserver((entradas, observador) => {
+        entradas.forEach(entrada => {
+            if (!entrada.isIntersecting) return;
+            const foto = entrada.target;
+            foto.src = foto.dataset.src;
+            foto.removeAttribute('data-src');
+            observador.unobserve(foto);
+        });
+    }, { rootMargin: '120px' });
+    fotos.forEach(foto => observer.observe(foto));
+}
+
+async function buscarTodasPaginas(endpoint) {
+    if (!consultasCompletasDirigente.has(endpoint)) {
+        consultasCompletasDirigente.set(endpoint, (async () => {
+            const primeira = await fetch(`${API_URL}${endpoint}?page=1&limit=200`, { headers: getHeaders() }).then(res => res.json());
+            const dados = [...(primeira.dados || [])];
+            for (let pagina = 2; pagina <= Number(primeira.total_paginas || 1); pagina += 1) {
+                const resposta = await fetch(`${API_URL}${endpoint}?page=${pagina}&limit=200`, { headers: getHeaders() }).then(res => res.json());
+                dados.push(...(resposta.dados || []));
+            }
+            return dados;
+        })());
+    }
+    return consultasCompletasDirigente.get(endpoint);
+}
+
+async function carregarCadastrosCompletosCarografo() {
+    carregarOpcoesEquipe();
+    const [usuarios, externas] = await Promise.all([
+        buscarTodasPaginas('/dirigentes/usuarios'),
+        buscarTodasPaginas('/dirigentes/pessoas-externas')
+    ]);
+    usuariosCache = usuarios.map(aplicarFallbackParóquiaPessoa).sort(ordenarUsuarioPorNome);
+    pessoasExternasCache = externas.sort(ordenarUsuarioPorNome);
+    aplicarFiltrosCarografo();
+    observarFotosLazy(document.getElementById('painelCarografo'));
 }
 
 function ordenarUsuarioPorNome(a, b) {
@@ -913,20 +997,22 @@ document.getElementById('formEditarUsuário')?.addEventListener('submit', async 
     }
 });
 
-async function carregarPessoasExternas() {
+async function carregarPessoasExternas(pagina = paginaPessoasExternas) {
     const container = document.getElementById('tabelaPessoasExternas');
     if (!container) return;
 
     try {
-        const response = await fetch(`${API_URL}/dirigentes/pessoas-externas`, {
+        const busca = document.getElementById('filtroUsuariosBusca')?.value?.trim() || '';
+        const response = await fetch(`${API_URL}/dirigentes/pessoas-externas?page=${pagina}&limit=50&search=${encodeURIComponent(busca)}`, {
             headers: getHeaders()
         });
 
-        const pessoas = await response.json();
-        pessoasExternasCache = (Array.isArray(pessoas) ? pessoas : []).sort(ordenarUsuarioPorNome);
+        const resposta = await response.json();
+        pessoasExternasCache = (resposta.dados || []).sort(ordenarUsuarioPorNome);
+        paginaPessoasExternas = resposta.pagina || 1;
+        totalPaginasPessoasExternas = resposta.total_paginas || 1;
 
         renderizarPessoasExternas();
-        aplicarFiltrosCarografo();
     } catch (err) {
         container.innerHTML = '<div class="alert alert-danger">Erro ao carregar pessoas sem cadastro.</div>';
         console.error(err);
@@ -942,19 +1028,7 @@ function renderizarPessoasExternas() {
         return;
     }
 
-    const busca = document.getElementById('filtroUsuariosBusca')?.value || '';
-    const filtroNome = normalizarTextoFiltro(busca);
-    const filtroTelefone = normalizarTelefoneFiltro(busca);
-    const pessoasFiltradas = pessoasExternasCache
-        .filter((pessoa) => {
-            const nomePessoa = normalizarTextoFiltro(`${pessoa.nome_completo || ''} ${pessoa.nome_cracha || ''}`);
-            const telefonePessoa = normalizarTelefoneFiltro(pessoa.telefone || '');
-            if (!filtroNome && !filtroTelefone) return true;
-            if (filtroTelefone && telefonePessoa.includes(filtroTelefone)) return true;
-            if (filtroNome && nomePessoa.includes(filtroNome)) return true;
-            return false;
-        })
-        .sort(ordenarUsuarioPorNome);
+    const pessoasFiltradas = pessoasExternasCache;
 
     if (!pessoasFiltradas.length) {
         container.innerHTML = '<div class="alert alert-info">Nenhuma pessoa sem cadastro encontrada.</div>';
@@ -963,7 +1037,7 @@ function renderizarPessoasExternas() {
 
     const linhas = pessoasFiltradas.map(pessoa => {
         const fotoHtml = pessoa.foto_perfil
-            ? `<img src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
+            ? `<img data-src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
             : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
         const statusHtml = obterStatusBadge(pessoa.status || 'pendente');
 
@@ -995,8 +1069,9 @@ function renderizarPessoasExternas() {
                 <tr><th>Foto</th><th>Nome</th><th>Telefone</th><th>Movimento</th><th>Equipe</th><th>Status</th><th>Ação</th></tr>
             </thead>
             <tbody>${linhas}</tbody>
-        </table>
+        </table>${renderizarPaginacao('Pessoas sem cadastro', paginaPessoasExternas, totalPaginasPessoasExternas, 'carregarPessoasExternas')}
     `;
+    observarFotosLazy(container);
 }
 
 document.getElementById('formPessoaExterna')?.addEventListener('submit', async (e) => {
@@ -1526,7 +1601,7 @@ function renderizarCarografo(usuarios) {
         const tipoCadastroResumo = u.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(u.id);
         const fotoHtml = u.foto_perfil
-            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto">`
+            ? `<img data-src="${escapeAttr(u.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
             : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquia(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
@@ -1569,6 +1644,7 @@ function renderizarCarografo(usuarios) {
             </div>
         `;
     }).join('');
+    observarFotosLazy(painel);
 }
 
 function ordenarPessoaCarografo(a, b) {
@@ -4019,8 +4095,24 @@ function imprimirProtocoloAlmoxarifado(protocoloId) {
     if (!protocolo) return;
     const itens = (protocolo.itens || []).map(item => `<tr><td>${escapeHtml(item.nome)}</td><td>${Number(item.quantidade)}</td><td>${escapeHtml(item.unidade)}</td></tr>`).join('');
     const responsavelAlmoxarifado = protocolo.entregue_por_nome || 'Responsável pelo almoxarifado';
+    const cpfSolicitante = formatarCpfProtocoloAlmoxarifado(protocolo.solicitante_cpf);
+    const telefoneSolicitante = formatarTelefoneProtocoloAlmoxarifado(protocolo.solicitante_telefone);
     const janela = window.open('', '_blank', 'width=800,height=700');
     if (!janela) return;
-    janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Protocolo #${protocolo.id}</title><style>body{font-family:Arial,sans-serif;margin:40px;color:#222}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #aaa;padding:8px;text-align:left}.assinaturas{display:flex;gap:50px;margin-top:70px}.assinatura{flex:1;border-top:1px solid #333;text-align:center;padding-top:6px}.funcao{display:block;font-size:12px;color:#555;margin-top:3px}@media print{button{display:none}}</style></head><body><h1>Protocolo de Almoxarifado #${protocolo.id}</h1><p><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</p><p><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</p><p><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p><p><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</p><table><thead><tr><th>Item</th><th>Quantidade</th><th>Unidade</th></tr></thead><tbody>${itens}</tbody></table><p><strong>Observação:</strong> ${escapeHtml(protocolo.observacao || '-')}</p><div class="assinaturas"><div class="assinatura">${escapeHtml(responsavelAlmoxarifado)}<span class="funcao">Responsável pela liberação dos itens</span></div><div class="assinatura">${escapeHtml(protocolo.solicitante)}<span class="funcao">Solicitante</span></div></div><button onclick="window.print()">Imprimir</button></body></html>`);
+    janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Protocolo #${protocolo.id}</title><style>body{font-family:Arial,sans-serif;margin:40px;color:#222}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{border:1px solid #aaa;padding:8px;text-align:left}.assinaturas{display:flex;gap:50px;margin-top:70px}.assinatura{flex:1;border-top:1px solid #333;text-align:center;padding-top:6px}.funcao{display:block;font-size:12px;color:#555;margin-top:3px}@media print{button{display:none}}</style></head><body><h1>Protocolo de Almoxarifado #${protocolo.id}</h1><p><strong>Solicitante:</strong> ${escapeHtml(protocolo.solicitante)}</p><p><strong>CPF:</strong> ${escapeHtml(cpfSolicitante)}</p><p><strong>Telefone:</strong> ${escapeHtml(telefoneSolicitante)}</p><p><strong>Equipe/setor:</strong> ${escapeHtml(protocolo.equipe || '-')}</p><p><strong>Finalidade:</strong> ${escapeHtml(protocolo.finalidade)}</p><p><strong>Devolução prevista:</strong> ${formatarData(protocolo.data_prevista_devolucao)}</p><table><thead><tr><th>Item</th><th>Quantidade</th><th>Unidade</th></tr></thead><tbody>${itens}</tbody></table><p><strong>Observação:</strong> ${escapeHtml(protocolo.observacao || '-')}</p><div class="assinaturas"><div class="assinatura">${escapeHtml(responsavelAlmoxarifado)}<span class="funcao">Responsável pela liberação dos itens</span></div><div class="assinatura">${escapeHtml(protocolo.solicitante)}<span class="funcao">Solicitante</span></div></div><button onclick="window.print()">Imprimir</button></body></html>`);
     janela.document.close();
+}
+
+function formatarCpfProtocoloAlmoxarifado(valor) {
+    const numeros = String(valor || '').replace(/\D/g, '');
+    return numeros.length === 11
+        ? numeros.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+        : (valor || '-');
+}
+
+function formatarTelefoneProtocoloAlmoxarifado(valor) {
+    const numeros = String(valor || '').replace(/\D/g, '');
+    if (numeros.length === 11) return numeros.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+    if (numeros.length === 10) return numeros.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
+    return valor || '-';
 }
