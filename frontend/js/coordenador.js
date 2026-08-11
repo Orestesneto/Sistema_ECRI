@@ -1302,7 +1302,6 @@ function renderizarAcaoLinkConfirmacao(usuario) {
 }
 
 function renderizarBotaoCopiarLinkConfirmacao(usuario) {
-    if (usuario.foto_perfil) return '';
     return `<button type="button" class="btn btn-sm btn-outline-primary" onclick="copiarLinkConfirmacao(${Number(usuario.id)}, '${usuario.tipo_cadastro || 'usuario'}')">Copiar link</button>`;
 }
 
