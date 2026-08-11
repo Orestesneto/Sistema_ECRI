@@ -717,6 +717,18 @@ body {
         text-align: center;
     }
 
+    .tabela-card-mobile td.confirmacoes-usuario > .confirmacoes-usuario-cracha,
+    .tabela-card-mobile td.confirmacoes-usuario > .badge,
+    .tabela-card-mobile td.confirmacoes-usuario .confirmacoes-usuario-conteudo > .btn {
+        display: none;
+    }
+
+    .tabela-card-mobile td.confirmacoes-usuario .confirmacoes-usuario-nome {
+        overflow-wrap: normal;
+        word-break: normal;
+        hyphens: none;
+    }
+
     .tabela-card-mobile:not(.tabela-usuarios-dirigentes) td:empty,
     .tabela-card-mobile:not(.tabela-usuarios-dirigentes) td[data-label="Foto"] {
         align-items: center;

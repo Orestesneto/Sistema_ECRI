@@ -1225,12 +1225,12 @@ async function carregarConfirmacoes() {
                             ${fotoHtml}
                         </button>
                     </td>
-                    <td>
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <strong>${escapeHtml(usuario.nome_completo || '')}</strong>
+                    <td class="confirmacoes-usuario">
+                        <div class="confirmacoes-usuario-conteudo">
+                            <strong class="confirmacoes-usuario-nome">${escapeHtml(usuario.nome_completo || '')}</strong>
                             ${botaoCopiarLink}
                         </div>
-                        <small class="text-muted">${escapeHtml(usuario.nome_cracha || '')}</small><br>
+                        <small class="text-muted confirmacoes-usuario-cracha">${escapeHtml(usuario.nome_cracha || '')}</small><br>
                         ${tipoCadastro}
                     </td>
                     <td>${escapeHtml(usuario.telefone || '-')}</td>

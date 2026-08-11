@@ -3,6 +3,9 @@ const codigoAceite = new URLSearchParams(window.location.search).get('codigo') |
 
 document.addEventListener('DOMContentLoaded', carregarAceite);
 document.getElementById('formAceiteAlmoxarifado')?.addEventListener('submit', assinarAceite);
+document.getElementById('cpfAceite')?.addEventListener('input', evento => {
+    evento.target.value = evento.target.value.replace(/\D/g, '').slice(0, 11);
+});
 
 async function carregarAceite() {
     if (!codigoAceite) return mostrarAlertaAceite('Link de recebimento inválido.', 'danger');
@@ -23,10 +26,14 @@ function renderizarAceite(protocolo) {
             <span>${escapeHtmlAceite(item.nome)}</span>
             <strong>${Number(item.quantidade)} ${escapeHtmlAceite(item.unidade)}</strong>
         </li>`).join('');
+    const status = obterStatusEmprestimoAceite(protocolo.status);
     document.getElementById('resumoAceite').innerHTML = `
         <div class="border rounded p-3">
             <h2 class="h5">Protocolo #${Number(protocolo.id)}</h2>
-            <p class="mb-1"><strong>Solicitante:</strong> ${escapeHtmlAceite(protocolo.solicitante)}</p>
+            <p class="mb-1"><strong>Quem solicitou:</strong> ${escapeHtmlAceite(protocolo.solicitante)}</p>
+            <p class="mb-1"><strong>Contato:</strong> ${escapeHtmlAceite(formatarTelefoneAceite(protocolo.solicitante_telefone))}</p>
+            <p class="mb-1"><strong>Devolução prevista:</strong> ${escapeHtmlAceite(formatarDataCurtaAceite(protocolo.data_prevista_devolucao))}</p>
+            <p class="mb-1"><strong>Status:</strong> <span class="badge bg-${status.cor}">${status.texto}</span></p>
             <p class="mb-3"><strong>Finalidade:</strong> ${escapeHtmlAceite(protocolo.finalidade)}</p>
             <ul class="list-group">${itens}</ul>
         </div>`;
@@ -35,6 +42,29 @@ function renderizarAceite(protocolo) {
         return;
     }
     document.getElementById('formAceiteAlmoxarifado').style.display = 'block';
+}
+
+function obterStatusEmprestimoAceite(status) {
+    return {
+        solicitado: { texto: 'Aguardando entrega', cor: 'warning text-dark' },
+        entregue: { texto: 'Emprestado', cor: 'primary' },
+        parcialmente_devolvido: { texto: 'Devolução parcial', cor: 'info text-dark' },
+        devolvido: { texto: 'Devolvido', cor: 'success' },
+        cancelado: { texto: 'Cancelado', cor: 'secondary' }
+    }[status] || { texto: String(status || '-'), cor: 'secondary' };
+}
+
+function formatarDataCurtaAceite(valor) {
+    if (!valor) return '-';
+    const partes = String(valor).slice(0, 10).split('-');
+    return partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : String(valor);
+}
+
+function formatarTelefoneAceite(valor) {
+    const numeros = String(valor || '').replace(/\D/g, '');
+    if (numeros.length === 11) return numeros.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+    if (numeros.length === 10) return numeros.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
+    return valor || '-';
 }
 
 async function assinarAceite(evento) {

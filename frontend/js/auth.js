@@ -35,6 +35,9 @@ document.getElementById('formLogin')?.addEventListener('submit', async (e) => {
             localStorage.setItem('token', data.token);
             localStorage.setItem('usuario', JSON.stringify(data.usuario));
             localStorage.setItem(CHAVE_LOGIN_EM, String(Date.now()));
+            if (data.usuario?.perfil === 'equipe_dirigente') {
+                localStorage.setItem('dirigentesAbaAtual', 'eventos');
+            }
 
             redirecionarPorPerfil(data.usuario);
         } else {

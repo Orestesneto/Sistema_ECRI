@@ -9,10 +9,12 @@ router.get('/recebimento/:codigo', async (req, res) => {
   try {
     const protocolo = await database.get(`
       SELECT p.id, p.solicitante, p.equipe, p.finalidade, p.status, p.data_entrega,
+             p.data_prevista_devolucao, solicitante.telefone AS solicitante_telefone,
              aa.data_aceite, u.nome_completo AS assinado_por
       FROM almoxarifado_aceites aa
       JOIN almoxarifado_protocolos p ON p.id = aa.protocolo_id
       LEFT JOIN usuarios u ON u.id = aa.usuario_id
+      LEFT JOIN usuarios solicitante ON solicitante.id = p.solicitante_usuario_id
       WHERE aa.codigo = ?
     `, [String(req.params.codigo || '')]);
     if (!protocolo) return res.status(404).json({ erro: 'Link de recebimento inválido' });
