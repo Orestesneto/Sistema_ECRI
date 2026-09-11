@@ -88,7 +88,7 @@ test('Foto: valida obrigatoriedade, formato e tamanho', () => {
     erro: 'A foto deve ser JPG, JPEG, PNG ou WEBP apos a compressao'
   });
   assert.deepEqual(normalizarFotoPerfil(fotoPng), { fotoPerfil: fotoPng });
-  assert.deepEqual(normalizarFotoPerfil(fotoGrande), { erro: 'A foto deve ter no maximo 300KB apos a compressao' });
+  assert.deepEqual(normalizarFotoPerfil(fotoGrande), { erro: 'A foto deve ter no maximo 40960 bytes apos a compressao' });
 });
 
 test('Experiencia de perfil: normaliza sim/nao, instrumentos e equipes servidas', () => {

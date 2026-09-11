@@ -47,6 +47,13 @@ router.get('/:token', async (req, res) => {
       return res.status(400).json({ erro: 'Link inválido' });
     }
 
+    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
+      return res.json({
+        confirmacao_concluida: true,
+        mensagem: 'Seus dados e sua participação já foram atualizados com sucesso.'
+      });
+    }
+
     const camposExtras = dadosToken.tipo === 'externo'
       ? ', cpf, data_nascimento, NULL AS toca_instrumento, NULL AS instrumentos, NULL AS canta, NULL AS equipes_servidas'
       : ', cpf, data_nascimento, toca_instrumento, instrumentos, canta, equipes_servidas';
@@ -61,10 +68,6 @@ router.get('/:token', async (req, res) => {
 
     if (!participante) {
       return res.status(404).json({ erro: 'Participante não encontrado' });
-    }
-
-    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
-      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
     }
 
     if (!dadosToken.jti && linkJaUtilizado(participante.status)) {
@@ -104,6 +107,13 @@ router.put('/:token', async (req, res) => {
 
     if (!['externo', 'usuario'].includes(dadosToken.tipo)) {
       return res.status(400).json({ erro: 'Link inválido' });
+    }
+
+    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
+      return res.json({
+        confirmacao_concluida: true,
+        mensagem: 'Seus dados e sua participação já foram atualizados com sucesso.'
+      });
     }
 
     if (!nome_completo || !nome_cracha || !telefone || !paroquia || !toca_instrumento || !canta || !movimentoOrigemValido(movimento_origem) || !anoEncontroValido(ano_encontro) || !statusPermitidos.includes(status)) {
@@ -149,14 +159,14 @@ router.put('/:token', async (req, res) => {
       return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa. O cracha deve ficar MARIDO E ESPOSA' });
     }
 
-    const participanteAtual = await database.get(`SELECT status, equipe FROM ${tabela} WHERE id = ?`, [dadosToken.id]);
+    const participanteAtual = await database.get(`
+      SELECT status, equipe, perfil, evento_id, lista_espera,
+             pessoa_impedida_servir, pessoa_impedida_motivos
+      FROM ${tabela} WHERE id = ?
+    `, [dadosToken.id]);
 
     if (!participanteAtual) {
       return res.status(404).json({ erro: 'Participante não encontrado' });
-    }
-
-    if (await tokenConfirmacaoJaUtilizado(dadosToken)) {
-      return res.status(403).json({ erro: 'Este link de confirmação já foi utilizado' });
     }
 
     if (!dadosToken.jti && linkJaUtilizado(participanteAtual.status)) {
@@ -191,8 +201,9 @@ router.put('/:token', async (req, res) => {
         `INSERT INTO usuarios (
           email, senha, nome_completo, nome_cracha, telefone, paroquia, cpf, data_nascimento,
           movimento_origem, ano_encontro, foto_perfil, restricao_medica, restricao_alimentar,
-          restricao_medicacao, toca_instrumento, instrumentos, canta, equipes_servidas, perfil, status, equipe
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          restricao_medicacao, toca_instrumento, instrumentos, canta, equipes_servidas, perfil, status, equipe,
+          evento_id, lista_espera, pessoa_impedida_servir, pessoa_impedida_motivos
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           emailTemporario,
           senhaHash,
@@ -212,14 +223,20 @@ router.put('/:token', async (req, res) => {
           instrumentosNormalizados,
           canta,
           JSON.stringify(equipesServidas),
-          'equipista',
+          participanteAtual.perfil === 'coordenador' ? 'coordenador' : 'equipista',
           statusFinal,
-          participanteAtual.equipe
+          participanteAtual.equipe,
+          participanteAtual.evento_id || null,
+          Number(participanteAtual.lista_espera || 0),
+          Number(participanteAtual.pessoa_impedida_servir || 0),
+          participanteAtual.pessoa_impedida_motivos || null
         ]
       );
       await registrarHistorico(resultadoUsuario.lastID, 'participacao_confirmada', {
         origem: 'link_externo',
-        status: statusFinal
+        status: statusFinal,
+        perfil_preservado: participanteAtual.perfil || null,
+        equipe_preservada: participanteAtual.equipe || null
       });
 
       await database.run('DELETE FROM pessoas_externas WHERE id = ?', [dadosToken.id]);

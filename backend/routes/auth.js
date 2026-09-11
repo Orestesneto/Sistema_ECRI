@@ -86,7 +86,22 @@ router.post('/registro', async (req, res) => {
       return res.status(400).json({ erro: 'Para ECC ou Jovens EJC casados, informe marido e esposa. O cracha deve ficar MARIDO E ESPOSA' });
     }
 
-    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem);
+    const externosMesmoMovimento = await database.all(`
+      SELECT id, nome_completo, perfil, status, equipe, evento_id, lista_espera,
+             pessoa_impedida_servir, pessoa_impedida_motivos, telefone
+      FROM pessoas_externas
+      WHERE movimento_origem = ?
+      ORDER BY id ASC
+    `, [movimentoOrigem]);
+    const candidatosExternos = externosMesmoMovimento.filter(item => (
+      normalizarCampoTelefoneContato(item.telefone) === telefoneNormalizado
+    ));
+    const pessoaExterna = candidatosExternos.find(item => String(item.nome_completo || '').trim().toUpperCase() === nomeCompleto)
+      || (candidatosExternos.length === 1 ? candidatosExternos[0] : null);
+
+    const telefoneUnico = await validarTelefoneUnico(database, telefoneNormalizado, movimentoOrigem, {
+      ignorarPessoaExternaId: pessoaExterna?.id || null
+    });
     if (!telefoneUnico.valido) {
       return res.status(400).json({ erro: telefoneUnico.erro });
     }
@@ -109,8 +124,9 @@ router.post('/registro', async (req, res) => {
       `INSERT INTO usuarios (
         email, senha, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
         foto_perfil, restricao_medica, restricao_alimentar, restricao_medicacao, perfil, cpf, data_nascimento, toca_instrumento,
-        instrumentos, canta, equipes_servidas, equipe
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        instrumentos, canta, equipes_servidas, equipe, status, evento_id, lista_espera,
+        pessoa_impedida_servir, pessoa_impedida_motivos
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         emailInterno,
         senhaHash,
@@ -124,19 +140,31 @@ router.post('/registro', async (req, res) => {
         restricao_medica || '',
         restricao_alimentar || '',
         restricao_medicacao || '',
-        'equipista',
+        pessoaExterna?.perfil === 'coordenador' ? 'coordenador' : 'equipista',
         cpfNumeros,
         dataNascimento,
         toca_instrumento,
         instrumentosNormalizados,
         canta,
         JSON.stringify(equipesServidas),
-        'SEM EQUIPE'
+        pessoaExterna?.equipe || 'SEM EQUIPE',
+        pessoaExterna?.status || 'pendente',
+        pessoaExterna?.evento_id || null,
+        Number(pessoaExterna?.lista_espera || 0),
+        Number(pessoaExterna?.pessoa_impedida_servir || 0),
+        pessoaExterna?.pessoa_impedida_motivos || null
       ]
     );
+    if (pessoaExterna) {
+      await database.run('DELETE FROM pessoas_externas WHERE id = ?', [pessoaExterna.id]);
+    }
     await registrarHistorico(resultado.lastID, 'usuario_registrado', {
       nome_completo: nomeCompleto,
-      movimento_origem: movimentoOrigem
+      movimento_origem: movimentoOrigem,
+      pessoa_externa_vinculada_id: pessoaExterna?.id || null,
+      perfil_preservado: pessoaExterna?.perfil || null,
+      equipe_preservada: pessoaExterna?.equipe || null,
+      status_preservado: pessoaExterna?.status || null
     });
 
     res.status(201).json({
@@ -164,7 +192,12 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ erro: 'CPF inválido' });
     }
 
-    const usuario = await database.get('SELECT * FROM usuarios WHERE cpf = ?', [cpfNumeros]);
+    const usuario = await database.get(
+      `SELECT id, email, nome_completo, perfil, equipe, senha
+       FROM usuarios
+       WHERE cpf = ?`,
+      [cpfNumeros]
+    );
 
     if (!usuario) {
       return res.status(401).json({ erro: 'CPF ou data de nascimento incorretos' });

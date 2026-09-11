@@ -83,6 +83,12 @@ async function carregarConfirmacao() {
             return;
         }
 
+        if (participante.confirmacao_concluida) {
+            mostrarAlerta(participante.mensagem || 'Seus dados e sua participação já foram atualizados com sucesso.', 'success');
+            document.getElementById('formConfirmacao').style.display = 'none';
+            return;
+        }
+
         document.getElementById('confirmacaoMovimento').value = participante.movimento_origem || '';
         preencherNomeConfirmacao(participante.nome_completo || '', participante.movimento_origem || '');
         preencherTelefoneConfirmacao(participante.telefone || '', participante.movimento_origem || '');
