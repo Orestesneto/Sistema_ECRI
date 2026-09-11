@@ -8,3 +8,12 @@ backend/node_modules/
 backups/
 .env*
 *.apk
+**/.env*
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.sql
+docs/
+tests/
+scripts/
+TESTES.md

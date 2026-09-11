@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const database = require('./config/database');
+const { garantirMigracaoFotosPendentes } = require('./utils/migrarFotosPendentes');
 
 dotenv.config();
 
@@ -15,6 +16,13 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Inicializar banco de dados
 database.initDb();
+
+// Executa uma unica vez por instancia e migra somente fotos legadas em Base64.
+// A primeira requisicao aguarda a conclusao para impedir novas consultas pesadas.
+app.use(async (_req, _res, next) => {
+  await garantirMigracaoFotosPendentes();
+  next();
+});
 
 // Rotas
 const authRoutes = require('./routes/auth');

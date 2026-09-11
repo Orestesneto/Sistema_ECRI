@@ -420,6 +420,18 @@ async function initPostgres() {
       UNIQUE(reuniao_id, usuario_id)
     )
   `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS presencas_reuniao_externos (
+      id SERIAL PRIMARY KEY,
+      reuniao_id INTEGER NOT NULL REFERENCES reunioes(id),
+      pessoa_externa_id INTEGER NOT NULL REFERENCES pessoas_externas(id),
+      status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')),
+      observacao TEXT,
+      registrada_por INTEGER NOT NULL REFERENCES usuarios(id),
+      data_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(reuniao_id, pessoa_externa_id)
+    )
+  `);
   await addColumnIfMissing('eventos', 'data_termino DATE');
 
   await pgPool.query(`
@@ -517,6 +529,17 @@ async function initPostgres() {
       quantidade INTEGER NOT NULL,
       devolvido_por INTEGER NOT NULL REFERENCES usuarios(id),
       data_devolucao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS mensagens_chamada_externos_enviadas (
+      id SERIAL PRIMARY KEY,
+      reuniao_id INTEGER NOT NULL REFERENCES reunioes(id),
+      pessoa_externa_id INTEGER NOT NULL REFERENCES pessoas_externas(id),
+      tipo_mensagem TEXT NOT NULL,
+      enviada_por INTEGER NOT NULL REFERENCES usuarios(id),
+      data_envio TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(reuniao_id, pessoa_externa_id, tipo_mensagem)
     )
   `);
 
@@ -712,7 +735,9 @@ async function initSqlite() {
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_servir INTEGER DEFAULT 0');
   await addColumnIfMissing('pessoas_externas', 'pessoa_impedida_motivos TEXT');
   await executar(`CREATE TABLE IF NOT EXISTS presencas_reuniao (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')), observacao TEXT, registrada_por INTEGER NOT NULL, data_registro DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(registrada_por) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS presencas_reuniao_externos (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, pessoa_externa_id INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('presente', 'falta_justificada', 'falta')), observacao TEXT, registrada_por INTEGER NOT NULL, data_registro DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, pessoa_externa_id), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(pessoa_externa_id) REFERENCES pessoas_externas(id), FOREIGN KEY(registrada_por) REFERENCES usuarios(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS mensagens_chamada_enviadas (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, usuario_id INTEGER NOT NULL, tipo_mensagem TEXT NOT NULL, enviada_por INTEGER NOT NULL, data_envio DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, usuario_id, tipo_mensagem), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(usuario_id) REFERENCES usuarios(id), FOREIGN KEY(enviada_por) REFERENCES usuarios(id))`);
+  await executar(`CREATE TABLE IF NOT EXISTS mensagens_chamada_externos_enviadas (id INTEGER PRIMARY KEY AUTOINCREMENT, reuniao_id INTEGER NOT NULL, pessoa_externa_id INTEGER NOT NULL, tipo_mensagem TEXT NOT NULL, enviada_por INTEGER NOT NULL, data_envio DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(reuniao_id, pessoa_externa_id, tipo_mensagem), FOREIGN KEY(reuniao_id) REFERENCES reunioes(id), FOREIGN KEY(pessoa_externa_id) REFERENCES pessoas_externas(id), FOREIGN KEY(enviada_por) REFERENCES usuarios(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS notificacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL, titulo TEXT NOT NULL, mensagem TEXT NOT NULL, tipo TEXT NOT NULL, referencia_tipo TEXT, referencia_id INTEGER, lida INTEGER DEFAULT 0, data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(usuario_id) REFERENCES usuarios(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS dispositivos_push (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, plataforma TEXT, ativo INTEGER DEFAULT 1, data_cadastro DATETIME DEFAULT CURRENT_TIMESTAMP, data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(usuario_id) REFERENCES usuarios(id))`);
   await executar(`CREATE TABLE IF NOT EXISTS almoxarifado_itens (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, categoria TEXT, unidade TEXT NOT NULL DEFAULT 'unidade', estoque_total INTEGER NOT NULL DEFAULT 0, estoque_disponivel INTEGER NOT NULL DEFAULT 0, estoque_minimo INTEGER NOT NULL DEFAULT 0, observacao TEXT, ativo INTEGER NOT NULL DEFAULT 1, criado_por INTEGER NOT NULL, data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP, data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(criado_por) REFERENCES usuarios(id))`);

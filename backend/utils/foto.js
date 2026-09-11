@@ -1,4 +1,4 @@
-const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 300 * 1024;
+const TAMANHO_MAXIMO_FOTO_SALVA_BYTES = 40 * 1024;
 const TIPOS_FOTO_PERMITIDOS = ['image/jpeg', 'image/png', 'image/webp'];
 const { enviarImagemSupabase, ehUrlImagem } = require('./supabaseStorage');
 
@@ -28,7 +28,7 @@ function normalizarFotoPerfil(fotoPerfil, { obrigatoria = false } = {}) {
   }
 
   if (tamanhoFotoBase64Bytes(fotoPerfil) > TAMANHO_MAXIMO_FOTO_SALVA_BYTES) {
-    return { erro: 'A foto deve ter no maximo 300KB apos a compressao' };
+    return { erro: 'A foto deve ter no maximo 40960 bytes apos a compressao' };
   }
 
   return { fotoPerfil };
@@ -42,10 +42,16 @@ async function processarFotoPerfil(fotoPerfil, { obrigatoria = false, prefixo = 
 
   try {
     const enviada = await enviarImagemSupabase(validacao.fotoPerfil, { prefixo });
-    return { fotoPerfil: enviada.url || validacao.fotoPerfil };
+    if (!enviada.configurado) {
+      return { erro: 'O armazenamento de imagens esta temporariamente indisponivel. Tente novamente.' };
+    }
+    if (!enviada.url || !ehUrlImagem(enviada.url)) {
+      return { erro: 'Nao foi possivel salvar a foto no armazenamento de imagens. Tente novamente.' };
+    }
+    return { fotoPerfil: enviada.url };
   } catch (err) {
     console.error('Erro ao salvar foto no Supabase Storage:', err.message || err);
-    return { fotoPerfil: validacao.fotoPerfil };
+    return { erro: 'Nao foi possivel salvar a foto no armazenamento de imagens. Tente novamente.' };
   }
 }
 

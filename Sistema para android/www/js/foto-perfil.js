@@ -1,8 +1,8 @@
 const FOTO_PERFIL_TIPOS_ACEITOS = ['image/jpeg', 'image/png', 'image/webp', 'image/heif', 'image/heic'];
 const FOTO_PERFIL_EXTENSOES_ACEITAS = ['jpg', 'jpeg', 'png', 'webp', 'heif', 'heic'];
 const FOTO_PERFIL_UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
-const FOTO_PERFIL_SALVA_MAX_BYTES = 300 * 1024;
-const FOTO_PERFIL_DIMENSAO_MAXIMA = 500;
+const FOTO_PERFIL_SALVA_MAX_BYTES = 40 * 1024;
+const FOTO_PERFIL_DIMENSAO_MAXIMA = 320;
 
 function fotoPerfilDentroDoLimiteUpload(arquivo) {
     return arquivo && arquivo.size <= FOTO_PERFIL_UPLOAD_MAX_BYTES;
@@ -153,5 +153,5 @@ function reduzirDimensoesFotoPerfil(canvasOriginal) {
         }
     }
 
-    throw new Error('Nao foi possivel compactar a foto para ate 300KB. Selecione outra imagem.');
+    throw new Error('Nao foi possivel compactar a foto para ate 40960 bytes. Selecione outra imagem.');
 }
