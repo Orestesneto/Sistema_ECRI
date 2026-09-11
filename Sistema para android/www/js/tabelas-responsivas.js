@@ -17,6 +17,7 @@
 
     function prepararTabela(tabela) {
         if (!tabela || tabela.dataset.cardsMobilePreparada === 'true') return;
+        if (tabela.matches('.chamada-tabela')) return;
         const wrapper = tabela.closest('.table-responsive');
         if (!wrapper) return;
 
