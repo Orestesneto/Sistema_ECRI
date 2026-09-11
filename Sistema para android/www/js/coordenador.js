@@ -16,6 +16,7 @@ let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
 let restricoesMedicasCache = [];
 let restricoesMedicasGeraisCache = [];
+let reuniaoRevelacaoEquipesAconteceu = false;
 let linkCheckoutCartaoProprioAtual = '';
 let pagamentoProprioMonitoradoId = null;
 let intervaloMonitoramentoPagamentoProprio = null;
@@ -38,6 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const usuarioPerfil = await carregarPerfilCoordenador();
     const usuarioListaEspera = Number(usuarioPerfil?.lista_espera || 0) === 1;
     const dashboardLiberado = await aplicarRestricaoEntregaPastasCoordenador();
+    configurarAbaCarografoEscrita(usuarioPerfil?.equipe, reuniaoRevelacaoEquipesAconteceu);
     alternarAbasCoordenadorPorListaEspera(usuarioListaEspera);
 
     if (dashboardLiberado && !usuarioListaEspera) {
@@ -83,6 +85,7 @@ async function aplicarRestricaoEntregaPastasCoordenador() {
         }
 
         const liberado = Boolean(configuracoes.reuniao_entrega_pastas);
+        reuniaoRevelacaoEquipesAconteceu = Boolean(configuracoes.reuniao_revelacao_equipes);
         alternarAbasCoordenadorPorEntregaPastas(liberado);
         return liberado;
     } catch (err) {
@@ -265,12 +268,12 @@ document.getElementById('formPerfilCoordenador')?.addEventListener('submit', asy
     }
 });
 
-function configurarAbaCarografoEscrita(equipe) {
-    const escrita = normalizarTextoFiltroCoordenador(equipe) === 'ESCRITA';
-    document.getElementById('abaCarografoEscrita')?.classList.toggle('d-none', !escrita);
-    document.getElementById('carografoEscrita')?.classList.toggle('d-none', !escrita);
+function configurarAbaCarografoEscrita(equipe, revelacaoAconteceu = reuniaoRevelacaoEquipesAconteceu) {
+    const carografoLiberado = normalizarTextoFiltroCoordenador(equipe) === 'ESCRITA' && revelacaoAconteceu;
+    document.getElementById('abaCarografoEscrita')?.classList.toggle('d-none', !carografoLiberado);
+    document.getElementById('carografoEscrita')?.classList.toggle('d-none', !carografoLiberado);
 
-    if (escrita) {
+    if (carografoLiberado) {
         carregarCarografoEscrita();
     } else if (localStorage.getItem(ABA_ATUAL_COORDENADOR_KEY) === 'carografoEscrita') {
         localStorage.setItem(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');

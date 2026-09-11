@@ -7,6 +7,7 @@ const raiz = path.resolve(__dirname, '..');
 const html = fs.readFileSync(path.join(raiz, 'frontend', 'coordenador.html'), 'utf8');
 const js = fs.readFileSync(path.join(raiz, 'frontend', 'js', 'coordenador.js'), 'utf8');
 const rotaEquipista = fs.readFileSync(path.join(raiz, 'backend', 'routes', 'equipista.js'), 'utf8');
+const rotaCoordenador = fs.readFileSync(path.join(raiz, 'backend', 'routes', 'coordenador.js'), 'utf8');
 
 test('coordenador ECRI visualiza somente as cinco abas permitidas', () => {
   assert.match(js, /function configurarAcessoCoordenadorEcri/);
@@ -23,4 +24,12 @@ test('coordenador ECRI pode solicitar a propria blusa', () => {
   assert.match(js, /\/equipista\/solicitar-blusa/);
   assert.match(rotaEquipista, /verificarPerfil\(\['equipista', 'coordenador'\]\)/);
   assert.match(rotaEquipista, /normalizarMovimentoOrigem\(usuario\.movimento_origem\) !== 'ECRI'/);
+});
+
+test('carografo da Escrita depende da reuniao de revelacao das equipes', () => {
+  assert.match(rotaCoordenador, /reuniao_revelacao_equipes/);
+  assert.match(rotaCoordenador, /O Carógrafo será liberado após a reunião de revelação das equipes/);
+  assert.match(js, /reuniaoRevelacaoEquipesAconteceu = Boolean\(configuracoes\.reuniao_revelacao_equipes\)/);
+  assert.match(js, /normalizarTextoFiltroCoordenador\(equipe\) === 'ESCRITA' && revelacaoAconteceu/);
+  assert.match(js, /configurarAbaCarografoEscrita\(usuarioPerfil\?\.equipe, reuniaoRevelacaoEquipesAconteceu\)/);
 });

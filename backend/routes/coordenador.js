@@ -680,6 +680,10 @@ router.get('/carografo-escrita', verificarToken, verificarPerfil(['coordenador']
     if (!coordenador?.equipe || normalizarEquipe(coordenador.equipe) !== 'Escrita') {
       return res.status(403).json({ erro: 'Acesso permitido apenas ao coordenador da equipe Escrita' });
     }
+    const revelacaoAconteceu = (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true';
+    if (!revelacaoAconteceu) {
+      return res.status(403).json({ erro: 'O Carógrafo será liberado após a reunião de revelação das equipes' });
+    }
 
     const usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, paroquia, movimento_origem, ano_encontro,
@@ -797,7 +801,8 @@ router.get('/configuracoes-blusa', verificarToken, verificarPerfil(['coordenador
 router.get('/configuracoes-dashboard', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
     res.json({
-      reuniao_entrega_pastas: (await obterConfiguracao(database, 'reuniao_entrega_pastas', 'false')) === 'true'
+      reuniao_entrega_pastas: (await obterConfiguracao(database, 'reuniao_entrega_pastas', 'false')) === 'true',
+      reuniao_revelacao_equipes: (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true'
     });
   } catch (err) {
     console.error(err);
