@@ -318,9 +318,7 @@ function renderizarBlusasDev(blusas) {
     }
 
     const linhas = blusas.map((blusa) => {
-        const fotoHtml = blusa.foto_perfil
-            ? `<img src="${escapeHtml(blusa.foto_perfil)}" alt="Foto" title="Clique para ampliar" style="width:38px; height:38px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrandeDev(this.src)">`
-            : '<div style="width:38px; height:38px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
+        const fotoHtml = '<div style="width:38px; height:38px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
         const status = obterStatusBadge(blusa.status);
         const baixa = blusa.status === 'confirmado'
             ? `${formatarFormaPagamentoDev(blusa.forma_pagamento)}<br><small>${formatarDataHoraDev(blusa.data_confirmacao)}</small>`
@@ -541,9 +539,7 @@ function renderizarExcluidosDev() {
             const dataExclusao = usuario.data_exclusao ? formatarDataHoraDev(usuario.data_exclusao) : '-';
             const origem = usuario.origem === 'equipe_dirigente' ? 'Equipe dirigente' : 'Área exclusiva';
             const excluidoPor = usuario.excluido_por_nome || usuario.excluido_por || '-';
-            const fotoHtml = usuario.foto_perfil
-                ? `<img loading="lazy" src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
-                : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+            const fotoHtml = '<div class="carografo-foto carografo-foto-placeholder">-</div>';
 
             return `
                 <div class="carografo-item carografo-item-removido">
@@ -699,9 +695,7 @@ function renderizarCarografoDev(usuarios) {
         const destaqueMusical = usuario.toca_instrumento === 'sim' || usuario.canta === 'sim';
         const tipoCadastroResumo = usuario.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(usuario.id);
-        const fotoHtml = usuario.foto_perfil
-            ? `<img loading="lazy" src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
-            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const fotoHtml = renderizarFotoLazyDev(usuario, 72, 'carografo-foto');
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquiaDev(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
@@ -737,6 +731,29 @@ function renderizarCarografoDev(usuarios) {
             </div>
         `;
     }).join('');
+    observarFotosLazyDev(painel);
+}
+
+function renderizarFotoLazyDev(usuario, tamanho = 40, classe = '') {
+    const foto = String(usuario?.foto_perfil || '');
+    if (!foto) return `<div class="${classe}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;background:#ccc;display:flex;align-items:center;justify-content:center;">-</div>`;
+    return `<img data-src="${escapeAttr(foto)}" alt="Foto de ${escapeAttr(usuario?.nome_completo || '')}" class="${classe}" width="${tamanho}" height="${tamanho}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;object-fit:cover;background:#ccc;" loading="lazy" decoding="async" fetchpriority="low">`;
+}
+
+function observarFotosLazyDev(container = document) {
+    const fotos = container.querySelectorAll('img[data-src]');
+    if (!('IntersectionObserver' in window)) {
+        fotos.forEach(foto => { foto.src = foto.dataset.src; foto.removeAttribute('data-src'); });
+        return;
+    }
+    const observer = new IntersectionObserver(entradas => entradas.forEach(entrada => {
+        if (!entrada.isIntersecting) return;
+        const foto = entrada.target;
+        foto.src = foto.dataset.src;
+        foto.removeAttribute('data-src');
+        observer.unobserve(foto);
+    }), { rootMargin: '100px 0px' });
+    fotos.forEach(foto => observer.observe(foto));
 }
 
 function ordenarUsuarioCarografoDev(a, b) {
@@ -1707,6 +1724,10 @@ function escapeHtml(valor) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function escapeAttr(valor) {
+    return escapeHtml(valor).replace(/`/g, '&#096;');
 }
 
 function escapeJsAttr(valor) {

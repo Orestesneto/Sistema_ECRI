@@ -589,6 +589,21 @@ router.get('/usuarios', verificarToken, verificarPerfil(['equipe_dirigente']), a
   }
 });
 
+// Lista leve para selects e telas que precisam apenas identificar o usuario.
+router.get('/usuarios-opcoes', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const usuarios = await database.all(`
+      SELECT id, nome_completo, nome_cracha, perfil, status, equipe
+      FROM usuarios
+      ORDER BY nome_completo ASC
+    `);
+    res.json(usuarios);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao obter opcoes de usuarios' });
+  }
+});
+
 router.get('/usuarios/:usuario_id', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const usuario_id = Number(req.params.usuario_id);
@@ -891,11 +906,20 @@ router.get('/acompanhamento-faltas/equipes', verificarToken, verificarPerfil(['e
       FROM usuarios
       WHERE equipe IS NOT NULL
         AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+        AND status = 'confirmado'
+    `);
+    const externos = await database.all(`
+      SELECT id, cpf, '' AS email, telefone, equipe
+      FROM pessoas_externas
+      WHERE equipe IS NOT NULL
+        AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+        AND status = 'confirmado'
+        AND COALESCE(lista_espera, 0) = 0
     `);
     const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
     const assinaturasExcluidos = montarAssinaturasExcluidos(excluidos);
 
-    const totalPorEquipe = usuarios.reduce((acc, usuario) => {
+    const totalPorEquipe = [...usuarios, ...externos].reduce((acc, usuario) => {
       const usuarioExcluido = montarAssinaturasUsuarioExclusao(usuario)
         .some(assinatura => assinaturasExcluidos.has(assinatura));
       if (usuarioExcluido) return acc;
@@ -931,6 +955,21 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
              COALESCE((SELECT COUNT(*) FROM presencas_reuniao pr WHERE pr.usuario_id = usuarios.id AND pr.status = 'falta'), 0) AS total_faltas
       FROM usuarios
       WHERE equipe = ?
+        AND status = 'confirmado'
+        AND COALESCE(lista_espera, 0) = 0
+      ORDER BY nome_completo ASC
+    `, [equipe]);
+    const externos = await database.all(`
+      SELECT id, cpf, nome_completo, nome_cracha, '' AS email, telefone,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             COALESCE(perfil, 'sem_cadastro') AS perfil, status, equipe,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao_externos pr WHERE pr.pessoa_externa_id = pessoas_externas.id AND pr.status = 'presente'), 0) AS total_presencas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao_externos pr WHERE pr.pessoa_externa_id = pessoas_externas.id AND pr.status = 'falta_justificada'), 0) AS total_faltas_justificadas,
+             COALESCE((SELECT COUNT(*) FROM presencas_reuniao_externos pr WHERE pr.pessoa_externa_id = pessoas_externas.id AND pr.status = 'falta'), 0) AS total_faltas
+      FROM pessoas_externas
+      WHERE equipe = ?
+        AND status = 'confirmado'
+        AND COALESCE(lista_espera, 0) = 0
       ORDER BY nome_completo ASC
     `, [equipe]);
     const excluidos = await database.all('SELECT usuario_id, dados FROM usuarios_excluidos');
@@ -939,8 +978,13 @@ router.get('/acompanhamento-faltas/equipes/:equipe', verificarToken, verificarPe
       .filter(usuario => !montarAssinaturasUsuarioExclusao(usuario)
         .some(assinatura => assinaturasExcluidos.has(assinatura)))
       .map(trocarFotoPorUrl(req, 'usuario'));
+    const externosConfirmados = externos.map(trocarFotoPorUrl(req, 'externo'));
 
-    res.json({ equipe, usuarios: usuariosAtivos });
+    res.json({
+      equipe,
+      usuarios: [...usuariosAtivos, ...externosConfirmados]
+        .sort((a, b) => String(a.nome_completo || '').localeCompare(String(b.nome_completo || ''), 'pt-BR'))
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar faltas da equipe' });
@@ -1338,7 +1382,7 @@ router.get('/eventos', verificarToken, verificarPerfil(['equipe_dirigente']), as
 
     const escalas = await database.all(`
       SELECT eu.evento_id, eu.usuario_id, eu.papel_evento,
-             u.nome_completo, u.nome_cracha, u.email, u.telefone, u.foto_perfil
+             u.nome_completo, u.nome_cracha
       FROM evento_usuarios eu
       JOIN usuarios u ON eu.usuario_id = u.id
       ORDER BY u.nome_completo ASC
@@ -1671,6 +1715,73 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
   }
 });
 
+// Desfazer uma baixa manual feita por engano
+router.put('/pagamentos/:pagamento_id/desfazer-baixa', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const pagamentoId = Number(req.params.pagamento_id);
+    const pagamento = await database.get(
+      `SELECT id, usuario_id, status, confirmado_por, forma_pagamento
+       FROM pagamentos WHERE id = ?`,
+      [pagamentoId]
+    );
+
+    if (!pagamento) return res.status(404).json({ erro: 'Pagamento nao encontrado' });
+    if (pagamento.status !== 'confirmado' || !pagamento.confirmado_por) {
+      return res.status(409).json({ erro: 'Somente baixas manuais confirmadas podem ser desfeitas' });
+    }
+
+    await database.run(
+      `UPDATE pagamentos
+       SET status = 'pendente', data_confirmacao = NULL, forma_pagamento = NULL, confirmado_por = NULL
+       WHERE id = ? AND status = 'confirmado' AND confirmado_por IS NOT NULL`,
+      [pagamentoId]
+    );
+    await registrarHistorico(pagamento.usuario_id, 'baixa_manual_pagamento_desfeita', {
+      pagamento_id: pagamentoId,
+      confirmado_por: pagamento.confirmado_por,
+      desfeito_por: req.usuario.id,
+      forma_pagamento: pagamento.forma_pagamento
+    });
+    res.json({ mensagem: 'Baixa manual desfeita com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao desfazer baixa manual' });
+  }
+});
+
+router.put('/camisas/:solicitacao_id/desfazer-baixa', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
+  try {
+    const solicitacaoId = Number(req.params.solicitacao_id);
+    const solicitacao = await database.get(
+      `SELECT id, usuario_id, status, confirmado_por, forma_pagamento
+       FROM solicitacoes_blusa WHERE id = ?`,
+      [solicitacaoId]
+    );
+
+    if (!solicitacao) return res.status(404).json({ erro: 'Solicitacao de camisa nao encontrada' });
+    if (solicitacao.status !== 'confirmado' || !solicitacao.confirmado_por) {
+      return res.status(409).json({ erro: 'Somente baixas manuais confirmadas podem ser desfeitas' });
+    }
+
+    await database.run(
+      `UPDATE solicitacoes_blusa
+       SET status = 'pendente', data_confirmacao = NULL, forma_pagamento = NULL, confirmado_por = NULL
+       WHERE id = ? AND status = 'confirmado' AND confirmado_por IS NOT NULL`,
+      [solicitacaoId]
+    );
+    await registrarHistorico(solicitacao.usuario_id, 'baixa_manual_camisa_desfeita', {
+      solicitacao_id: solicitacaoId,
+      confirmado_por: solicitacao.confirmado_por,
+      desfeito_por: req.usuario.id,
+      forma_pagamento: solicitacao.forma_pagamento
+    });
+    res.json({ mensagem: 'Baixa manual da camisa desfeita com sucesso' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao desfazer baixa manual da camisa' });
+  }
+});
+
 // Visualizar situação de pagamentos e blusas
 router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
@@ -1680,7 +1791,9 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       SELECT u.id AS usuario_id, u.nome_completo, u.email, u.equipe, u.movimento_origem,
              CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              p.id AS pagamento_id, p.tipo, p.valor, p.status, p.data_solicitacao,
-             p.data_confirmacao, p.forma_pagamento
+             p.data_confirmacao, p.forma_pagamento, p.confirmado_por,
+             confirmador.nome_completo AS confirmado_por_nome,
+             confirmador.nome_cracha AS confirmado_por_cracha
       FROM usuarios u
       LEFT JOIN pagamentos p ON p.id = (
         SELECT p2.id
@@ -1691,17 +1804,28 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
                  p2.id DESC
         LIMIT 1
       )
+      LEFT JOIN usuarios confirmador ON confirmador.id = p.confirmado_por
       WHERE u.equipe IS NOT NULL AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'
         AND u.perfil <> 'equipe_dirigente'
       ORDER BY u.equipe ASC, u.nome_completo ASC
     `);
 
+    const pagamentosExternos = await database.all(`
+      SELECT id AS pessoa_externa_id, nome_completo, '' AS email, equipe, movimento_origem,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil
+      FROM pessoas_externas
+      WHERE equipe IS NOT NULL AND UPPER(equipe) <> 'SEM EQUIPE'
+        AND status = 'confirmado'
+        AND COALESCE(lista_espera, 0) = 0
+      ORDER BY equipe ASC, nome_completo ASC
+    `);
+
     const blusas = await database.all(`
       SELECT u.id AS usuario_id, u.nome_completo, u.email, u.equipe,
              CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              sb.id AS solicitacao_id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao,
-             sb.data_confirmacao, sb.forma_pagamento,
+             sb.data_confirmacao, sb.forma_pagamento, sb.confirmado_por,
              confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha
       FROM usuarios u
       LEFT JOIN solicitacoes_blusa sb ON sb.usuario_id = u.id
@@ -1717,12 +1841,30 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       tipo: pagamento.tipo || 'taxa',
       valor: Number(pagamento.valor || TAXAS_POR_MOVIMENTO[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
       status: pagamento.status || 'pendente',
+      origem_confirmacao: pagamento.status === 'confirmado'
+        ? (pagamento.confirmado_por ? 'manual' : 'mercado_pago')
+        : null,
       foto_perfil: montarUrlFotoPerfil(req, 'usuario', pagamento.usuario_id, pagamento.tem_foto_perfil)
     }));
+    pagamentosComFotoUrl.push(...pagamentosExternos.map((pagamento) => ({
+      ...pagamento,
+      usuario_id: -Number(pagamento.pessoa_externa_id),
+      id: null,
+      pagamento_id: null,
+      tipo: 'taxa',
+      valor: Number(TAXAS_POR_MOVIMENTO[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
+      status: 'pendente',
+      origem_confirmacao: null,
+      tipo_cadastro: 'externo',
+      foto_perfil: montarUrlFotoPerfil(req, 'externo', pagamento.pessoa_externa_id, pagamento.tem_foto_perfil)
+    })));
     const blusasComFotoUrl = blusas.map((blusa) => ({
       ...blusa,
       id: blusa.solicitacao_id,
       status: blusa.solicitacao_id ? blusa.status : 'sem_solicitacao',
+      origem_confirmacao: blusa.status === 'confirmado'
+        ? (blusa.confirmado_por ? 'manual' : 'mercado_pago')
+        : null,
       foto_perfil: montarUrlFotoPerfil(req, 'usuario', blusa.usuario_id, blusa.tem_foto_perfil)
     }));
 
@@ -1791,7 +1933,7 @@ router.get('/reunioes-proximos-dias', verificarToken, verificarPerfil(['equipe_d
     const reunioes = await database.all(`
       SELECT r.id, r.titulo, r.descricao, r.data_reuniao, r.horario_inicio, r.horario_fim, 
              r.local, r.status, r.data_criacao,
-             u.nome_completo, u.email, u.foto_perfil
+             u.nome_completo, u.email
       FROM reunioes r
       JOIN usuarios u ON r.criada_por = u.id
       WHERE r.data_reuniao BETWEEN ? AND ?
@@ -1956,7 +2098,7 @@ router.post('/almoxarifado/protocolos/:protocolo_id/link-recebimento', verificar
     const protocolo = await database.get('SELECT id, status, solicitante_usuario_id FROM almoxarifado_protocolos WHERE id = ?', [protocoloId]);
     if (!protocolo) return res.status(404).json({ erro: 'Protocolo não encontrado' });
     if (!protocolo.solicitante_usuario_id) return res.status(400).json({ erro: 'O protocolo não possui um solicitante cadastrado' });
-    if (!['entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)) {
+    if (!['aguardando_aceite', 'entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)) {
       return res.status(400).json({ erro: 'Registre a entrega antes de gerar o link de recebimento' });
     }
 
@@ -1965,6 +2107,14 @@ router.post('/almoxarifado/protocolos/:protocolo_id/link-recebimento', verificar
       const codigo = await gerarCodigoAceiteAlmoxarifado();
       await database.run('INSERT INTO almoxarifado_aceites (protocolo_id, codigo) VALUES (?, ?)', [protocoloId, codigo]);
       aceite = { codigo, data_aceite: null };
+    }
+
+    // Compatibilidade com entregas registradas antes da criacao do estado intermediario.
+    if (protocolo.status === 'entregue' && !aceite.data_aceite) {
+      await database.run(
+        `UPDATE almoxarifado_protocolos SET status = 'aguardando_aceite' WHERE id = ? AND status = 'entregue'`,
+        [protocoloId]
+      );
     }
 
     const destino = `/frontend/aceite-almoxarifado.html?codigo=${encodeURIComponent(aceite.codigo)}`;
@@ -2053,7 +2203,7 @@ router.put('/almoxarifado/protocolos/:protocolo_id/itens', verificarToken, verif
           FROM almoxarifado_protocolo_itens pi
           JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
           WHERE pi.item_id = ? AND p.id <> ?
-            AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+            AND p.status IN ('solicitado', 'aguardando_aceite', 'entregue', 'parcialmente_devolvido')
             AND (p.data_prevista_retirada IS NULL OR p.data_prevista_retirada <= ?)
             AND COALESCE(p.data_prevista_devolucao, '9999-12-31') >= ?
         `, [solicitado.item_id, protocoloId, protocolo.data_prevista_devolucao, protocolo.data_prevista_retirada]);
@@ -2063,7 +2213,7 @@ router.put('/almoxarifado/protocolos/:protocolo_id/itens', verificarToken, verif
           SELECT COALESCE(SUM(pi.quantidade - pi.quantidade_devolvida), 0) AS total
           FROM almoxarifado_protocolo_itens pi
           JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
-          WHERE pi.item_id = ? AND p.id <> ? AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+          WHERE pi.item_id = ? AND p.id <> ? AND p.status IN ('solicitado', 'aguardando_aceite', 'entregue', 'parcialmente_devolvido')
         `, [solicitado.item_id, protocoloId]);
         reservadoPorOutros = Number(reserva?.total || 0);
       }
@@ -2115,7 +2265,7 @@ router.put('/almoxarifado/protocolos/:protocolo_id/entregar', verificarToken, ve
       atualizados.push(item);
     }
     await database.run(
-      `UPDATE almoxarifado_protocolos SET status = 'entregue', entregue_por = ?, data_entrega = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE almoxarifado_protocolos SET status = 'aguardando_aceite', entregue_por = ?, data_entrega = CURRENT_TIMESTAMP WHERE id = ?`,
       [req.usuario.id, protocoloId]
     );
     res.json({ mensagem: `Entrega do protocolo #${protocoloId} registrada` });

@@ -74,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aplicarAbaInicialDirigente();
     const abaAtiva = document.querySelector('.tab-pane.active')?.id || obterAbaInicialDirigente();
     carregarDadosAbaDirigente(abaAtiva);
+    carregarDadosAbaDirigente('meuPerfil');
     // Os dados são atualizados somente ao carregar a página ou após ações explícitas.
     // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
@@ -95,7 +96,7 @@ async function carregarDadosAbaDirigente(idAba, forcar = false) {
         if (idAba === 'meuPerfil') await Promise.all([carregarPerfilDirigente(), carregarConfiguracoesEncontroDirigente()]);
         if (idAba === 'usuarios') await Promise.all([carregarOpcoesEquipe(), carregarUsuários(1), carregarPessoasExternas(1)]);
         if (idAba === 'eventos') {
-            usuariosCache = (await buscarTodasPaginas('/dirigentes/usuarios')).map(aplicarFallbackParóquiaPessoa).sort(ordenarUsuarioPorNome);
+            usuariosCache = await carregarOpcoesUsuariosDirigente();
             await carregarEventos();
         }
         if (idAba === 'carografo') await carregarCadastrosCompletosCarografo();
@@ -103,7 +104,7 @@ async function carregarDadosAbaDirigente(idAba, forcar = false) {
         if (idAba === 'reunioes') await carregarReunioes();
         if (idAba === 'acompanhamentoFaltas') await carregarAcompanhamentoFaltas();
         if (idAba === 'almoxarifado') {
-            usuariosCache = (await buscarTodasPaginas('/dirigentes/usuarios')).map(aplicarFallbackParóquiaPessoa).sort(ordenarUsuarioPorNome);
+            usuariosCache = await carregarOpcoesUsuariosDirigente();
             renderizarOpcoesSolicitantesAlmoxarifado();
             await carregarAlmoxarifado();
         }
@@ -113,6 +114,13 @@ async function carregarDadosAbaDirigente(idAba, forcar = false) {
         abasDirigenteCarregadas.delete(idAba);
         console.error(err);
     }
+}
+
+async function carregarOpcoesUsuariosDirigente() {
+    const response = await fetch(`${API_URL}/dirigentes/usuarios-opcoes`, { headers: getHeaders() });
+    if (!response.ok) throw new Error('Erro ao carregar opcoes de usuarios');
+    const usuarios = await response.json();
+    return (Array.isArray(usuarios) ? usuarios : []).sort(ordenarUsuarioPorNome);
 }
 
 function configurarConfiguraçõesDirigente() {
@@ -637,7 +645,9 @@ async function abrirModalConfirmacoesEquipeRelatorio(equipeNome) {
 
         document.getElementById('tituloModalAcompanhamentoSituacao').textContent = `Confirmações - ${equipeNome}`;
         document.getElementById('resumoModalAcompanhamentoSituacao').innerHTML = renderizarResumoConfirmacoesEquipeDirigente(participantes);
-        document.getElementById('conteudoModalAcompanhamentoSituacao').innerHTML = renderizarTabelaConfirmacoesEquipeDirigente(participantes);
+        const conteudo = document.getElementById('conteudoModalAcompanhamentoSituacao');
+        conteudo.innerHTML = renderizarTabelaConfirmacoesEquipeDirigente(participantes);
+        observarFotosLazy(conteudo);
 
         new bootstrap.Modal(document.getElementById('modalAcompanhamentoSituacao')).show();
     } catch (err) {
@@ -679,7 +689,7 @@ function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
 
         return `
             <tr>
-                <td>${renderizarFotoPequenaSituacao(participante)}</td>
+                <td>${renderizarFotoLazyDirigente(participante, 40)}</td>
                 <td class="confirmacoes-usuario">
                     <div class="confirmacoes-usuario-conteudo">
                         <strong class="confirmacoes-usuario-nome">${escapeHtml(participante.nome_completo || '')}</strong>
@@ -767,9 +777,7 @@ function renderizarTabelaUsuarios() {
     }
 
     usuariosFiltrados.forEach(u => {
-        const fotoHtml = u.foto_perfil
-            ? `<img data-src="${escapeAttr(sanitizarImagemPerfil(u.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
-            : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+        const fotoHtml = renderizarFotoLazyDirigente(u, 40);
 
         const perfilBadge = {
             'equipista': '<span class="badge bg-info">Equipista</span>',
@@ -825,6 +833,12 @@ function observarFotosLazy(container = document) {
         });
     }, { rootMargin: '120px' });
     fotos.forEach(foto => observer.observe(foto));
+}
+
+function renderizarFotoLazyDirigente(usuario, tamanho = 40, classe = '') {
+    const foto = sanitizarImagemPerfil(usuario?.foto_perfil);
+    if (!foto) return `<div class="${classe}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;background:#ccc;display:flex;align-items:center;justify-content:center;">-</div>`;
+    return `<img data-src="${escapeAttr(foto)}" alt="Foto de ${escapeAttr(usuario?.nome_completo || '')}" class="${classe}" width="${tamanho}" height="${tamanho}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;object-fit:cover;background:#ccc;" loading="lazy" decoding="async" fetchpriority="low">`;
 }
 
 async function buscarTodasPaginas(endpoint) {
@@ -1036,9 +1050,7 @@ function renderizarPessoasExternas() {
     }
 
     const linhas = pessoasFiltradas.map(pessoa => {
-        const fotoHtml = pessoa.foto_perfil
-            ? `<img data-src="${escapeAttr(sanitizarImagemPerfil(pessoa.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
-            : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+        const fotoHtml = `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
         const statusHtml = obterStatusBadge(pessoa.status || 'pendente');
 
         return `
@@ -1600,9 +1612,7 @@ function renderizarCarografo(usuarios) {
         const destaqueMusical = u.toca_instrumento === 'sim' || u.canta === 'sim';
         const tipoCadastroResumo = u.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(u.id);
-        const fotoHtml = u.foto_perfil
-            ? `<img data-src="${escapeAttr(u.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
-            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const fotoHtml = renderizarFotoLazyDirigente(u, 72, 'carografo-foto');
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquia(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
@@ -3048,7 +3058,7 @@ function renderizarTabelaTaxasSituacao(pagamentos) {
             <td>${escapeHtml(p.tipo || 'taxa')}</td>
             <td>${formatarMoedaDirigente(p.valor)}</td>
             <td>${obterStatusBadge(p.status)}</td>
-            <td>${renderizarBaixaSituacao(p)}</td>
+            <td>${renderizarBaixaSituacao(p, 'pagamentos')}</td>
         </tr>
     `).join('');
 
@@ -3072,7 +3082,7 @@ function renderizarTabelaCamisasSituacao(camisas) {
             <td>${escapeHtml(b.tamanho || '-')}</td>
             <td>${b.id ? formatarMoedaDirigente(b.valor) : '-'}</td>
             <td>${b.id ? obterStatusBadge(b.status) : '<span class="badge bg-secondary">Sem camisa</span>'}</td>
-            <td>${b.id ? renderizarBaixaSituacao(b) : '-'}</td>
+            <td>${b.id ? renderizarBaixaSituacao(b, 'camisas') : '-'}</td>
         </tr>
     `).join('');
 
@@ -3085,21 +3095,56 @@ function renderizarTabelaCamisasSituacao(camisas) {
 }
 
 function renderizarFotoPequenaSituacao(item) {
-    const foto = sanitizarImagemPerfil(item.foto_perfil);
-    if (!foto) {
-        return '<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>';
-    }
-
-    return `<img src="${escapeAttr(foto)}" alt="Foto" class="foto-clickable" title="Clique para ampliar" style="width:40px; height:40px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`;
+    return '<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>';
 }
 
-function renderizarBaixaSituacao(item) {
+function renderizarBaixaSituacao(item, recurso) {
     if (item.status !== 'confirmado') return '-';
-    const detalhes = [formatarFormaPagamentoDirigente(item.forma_pagamento)];
     const confirmador = item.confirmado_por_nome || item.confirmado_por_cracha || '';
-    if (confirmador) detalhes.push(`Baixa por ${escapeHtml(confirmador)}`);
-    if (item.data_confirmacao) detalhes.push(formatarDataHoraDirigente(item.data_confirmacao));
-    return detalhes.map(parte => `<small>${parte}</small>`).join('<br>');
+    const origem = item.origem_confirmacao || (item.confirmado_por ? 'manual' : 'mercado_pago');
+    const manual = origem === 'manual';
+    const detalhes = [manual
+        ? '<span class="badge bg-primary">Baixa manual</span>'
+        : '<span class="badge bg-info text-dark">Mercado Pago</span>'];
+
+    if (manual) {
+        detalhes.push(`<strong>${escapeHtml(confirmador || 'Usuario nao identificado')}</strong>`);
+        detalhes.push(`<small>${escapeHtml(formatarFormaPagamentoDirigente(item.forma_pagamento))}</small>`);
+    } else {
+        detalhes.push('<strong>Baixa automatica</strong>');
+        const forma = formatarFormaPagamentoDirigente(item.forma_pagamento);
+        if (forma !== '-') detalhes.push(`<small>${escapeHtml(forma)}</small>`);
+    }
+
+    if (item.data_confirmacao) detalhes.push(`<small>${formatarDataHoraDirigente(item.data_confirmacao)}</small>`);
+    if (manual) {
+        detalhes.push(`<button type="button" class="btn btn-sm btn-outline-danger mt-1" onclick="desfazerBaixaManualSituacao('${escapeAttr(recurso)}', ${Number(item.id)})">Desfazer baixa manual</button>`);
+    }
+    return `<div class="d-flex flex-column align-items-start gap-1">${detalhes.join('')}</div>`;
+}
+
+async function desfazerBaixaManualSituacao(recurso, id) {
+    if (!['pagamentos', 'camisas'].includes(recurso) || !Number(id)) return;
+    if (!confirm('Deseja desfazer esta baixa manual? O pagamento voltara para pendente.')) return;
+
+    try {
+        const response = await fetch(`${API_URL}/dirigentes/${recurso}/${Number(id)}/desfazer-baixa`, {
+            method: 'PUT',
+            headers: getHeaders()
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.erro || 'Nao foi possivel desfazer a baixa manual.');
+            return;
+        }
+
+        bootstrap.Modal.getInstance(document.getElementById('modalAcompanhamentoSituacao'))?.hide();
+        await carregarSituacao();
+        alert(data.mensagem || 'Baixa manual desfeita com sucesso.');
+    } catch (err) {
+        console.error(err);
+        alert('Erro ao desfazer a baixa manual.');
+    }
 }
 
 function formatarMoedaDirigente(valor) {
@@ -3120,7 +3165,7 @@ function formatarDataHoraDirigente(valor) {
     return new Date(valor).toLocaleString('pt-BR');
 }
 
-function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
+async function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
     if (fecharResumo) {
         const modalResumo = bootstrap.Modal.getInstance(document.getElementById('modalFoto'));
         if (modalResumo) {
@@ -3135,7 +3180,12 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
     document.getElementById('nomeEquipe').value = '';
     document.getElementById('nomeEquipe').required = false;
     document.getElementById('eventoEscala').required = false;
+    const selectEvento = document.getElementById('eventoEscala');
+    selectEvento.innerHTML = '<option value="">Carregando eventos...</option>';
+    selectEvento.disabled = true;
+    if (!eventosCache.length) await carregarEventos();
     carregarOpcoesEventoEscala();
+    selectEvento.disabled = false;
     document.getElementById('acaoEscalarDiv').style.display = 'block';
     document.getElementById('acaoEscalar').value = '';
     document.getElementById('equipeDiv').style.display = 'none';
@@ -3147,6 +3197,9 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
         document.getElementById('nomeEquipe').required = true;
         document.getElementById('eventoEscala').required = true;
     }
+
+    const participante = obterParticipanteEscalar(Number(usuarioId), tipoCadastro);
+    await prepararLinkConfirmacaoParticipanteDirigente(Number(usuarioId), tipoCadastro, participante);
     
     setTimeout(() => {
         const modal = new bootstrap.Modal(document.getElementById('modalEscalar'));
@@ -3264,8 +3317,12 @@ async function enviarLinkConfirmacaoDestinatarioCasal() {
     await enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone);
 }
 
-async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone) {
-    const janelaWhatsApp = abrirJanelaWhatsAppPendenteDirigente();
+async function prepararLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante) {
+    const botao = document.getElementById('btnEnviarLinkConfirmacaoEscalar');
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Preparando WhatsApp...';
+    }
     try {
         const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${participanteId}/token-confirmacao`, {
             method: 'POST',
@@ -3274,26 +3331,35 @@ async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCa
         const data = await response.json();
 
         if (!response.ok || !data.token_confirmacao) {
-            fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
-            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
-            return;
+            throw new Error(data.erro || 'Erro ao gerar link de confirmação.');
         }
 
         const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
-        const linkConfirmacao = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
-        const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
+        participante.link_confirmacao_whatsapp = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
+        if (botao) {
+            botao.disabled = false;
+            botao.textContent = 'Enviar link pelo WhatsApp';
+        }
+    } catch (err) {
+        if (botao) botao.textContent = 'Não foi possível preparar o WhatsApp';
+        mostrarAlerta('alertaDirigentes', err.message || 'Erro ao gerar link de confirmação.', 'danger');
+        console.error(err);
+    }
+}
+
+function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone) {
+    const linkConfirmacao = participante?.link_confirmacao_whatsapp;
+    if (!linkConfirmacao) {
+        mostrarAlerta('alertaDirigentes', 'O link ainda não está pronto. Feche e abra esta tela novamente.', 'warning');
+        return;
+    }
+    const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
 Ficamos muito felizes pelo seu sim!
 Precisamos que você atualize seus dados em nosso sistema.
 Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
-
-        abrirWhatsAppComJanelaDirigente(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
-    } catch (err) {
-        fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
-        mostrarAlerta('alertaDirigentes', 'Erro ao gerar link de confirmação.', 'danger');
-        console.error(err);
-    }
+    abrirWhatsAppComJanelaDirigente(null, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
 }
 
 function abrirModalDestinatarioConfirmacaoCasal(participanteId, tipoCadastro, participante) {
@@ -3337,12 +3403,33 @@ function abrirJanelaWhatsAppPendenteDirigente() {
 }
 
 function abrirWhatsAppComJanelaDirigente(janela, url) {
+    const urlAbertura = montarUrlAberturaWhatsAppDirigente(url);
     if (janela && !janela.closed) {
-        janela.location.href = url;
+        janela.location.href = urlAbertura;
         return;
     }
 
-    window.location.href = url;
+    window.location.href = urlAbertura;
+}
+
+function montarUrlAberturaWhatsAppDirigente(url) {
+    if (!/Android/i.test(navigator.userAgent || '')) return url;
+    try {
+        const endereco = new URL(url, window.location.href);
+        const telefone = endereco.hostname === 'wa.me' ? endereco.pathname.replace(/\D/g, '') : (endereco.searchParams.get('phone') || '').replace(/\D/g, '');
+        const mensagem = endereco.searchParams.get('text') || '';
+        if (!['wa.me', 'api.whatsapp.com'].includes(endereco.hostname)) return url;
+        if (telefone) {
+            return `whatsapp://send?phone=${encodeURIComponent(telefone)}${mensagem ? `&text=${encodeURIComponent(mensagem)}` : ''}`;
+        }
+        const parametros = new URLSearchParams();
+        if (telefone) parametros.set('phone', telefone);
+        if (mensagem) parametros.set('text', mensagem);
+        const fallback = `https://wa.me/${telefone}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
+        return `intent://send?${parametros.toString()}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(fallback)};end`;
+    } catch (err) {
+        return url;
+    }
 }
 
 function fecharJanelaWhatsAppPendenteDirigente(janela) {
@@ -3411,9 +3498,7 @@ async function carregarReunioes() {
         
         let html = '<div class="row">';
         reunioes.forEach(r => {
-            const fotoHtml = r.foto_perfil 
-                ? `<img src="${escapeAttr(sanitizarImagemPerfil(r.foto_perfil))}" alt="Foto" title="Clique para ampliar" style="width:50px; height:50px; border-radius:50%; object-fit:cover; margin-right:10px; cursor:pointer;" onclick="abrirModalFotoGrande(this.src)">`
-                : `<div style="width:50px; height:50px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center; margin-right:10px;">-</div>`;
+            const fotoHtml = `<div style="width:50px; height:50px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center; margin-right:10px;">-</div>`;
             
             const statusBadge = {
                 'agendada': '<span class="badge bg-info">Agendada</span>',
@@ -3844,6 +3929,7 @@ function renderizarHistoricoItemAlmoxarifado(historico, devolucoes) {
     }
     const status = {
         solicitado: '<span class="badge bg-warning text-dark">Aguardando entrega</span>',
+        aguardando_aceite: '<span class="badge bg-warning text-dark">Aguardando assinatura</span>',
         entregue: '<span class="badge bg-primary">Emprestado</span>',
         parcialmente_devolvido: '<span class="badge bg-info text-dark">Devolução parcial</span>',
         devolvido: '<span class="badge bg-success">Devolvido</span>',
@@ -3940,20 +4026,20 @@ function renderizarProtocolosAlmoxarifado() {
         return;
     }
     container.innerHTML = protocolos.map(protocolo => {
-        const mapaStatus = { solicitado: ['warning text-dark', 'Solicitado'], entregue: ['primary', 'Aguardando devolução'], parcialmente_devolvido: ['info text-dark', 'Devolução parcial'], devolvido: ['success', 'Devolvido'], cancelado: ['secondary', 'Cancelado'] };
+        const mapaStatus = { solicitado: ['warning text-dark', 'Solicitado'], aguardando_aceite: ['warning text-dark', 'Aguardando assinatura'], entregue: ['primary', 'Emprestado — aguardando devolução'], parcialmente_devolvido: ['info text-dark', 'Devolução parcial'], devolvido: ['success', 'Devolvido'], cancelado: ['secondary', 'Cancelado'] };
         const [cor, texto] = mapaStatus[protocolo.status] || ['secondary', protocolo.status];
         const itens = (protocolo.itens || []).map(item => {
             const devolvida = Number(item.quantidade_devolvida || 0);
             return `<li>${escapeHtml(item.nome)}: <strong>${Number(item.quantidade)} ${escapeHtml(item.unidade)}</strong>${devolvida ? ` <small class="text-success">(${devolvida} devolvida${devolvida !== 1 ? 's' : ''})</small>` : ''}</li>`;
         }).join('');
         const acoes = protocolo.status === 'solicitado'
-            ? `<button class="btn btn-sm btn-outline-primary" onclick="abrirEdicaoItensProtocoloAlmoxarifado(${protocolo.id})">Editar itens</button><button class="btn btn-sm btn-success" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'entregar')">Registrar entrega</button><button class="btn btn-sm btn-outline-danger" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'cancelar')">Cancelar</button>`
+            ? `<button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirEdicaoItensProtocoloAlmoxarifado(${protocolo.id})">Editar itens</button><button type="button" class="btn btn-sm btn-success" onclick="registrarEntregaAlmoxarifado(${protocolo.id}, this)">Solicitar assinatura</button><button type="button" class="btn btn-sm btn-outline-danger" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'cancelar')">Cancelar</button>`
             : ['entregue', 'parcialmente_devolvido'].includes(protocolo.status)
                 ? `<button class="btn btn-sm btn-primary" onclick="alterarStatusProtocoloAlmoxarifado(${protocolo.id}, 'devolver')">Registrar devolução</button>` : '';
         const aceite = protocolo.aceite_data
             ? `<span class="badge bg-success align-self-center">Recebimento assinado em ${formatarDataHoraAlmoxarifado(protocolo.aceite_data)}</span>`
-            : ['entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)
-                ? `<button class="btn btn-sm btn-success" onclick="enviarLinkRecebimentoWhatsappAlmoxarifado(${protocolo.id})">Enviar recebimento pelo WhatsApp</button>`
+            : ['aguardando_aceite', 'entregue', 'parcialmente_devolvido', 'devolvido'].includes(protocolo.status)
+                ? `<button type="button" class="btn btn-sm btn-success" onclick="enviarLinkRecebimentoWhatsappAlmoxarifado(${protocolo.id}, this)">Enviar recebimento pelo WhatsApp</button>`
                 : '';
         return `<article class="card mb-3 almox-protocolo-card"><div class="card-body">
             <div class="d-flex flex-wrap justify-content-between gap-2"><div><h5 class="mb-1">Protocolo #${Number(protocolo.id)}</h5><span class="badge bg-${cor}">${texto}</span></div><small class="text-muted">Criado em ${formatarDataHoraAlmoxarifado(protocolo.data_criacao)}</small></div>
@@ -4075,18 +4161,38 @@ async function executarAcaoAlmoxarifado(caminho, metodo, dados, aoConcluir) {
         const response = await fetch(`${API_URL}${caminho}`, { method: metodo, headers: getHeaders(), body: JSON.stringify(dados) });
         const resultado = await response.json().catch(() => ({}));
         if (!response.ok) {
-            mostrarAlerta('alertaDirigentes', resultado.erro || 'Não foi possível concluir a operação', 'danger');
+            const mensagemErro = resultado.erro || 'Não foi possível concluir a operação';
+            mostrarAlerta('alertaDirigentes', mensagemErro, 'danger');
+            mostrarRetornoFlutuanteAlmoxarifado(mensagemErro, 'danger');
             return false;
         }
         aoConcluir?.();
-        mostrarAlerta('alertaDirigentes', resultado.mensagem || 'Operação concluída com sucesso', 'success');
+        const mensagemSucesso = resultado.mensagem || 'Operação concluída com sucesso';
+        mostrarAlerta('alertaDirigentes', mensagemSucesso, 'success');
+        mostrarRetornoFlutuanteAlmoxarifado(mensagemSucesso, 'success');
         await carregarAlmoxarifado();
         return true;
     } catch (err) {
         console.error(err);
-        mostrarAlerta('alertaDirigentes', 'Erro de comunicação com o almoxarifado', 'danger');
+        const mensagemErro = 'Erro de comunicação com o almoxarifado';
+        mostrarAlerta('alertaDirigentes', mensagemErro, 'danger');
+        mostrarRetornoFlutuanteAlmoxarifado(mensagemErro, 'danger');
         return false;
     }
+}
+
+function mostrarRetornoFlutuanteAlmoxarifado(mensagem, tipo = 'success') {
+    document.getElementById('retornoFlutuanteAlmoxarifado')?.remove();
+    const retorno = document.createElement('div');
+    retorno.id = 'retornoFlutuanteAlmoxarifado';
+    retorno.className = `alert alert-${tipo} shadow-lg`;
+    retorno.setAttribute('role', 'alert');
+    retorno.setAttribute('aria-live', 'assertive');
+    retorno.style.cssText = 'position:fixed;left:16px;right:16px;bottom:max(20px, env(safe-area-inset-bottom));z-index:99999;margin:0;max-width:720px;margin-inline:auto;font-size:16px;';
+    retorno.innerHTML = `<div class="d-flex align-items-start justify-content-between gap-3"><span>${escapeHtml(mensagem)}</span><button type="button" class="btn-close flex-shrink-0" aria-label="Fechar"></button></div>`;
+    retorno.querySelector('.btn-close').addEventListener('click', () => retorno.remove());
+    document.body.appendChild(retorno);
+    window.setTimeout(() => retorno.remove(), tipo === 'danger' ? 9000 : 5000);
 }
 
 function formatarDataHoraAlmoxarifado(valor) {
@@ -4095,14 +4201,21 @@ function formatarDataHoraAlmoxarifado(valor) {
     return Number.isNaN(data.getTime()) ? escapeHtml(valor) : data.toLocaleString('pt-BR');
 }
 
-async function enviarLinkRecebimentoWhatsappAlmoxarifado(protocoloId) {
+async function enviarLinkRecebimentoWhatsappAlmoxarifado(protocoloId, botao) {
     const protocolo = almoxarifadoProtocolosCache.find(item => Number(item.id) === Number(protocoloId));
-    const telefone = normalizarTelefoneWhatsappAlmoxarifado(protocolo?.solicitante_telefone);
-    if (!telefone) {
-        mostrarAlerta('alertaDirigentes', 'O solicitante não possui um telefone válido para envio pelo WhatsApp.', 'warning');
+    const contatos = extrairContatosWhatsappAlmoxarifado(protocolo?.solicitante_telefone);
+    if (!contatos.length) {
+        const mensagem = 'O solicitante não possui um telefone válido para envio pelo WhatsApp.';
+        mostrarAlerta('alertaDirigentes', mensagem, 'warning');
+        mostrarRetornoFlutuanteAlmoxarifado(mensagem, 'warning');
         return;
     }
-    const janelaWhatsapp = window.open('about:blank', '_blank');
+    if (botao?.disabled) return;
+    const textoOriginal = botao?.textContent || 'Enviar recebimento pelo WhatsApp';
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Abrindo WhatsApp...';
+    }
     try {
         const response = await fetch(`${API_URL}/dirigentes/almoxarifado/protocolos/${protocoloId}/link-recebimento`, {
             method: 'POST', headers: getHeaders(), body: '{}'
@@ -4110,18 +4223,83 @@ async function enviarLinkRecebimentoWhatsappAlmoxarifado(protocoloId) {
         const resultado = await response.json();
         if (!response.ok) throw new Error(resultado.erro || 'Não foi possível gerar o link');
         const mensagem = `Olá, ${protocolo.solicitante}. Confirme o recebimento dos materiais do protocolo #${protocoloId} acessando o link: ${resultado.link}`;
-        const linkWhatsapp = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`;
-        if (janelaWhatsapp) {
-            janelaWhatsapp.location.href = linkWhatsapp;
-        } else {
-            window.location.href = linkWhatsapp;
+        mostrarOpcoesEnvioWhatsappAlmoxarifado(contatos, mensagem, resultado.link);
+        if (botao?.isConnected) {
+            botao.disabled = false;
+            botao.textContent = textoOriginal;
         }
-        mostrarAlerta('alertaDirigentes', 'WhatsApp aberto com a mensagem de confirmação pronta para envio.', 'success');
-        await carregarAlmoxarifado();
     } catch (err) {
-        janelaWhatsapp?.close();
         console.error(err);
         mostrarAlerta('alertaDirigentes', err.message || 'Erro ao abrir o envio pelo WhatsApp', 'danger');
+        if (botao?.isConnected) {
+            botao.disabled = false;
+            botao.textContent = textoOriginal;
+        }
+    }
+}
+
+function extrairContatosWhatsappAlmoxarifado(valor) {
+    const texto = String(valor || '');
+    const contatos = [];
+    const adicionar = (rotulo, telefone) => {
+        const numero = normalizarTelefoneWhatsappAlmoxarifado(telefone);
+        if (numero && !contatos.some(contato => contato.numero === numero)) contatos.push({ rotulo, numero });
+    };
+    const esposa = texto.match(/Esposa:\s*([^|]+)/i)?.[1];
+    const marido = texto.match(/Marido:\s*([^|]+)/i)?.[1];
+    if (esposa || marido) {
+        adicionar('Enviar para a esposa', esposa);
+        adicionar('Enviar para o marido', marido);
+        return contatos;
+    }
+    const numeros = texto.match(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[-\s]?\d{4}/g) || [texto];
+    numeros.forEach((telefone, indice) => adicionar(numeros.length > 1 ? `Enviar para o contato ${indice + 1}` : 'Abrir WhatsApp', telefone));
+    return contatos;
+}
+
+function mostrarOpcoesEnvioWhatsappAlmoxarifado(contatos, mensagem, linkCurto) {
+    document.getElementById('opcoesWhatsappAlmoxarifado')?.remove();
+    const painel = document.createElement('div');
+    painel.id = 'opcoesWhatsappAlmoxarifado';
+    painel.className = 'alert alert-success shadow-lg';
+    painel.setAttribute('role', 'dialog');
+    painel.setAttribute('aria-label', 'Enviar comprovante pelo WhatsApp');
+    painel.style.cssText = 'position:fixed;left:16px;right:16px;bottom:max(20px, env(safe-area-inset-bottom));z-index:100000;margin:0;max-width:720px;margin-inline:auto;font-size:16px;';
+    const botoes = contatos.map(contato => {
+        const url = `https://wa.me/${contato.numero}?text=${encodeURIComponent(mensagem)}`;
+        return `<button type="button" class="btn btn-success" onclick="abrirWhatsAppComJanelaDirigente(null, '${escapeAttr(url)}')">${escapeHtml(contato.rotulo)}</button>`;
+    }).join('');
+    painel.innerHTML = `<div class="d-flex justify-content-between align-items-start gap-3 mb-2"><strong>Link curto gerado. Escolha o destinatário:</strong><button type="button" class="btn-close flex-shrink-0" aria-label="Fechar"></button></div><div class="d-flex flex-wrap gap-2">${botoes}<button type="button" class="btn btn-outline-secondary copiar-link-almoxarifado">Copiar link</button></div>`;
+    painel.querySelector('.btn-close').addEventListener('click', () => painel.remove());
+    painel.querySelector('.copiar-link-almoxarifado').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(linkCurto);
+            mostrarRetornoFlutuanteAlmoxarifado('Link curto copiado.', 'success');
+        } catch (_) {
+            window.prompt('Copie o link curto:', linkCurto);
+        }
+    });
+    document.body.appendChild(painel);
+}
+
+async function registrarEntregaAlmoxarifado(protocoloId, botao) {
+    if (botao?.disabled) return;
+    const textoOriginal = botao?.textContent || 'Solicitar assinatura';
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Gerando assinatura...';
+    }
+    const sucesso = await executarAcaoAlmoxarifado(
+        `/dirigentes/almoxarifado/protocolos/${protocoloId}/entregar`, 'PUT', {}
+    );
+    if (sucesso) {
+        mostrarRetornoFlutuanteAlmoxarifado('Entrega registrada. Gerando o link de assinatura...', 'success');
+        await enviarLinkRecebimentoWhatsappAlmoxarifado(protocoloId, null);
+        return;
+    }
+    if (botao?.isConnected) {
+        botao.disabled = false;
+        botao.textContent = textoOriginal;
     }
 }
 

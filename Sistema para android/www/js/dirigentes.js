@@ -57,21 +57,47 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('editarAnoEncontro')?.addEventListener('input', limitarCampoNumerico);
     configurarFiltrosUsuarios();
     configurarFiltrosCarografo();
-    carregarOpcoesEquipe();
     carregarPerfilDirigente();
-    carregarConfiguracoesEncontroDirigente();
-    carregarRelatorio();
-    carregarUsuários();
-    carregarPessoasExternas();
-    carregarEventos();
-    carregarSituacao();
-    carregarReunioes();
-    carregarAcompanhamentoFaltas();
+    Promise.all([carregarOpcoesUsuariosDirigente(), carregarEventos()]).then(([usuarios]) => {
+        usuariosCache = usuarios;
+        renderizarEventos();
+    });
+    configurarCarregamentoAbasDirigenteAndroid();
     configurarPersistenciaAbas(ABA_ATUAL_DIRIGENTE_KEY);
     aplicarAbaInicialDirigente();
     // Os dados são atualizados somente ao carregar a página ou após ações explícitas.
     // O carografo carrega muitas pessoas e fotos; atualizacao manual evita consumo alto no banco.
 });
+
+async function carregarOpcoesUsuariosDirigente() {
+    const response = await fetch(`${API_URL}/dirigentes/usuarios-opcoes`, { headers: getHeaders() });
+    if (!response.ok) throw new Error('Erro ao carregar opcoes de usuarios');
+    const usuarios = await response.json();
+    return (Array.isArray(usuarios) ? usuarios : []).sort(ordenarUsuarioPorNome);
+}
+
+function configurarCarregamentoAbasDirigenteAndroid() {
+    const carregadas = new Set(['eventos', 'meuPerfil']);
+    const carregadores = {
+        relatorio: carregarRelatorio,
+        meuPerfil: () => Promise.all([carregarPerfilDirigente(), carregarConfiguracoesEncontroDirigente()]),
+        usuarios: () => Promise.all([carregarOpcoesEquipe(), carregarUsuários(), carregarPessoasExternas()]),
+        eventos: carregarEventos,
+        carografo: () => Promise.all([carregarUsuários(), carregarPessoasExternas()]),
+        situacao: carregarSituacao,
+        reunioes: carregarReunioes,
+        acompanhamentoFaltas: carregarAcompanhamentoFaltas
+    };
+
+    document.querySelectorAll('[data-bs-toggle="tab"]').forEach(link => {
+        link.addEventListener('shown.bs.tab', () => {
+            const aba = String(link.getAttribute('href') || '').replace('#', '');
+            if (carregadas.has(aba) || !carregadores[aba]) return;
+            carregadas.add(aba);
+            Promise.resolve(carregadores[aba]()).catch(() => carregadas.delete(aba));
+        });
+    });
+}
 
 function configurarConfiguraçõesDirigente() {
     const selectAbaInicial = document.getElementById('abaInicialDirigente');
@@ -637,7 +663,6 @@ function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
 
         return `
             <tr>
-                <td>${renderizarFotoPequenaSituacao(participante)}</td>
                 <td class="confirmacoes-usuario">
                     <div class="confirmacoes-usuario-conteudo">
                         <strong class="confirmacoes-usuario-nome">${escapeHtml(participante.nome_completo || '')}</strong>
@@ -659,7 +684,6 @@ function renderizarTabelaConfirmacoesEquipeDirigente(participantes) {
         <table class="table table-hover align-middle">
             <thead>
                 <tr>
-                    <th>Foto</th>
                     <th>Usuário</th>
                     <th>Contato</th>
                     <th>Movimento</th>
@@ -1518,9 +1542,7 @@ function renderizarCarografo(usuarios) {
         const destaqueMusical = u.toca_instrumento === 'sim' || u.canta === 'sim';
         const tipoCadastroResumo = u.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(u.id);
-        const fotoHtml = u.foto_perfil
-            ? `<img src="${u.foto_perfil}" alt="Foto de ${nome}" class="carografo-foto">`
-            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const fotoHtml = '<div class="carografo-foto carografo-foto-placeholder">-</div>';
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquia(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
@@ -3037,7 +3059,7 @@ function formatarDataHoraDirigente(valor) {
     return new Date(valor).toLocaleString('pt-BR');
 }
 
-function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
+async function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usuario') {
     if (fecharResumo) {
         const modalResumo = bootstrap.Modal.getInstance(document.getElementById('modalFoto'));
         if (modalResumo) {
@@ -3052,7 +3074,12 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
     document.getElementById('nomeEquipe').value = '';
     document.getElementById('nomeEquipe').required = false;
     document.getElementById('eventoEscala').required = false;
+    const selectEvento = document.getElementById('eventoEscala');
+    selectEvento.innerHTML = '<option value="">Carregando eventos...</option>';
+    selectEvento.disabled = true;
+    if (!eventosCache.length) await carregarEventos();
     carregarOpcoesEventoEscala();
+    selectEvento.disabled = false;
     document.getElementById('acaoEscalarDiv').style.display = 'block';
     document.getElementById('acaoEscalar').value = '';
     document.getElementById('equipeDiv').style.display = 'none';
@@ -3064,6 +3091,9 @@ function abrirModalEscalar(usuarioId, fecharResumo = false, tipoCadastro = 'usua
         document.getElementById('nomeEquipe').required = true;
         document.getElementById('eventoEscala').required = true;
     }
+
+    const participante = obterParticipanteEscalar(Number(usuarioId), tipoCadastro);
+    await prepararLinkConfirmacaoParticipanteDirigente(Number(usuarioId), tipoCadastro, participante);
     
     setTimeout(() => {
         const modal = new bootstrap.Modal(document.getElementById('modalEscalar'));
@@ -3181,8 +3211,12 @@ async function enviarLinkConfirmacaoDestinatarioCasal() {
     await enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone);
 }
 
-async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone) {
-    const janelaWhatsApp = abrirJanelaWhatsAppPendenteDirigente();
+async function prepararLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante) {
+    const botao = document.getElementById('btnEnviarLinkConfirmacaoEscalar');
+    if (botao) {
+        botao.disabled = true;
+        botao.textContent = 'Preparando WhatsApp...';
+    }
     try {
         const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${participanteId}/token-confirmacao`, {
             method: 'POST',
@@ -3191,26 +3225,35 @@ async function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCa
         const data = await response.json();
 
         if (!response.ok || !data.token_confirmacao) {
-            fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
-            mostrarAlerta('alertaDirigentes', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
-            return;
+            throw new Error(data.erro || 'Erro ao gerar link de confirmação.');
         }
 
         const origem = (['file:', 'capacitor:', 'ionic:'].includes(window.location.protocol) || window.location.hostname === 'localhost') ? 'https://sistema-ecri.vercel.app' : window.location.origin;
-        const linkConfirmacao = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
-        const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
+        participante.link_confirmacao_whatsapp = data.link_confirmacao || `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(data.token_confirmacao)}`;
+        if (botao) {
+            botao.disabled = false;
+            botao.textContent = 'Enviar link pelo WhatsApp';
+        }
+    } catch (err) {
+        if (botao) botao.textContent = 'Não foi possível preparar o WhatsApp';
+        mostrarAlerta('alertaDirigentes', err.message || 'Erro ao gerar link de confirmação.', 'danger');
+        console.error(err);
+    }
+}
+
+function enviarLinkConfirmacaoParticipanteDirigente(participanteId, tipoCadastro, participante, telefone) {
+    const linkConfirmacao = participante?.link_confirmacao_whatsapp;
+    if (!linkConfirmacao) {
+        mostrarAlerta('alertaDirigentes', 'O link ainda não está pronto. Feche e abra esta tela novamente.', 'warning');
+        return;
+    }
+    const mensagem = `Olá ${participante.nome_completo || participante.nome_cracha || ''},
 Ficamos muito felizes pelo seu sim!
 Precisamos que você atualize seus dados em nosso sistema.
 Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
-
-        abrirWhatsAppComJanelaDirigente(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
-    } catch (err) {
-        fecharJanelaWhatsAppPendenteDirigente(janelaWhatsApp);
-        mostrarAlerta('alertaDirigentes', 'Erro ao gerar link de confirmação.', 'danger');
-        console.error(err);
-    }
+    abrirWhatsAppComJanelaDirigente(null, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
 }
 
 function abrirModalDestinatarioConfirmacaoCasal(participanteId, tipoCadastro, participante) {
@@ -3254,12 +3297,33 @@ function abrirJanelaWhatsAppPendenteDirigente() {
 }
 
 function abrirWhatsAppComJanelaDirigente(janela, url) {
+    const urlAbertura = montarUrlAberturaWhatsAppDirigente(url);
     if (janela && !janela.closed) {
-        janela.location.href = url;
+        janela.location.href = urlAbertura;
         return;
     }
 
-    window.location.href = url;
+    window.location.href = urlAbertura;
+}
+
+function montarUrlAberturaWhatsAppDirigente(url) {
+    if (!/Android/i.test(navigator.userAgent || '')) return url;
+    try {
+        const endereco = new URL(url, window.location.href);
+        const telefone = endereco.hostname === 'wa.me' ? endereco.pathname.replace(/\D/g, '') : (endereco.searchParams.get('phone') || '').replace(/\D/g, '');
+        const mensagem = endereco.searchParams.get('text') || '';
+        if (!['wa.me', 'api.whatsapp.com'].includes(endereco.hostname)) return url;
+        if (telefone) {
+            return `whatsapp://send?phone=${encodeURIComponent(telefone)}${mensagem ? `&text=${encodeURIComponent(mensagem)}` : ''}`;
+        }
+        const parametros = new URLSearchParams();
+        if (telefone) parametros.set('phone', telefone);
+        if (mensagem) parametros.set('text', mensagem);
+        const fallback = `https://wa.me/${telefone}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
+        return `intent://send?${parametros.toString()}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(fallback)};end`;
+    } catch (err) {
+        return url;
+    }
 }
 
 function fecharJanelaWhatsAppPendenteDirigente(janela) {

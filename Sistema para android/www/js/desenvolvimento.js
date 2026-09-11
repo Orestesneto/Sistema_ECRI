@@ -309,9 +309,7 @@ function renderizarBlusasDev(blusas) {
     }
 
     const linhas = blusas.map((blusa) => {
-        const fotoHtml = blusa.foto_perfil
-            ? `<img src="${escapeHtml(blusa.foto_perfil)}" alt="Foto" title="Clique para ampliar" style="width:38px; height:38px; border-radius:50%; object-fit:cover; cursor:pointer;" onclick="abrirModalFotoGrandeDev(this.src)">`
-            : '<div style="width:38px; height:38px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
+        const fotoHtml = '<div style="width:38px; height:38px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
         const status = obterStatusBadge(blusa.status);
         const baixa = blusa.status === 'confirmado'
             ? `${formatarFormaPagamentoDev(blusa.forma_pagamento)}<br><small>${formatarDataHoraDev(blusa.data_confirmacao)}</small>`
@@ -532,9 +530,7 @@ function renderizarExcluidosDev() {
             const dataExclusao = usuario.data_exclusao ? formatarDataHoraDev(usuario.data_exclusao) : '-';
             const origem = usuario.origem === 'equipe_dirigente' ? 'Equipe dirigente' : 'Área exclusiva';
             const excluidoPor = usuario.excluido_por_nome || usuario.excluido_por || '-';
-            const fotoHtml = usuario.foto_perfil
-                ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalFotoGrandeDev(this.src)" title="Clique para ampliar">`
-                : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+            const fotoHtml = '<div class="carografo-foto carografo-foto-placeholder">-</div>';
 
             return `
                 <div class="carografo-item carografo-item-removido">
@@ -690,9 +686,7 @@ function renderizarCarografoDev(usuarios) {
         const destaqueMusical = usuario.toca_instrumento === 'sim' || usuario.canta === 'sim';
         const tipoCadastroResumo = usuario.origem_cadastro === 'externo' ? 'externo' : 'usuario';
         const idResumo = Number(usuario.id);
-        const fotoHtml = usuario.foto_perfil
-            ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto">`
-            : '<div class="carografo-foto carografo-foto-placeholder">-</div>';
+        const fotoHtml = '<div class="carografo-foto carografo-foto-placeholder">-</div>';
         const logoParoquia = tipoCadastroResumo === 'externo' ? null : obterLogoParoquiaDev(paroquiaValor);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`

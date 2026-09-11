@@ -256,27 +256,68 @@ router.get('/usuarios/:usuario_id/acoes', verificarTokenDesenvolvimento, async (
 router.get('/carografo', verificarTokenDesenvolvimento, async (req, res) => {
   try {
     const tokenFoto = encodeURIComponent((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
-    const usuarios = await database.all(`
+    let usuarios;
+    try {
+      usuarios = await database.all(`
       SELECT id, email, nome_completo, nome_cracha, telefone, cpf, data_nascimento, movimento_origem, ano_encontro,
              paroquia, restricao_medica, restricao_alimentar, restricao_medicacao,
              perfil, status, equipe, pessoa_impedida_servir, pessoa_impedida_motivos,
-             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             CASE WHEN foto_perfil IS NOT NULL THEN 1 ELSE 0 END AS tem_foto_perfil,
              toca_instrumento, instrumentos, canta, equipes_servidas,
              'usuario' AS origem_cadastro
       FROM usuarios
       ORDER BY nome_completo ASC
-    `);
+      `);
+    } catch (err) {
+      // Bancos antigos podem ainda nao possuir algum campo complementar. O
+      // carografo deve continuar disponivel enquanto a migracao e aplicada.
+      console.warn('Carografo dev: usando consulta compativel para usuarios:', err.message || err);
+      usuarios = await database.all(`
+        SELECT id, email, nome_completo, nome_cracha, telefone,
+               NULL AS cpf, NULL AS data_nascimento, movimento_origem, NULL AS ano_encontro,
+               NULL AS paroquia, NULL AS restricao_medica, NULL AS restricao_alimentar,
+               NULL AS restricao_medicacao, perfil, status, equipe,
+               0 AS pessoa_impedida_servir, NULL AS pessoa_impedida_motivos,
+               0 AS tem_foto_perfil, 'nao' AS toca_instrumento, '' AS instrumentos,
+               'nao' AS canta, NULL AS equipes_servidas, 'usuario' AS origem_cadastro
+        FROM usuarios
+        ORDER BY nome_completo ASC
+      `);
+    }
 
-    const pessoasExternas = await database.all(`
+    let pessoasExternas;
+    try {
+      pessoasExternas = await database.all(`
       SELECT id, NULL AS email, nome_completo, nome_cracha, telefone, NULL AS cpf, NULL AS data_nascimento,
              movimento_origem, ano_encontro, paroquia, NULL AS restricao_medica, NULL AS restricao_alimentar,
              NULL AS restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe, 0 AS pessoa_impedida_servir,
              NULL AS pessoa_impedida_motivos,
-             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             CASE WHEN foto_perfil IS NOT NULL THEN 1 ELSE 0 END AS tem_foto_perfil,
              'nao' AS toca_instrumento, '' AS instrumentos,
              'nao' AS canta, NULL AS equipes_servidas, 'externo' AS origem_cadastro
       FROM pessoas_externas
-    `);
+      `);
+    } catch (err) {
+      console.warn('Carografo dev: usando consulta compativel para pessoas externas:', err.message || err);
+      try {
+        pessoasExternas = await database.all(`
+          SELECT id, NULL AS email, nome_completo, nome_cracha, telefone,
+                 NULL AS cpf, NULL AS data_nascimento, movimento_origem, NULL AS ano_encontro,
+                 NULL AS paroquia, NULL AS restricao_medica, NULL AS restricao_alimentar,
+                 NULL AS restricao_medicacao, 'sem_cadastro' AS perfil, status, equipe,
+                 0 AS pessoa_impedida_servir, NULL AS pessoa_impedida_motivos,
+                 0 AS tem_foto_perfil, 'nao' AS toca_instrumento, '' AS instrumentos,
+                 'nao' AS canta, NULL AS equipes_servidas, 'externo' AS origem_cadastro
+          FROM pessoas_externas
+          ORDER BY nome_completo ASC
+        `);
+      } catch (fallbackErr) {
+        // Pessoas externas complementam o carografo. A indisponibilidade dessa
+        // tabela nao deve impedir a exibicao dos usuarios do sistema.
+        console.error('Carografo dev: pessoas externas indisponiveis:', fallbackErr.message || fallbackErr);
+        pessoasExternas = [];
+      }
+    }
 
     const pessoas = [
       ...usuarios.map(usuario => ({ ...usuario, foto_perfil: usuario.tem_foto_perfil ? `/api/fotos/usuario/${usuario.id}?token=${tokenFoto}` : '' })),
@@ -322,7 +363,7 @@ router.get('/blusas', verificarTokenDesenvolvimento, async (req, res) => {
     const blusas = await database.all(`
       SELECT sb.id, sb.usuario_id, sb.tamanho, sb.valor, sb.status, sb.data_solicitacao,
              sb.data_confirmacao, sb.forma_pagamento,
-             u.nome_completo, u.nome_cracha, u.email, u.telefone, u.equipe, u.foto_perfil
+             u.nome_completo, u.nome_cracha, u.email, u.telefone, u.equipe
       FROM solicitacoes_blusa sb
       JOIN usuarios u ON u.id = sb.usuario_id
       ORDER BY sb.data_solicitacao DESC, sb.id DESC

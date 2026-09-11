@@ -547,7 +547,7 @@ router.get('/configuracoes-dashboard', verificarToken, verificarPerfil(['equipis
 });
 
 // Solicitar blusa
-router.post('/solicitar-blusa', verificarToken, verificarPerfil(['equipista']), async (req, res) => {
+router.post('/solicitar-blusa', verificarToken, verificarPerfil(['equipista', 'coordenador']), async (req, res) => {
   try {
     const { tamanho } = req.body;
     const usuario_id = req.usuario.id;
@@ -565,9 +565,13 @@ router.post('/solicitar-blusa', verificarToken, verificarPerfil(['equipista']), 
     }
 
     const usuario = await database.get(
-      'SELECT equipe FROM usuarios WHERE id = ?',
+      'SELECT equipe, perfil, movimento_origem FROM usuarios WHERE id = ?',
       [usuario_id]
     );
+
+    if (usuario?.perfil === 'coordenador' && normalizarMovimentoOrigem(usuario.movimento_origem) !== 'ECRI') {
+      return res.status(403).json({ erro: 'Solicitacao disponivel para coordenadores do movimento ECRI' });
+    }
 
     if (!usuario?.equipe || String(usuario.equipe).trim().toLowerCase() === 'sem equipe') {
       return res.status(403).json({ erro: 'Solicitação de blusa disponível apenas para usuários escalados' });
