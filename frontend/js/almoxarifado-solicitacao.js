@@ -121,6 +121,7 @@
         }
         const status = {
             solicitado: ['warning text-dark', 'Aguardando entrega'],
+            aguardando_aceite: ['warning text-dark', 'Aguardando assinatura'],
             entregue: ['primary', 'Entregue'],
             parcialmente_devolvido: ['info text-dark', 'Devolução parcial'],
             devolvido: ['success', 'Devolvido'],

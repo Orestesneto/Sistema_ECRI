@@ -47,6 +47,7 @@ function renderizarAceite(protocolo) {
 function obterStatusEmprestimoAceite(status) {
     return {
         solicitado: { texto: 'Aguardando entrega', cor: 'warning text-dark' },
+        aguardando_aceite: { texto: 'Aguardando assinatura', cor: 'warning text-dark' },
         entregue: { texto: 'Emprestado', cor: 'primary' },
         parcialmente_devolvido: { texto: 'Devolução parcial', cor: 'info text-dark' },
         devolvido: { texto: 'Devolvido', cor: 'success' },

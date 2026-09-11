@@ -43,7 +43,7 @@ router.post('/recebimento/:codigo/assinar', ...autenticarUsuario, async (req, re
     if (Number(aceite.solicitante_usuario_id) !== Number(req.usuario.id)) {
       return res.status(403).json({ erro: 'Este recebimento só pode ser assinado pelo solicitante do protocolo' });
     }
-    if (!['entregue', 'parcialmente_devolvido', 'devolvido'].includes(aceite.status)) {
+    if (!['aguardando_aceite', 'entregue', 'parcialmente_devolvido', 'devolvido'].includes(aceite.status)) {
       return res.status(400).json({ erro: 'A entrega ainda não foi registrada pelo almoxarifado' });
     }
     if (aceite.data_aceite) return res.json({ mensagem: 'Recebimento já confirmado', data_aceite: aceite.data_aceite });
@@ -56,6 +56,12 @@ router.post('/recebimento/:codigo/assinar', ...autenticarUsuario, async (req, re
       WHERE protocolo_id = ? AND data_aceite IS NULL
     `, [req.usuario.id, ip, navegador, aceite.protocolo_id]);
     if (!result.changes) return res.status(409).json({ erro: 'O recebimento já foi confirmado' });
+    if (aceite.status === 'aguardando_aceite') {
+      await database.run(
+        `UPDATE almoxarifado_protocolos SET status = 'entregue' WHERE id = ? AND status = 'aguardando_aceite'`,
+        [aceite.protocolo_id]
+      );
+    }
     res.json({ mensagem: `Recebimento do protocolo #${aceite.protocolo_id} confirmado com sucesso` });
   } catch (err) {
     console.error(err);
@@ -76,7 +82,7 @@ router.get('/itens', ...autenticarUsuario, async (req, res) => {
                    FROM almoxarifado_protocolo_itens pi
                    JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
                    WHERE pi.item_id = i.id
-                     AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+                     AND p.status IN ('solicitado', 'aguardando_aceite', 'entregue', 'parcialmente_devolvido')
                      AND (p.data_prevista_retirada IS NULL OR p.data_prevista_retirada <= ?)
                      AND COALESCE(p.data_prevista_devolucao, '9999-12-31') >= ?
                  ), 0) AS estoque_disponivel
@@ -151,7 +157,7 @@ router.post('/solicitacoes', ...autenticarUsuario, async (req, res) => {
         SELECT COALESCE(SUM(pi.quantidade - pi.quantidade_devolvida), 0) AS total
         FROM almoxarifado_protocolo_itens pi
         JOIN almoxarifado_protocolos p ON p.id = pi.protocolo_id
-        WHERE pi.item_id = ? AND p.status IN ('solicitado', 'entregue', 'parcialmente_devolvido')
+        WHERE pi.item_id = ? AND p.status IN ('solicitado', 'aguardando_aceite', 'entregue', 'parcialmente_devolvido')
           AND (p.data_prevista_retirada IS NULL OR p.data_prevista_retirada <= ?)
           AND COALESCE(p.data_prevista_devolucao, '9999-12-31') >= ?
       `, [solicitado.item_id, dataPrevista, dataRetirada]);
