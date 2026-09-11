@@ -838,7 +838,28 @@ function observarFotosLazy(container = document) {
 function renderizarFotoLazyDirigente(usuario, tamanho = 40, classe = '') {
     const foto = sanitizarImagemPerfil(usuario?.foto_perfil);
     if (!foto) return `<div class="${classe}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;background:#ccc;display:flex;align-items:center;justify-content:center;">-</div>`;
-    return `<img data-src="${escapeAttr(foto)}" alt="Foto de ${escapeAttr(usuario?.nome_completo || '')}" class="${classe}" width="${tamanho}" height="${tamanho}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;object-fit:cover;background:#ccc;" loading="lazy" decoding="async" fetchpriority="low">`;
+    return `<img data-src="${escapeAttr(foto)}" alt="" aria-label="Foto de ${escapeAttr(usuario?.nome_completo || '')}" class="${classe}" width="${tamanho}" height="${tamanho}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;object-fit:cover;background:#ccc;" loading="lazy" decoding="async" fetchpriority="low" onerror="tratarErroFotoDirigente(this)">`;
+}
+
+function tratarErroFotoDirigente(imagem) {
+    const urlOriginal = imagem.dataset.srcOriginal || imagem.dataset.src || imagem.src;
+    if (imagem.dataset.tentativaFoto !== '1' && urlOriginal) {
+        imagem.dataset.tentativaFoto = '1';
+        imagem.dataset.srcOriginal = urlOriginal;
+        const separador = urlOriginal.includes('?') ? '&' : '?';
+        window.setTimeout(() => { imagem.src = `${urlOriginal}${separador}retry=1`; }, 350);
+        return;
+    }
+
+    const placeholder = document.createElement('div');
+    placeholder.className = imagem.className;
+    placeholder.style.cssText = imagem.style.cssText;
+    placeholder.style.display = 'flex';
+    placeholder.style.alignItems = 'center';
+    placeholder.style.justifyContent = 'center';
+    placeholder.style.background = '#ccc';
+    placeholder.textContent = '-';
+    imagem.replaceWith(placeholder);
 }
 
 async function buscarTodasPaginas(endpoint) {
