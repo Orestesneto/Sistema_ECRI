@@ -14,6 +14,8 @@ let blusaConfirmacaoPendente = null;
 let pedidosBlusaBloqueadosCoordenador = false;
 let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
+let restricoesMedicasCache = [];
+let restricoesMedicasGeraisCache = [];
 let linkCheckoutCartaoProprioAtual = '';
 let pagamentoProprioMonitoradoId = null;
 let intervaloMonitoramentoPagamentoProprio = null;
@@ -35,12 +37,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     configurarFiltrosCarografoEscrita();
     const usuarioPerfil = await carregarPerfilCoordenador();
     const usuarioListaEspera = Number(usuarioPerfil?.lista_espera || 0) === 1;
+    const coordenadorEcri = ehCoordenadorDoMovimentoEcri(usuarioPerfil);
     const dashboardLiberado = await aplicarRestricaoEntregaPastasCoordenador();
     alternarAbasCoordenadorPorListaEspera(usuarioListaEspera);
+    configurarAcessoCoordenadorEcri(usuarioPerfil);
 
-    if (dashboardLiberado && !usuarioListaEspera) {
-        carregarPagamentos();
-        carregarBlusas();
+    if ((dashboardLiberado || coordenadorEcri) && !usuarioListaEspera) {
+        if (!coordenadorEcri) {
+            carregarPagamentos();
+            carregarBlusas();
+        }
         carregarPagamentoProprio();
         carregarConfirmacoes();
         carregarReunioes();
@@ -50,7 +56,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+function ehCoordenadorDoMovimentoEcri(usuario) {
+    return usuario?.perfil === 'coordenador'
+        && String(usuario.movimento_origem || '').trim().toUpperCase() === 'ECRI';
+}
+
+function configurarAcessoCoordenadorEcri(usuario) {
+    if (!ehCoordenadorDoMovimentoEcri(usuario)) return;
+
+    document.getElementById('abaSolicitarMinhaBlusa')?.classList.remove('d-none');
+    document.getElementById('solicitarMinhaBlusa')?.classList.remove('d-none');
+    const abasPermitidas = new Set([
+        '#meuPerfil', '#pagamentoProprio', '#solicitarMinhaBlusa', '#confirmacoes', '#restricoesMedicas', '#reunioes'
+    ]);
+    document.querySelectorAll('.nav-tabs a[data-bs-toggle="tab"]').forEach((link) => {
+        const item = link.closest('.nav-item');
+        if (!item) return;
+        if (abasPermitidas.has(link.getAttribute('href'))) {
+            delete item.dataset.ocultoEntregaPastas;
+            if (item.dataset.ocultoListaEspera !== '1') item.style.display = '';
+            return;
+        }
+        item.dataset.ocultoCoordenadorEcri = '1';
+        item.style.display = 'none';
+    });
+
+    document.querySelectorAll('.tab-content > .tab-pane').forEach((pane) => {
+        if (!abasPermitidas.has(`#${pane.id}`)) pane.classList.remove('show', 'active');
+    });
+
+    const abaSalva = `#${localStorage.getItem(ABA_ATUAL_COORDENADOR_KEY) || ''}`;
+    if (!abasPermitidas.has(abaSalva)) abrirAbaCoordenadorMeuPerfil();
+}
+
 document.addEventListener('click', (e) => {
+    const botaoCancelarReuniao = e.target.closest('.btn-cancelar-reuniao');
+    if (botaoCancelarReuniao) {
+        abrirConfirmacaoCancelarReuniao(Number(botaoCancelarReuniao.dataset.reuniaoId));
+        return;
+    }
+
     const botaoChamada = e.target.closest('.btn-abrir-chamada');
     if (botaoChamada) {
         abrirChamada(Number(botaoChamada.dataset.reuniaoId));
@@ -151,6 +196,31 @@ function obterUsuarioLogadoCoordenador() {
     }
 }
 
+document.getElementById('formSolicitarMinhaBlusa')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tamanho = document.getElementById('tamanhoMinhaBlusaCoordenador').value;
+
+    try {
+        const response = await fetch(`${API_URL}/equipista/solicitar-blusa`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ tamanho })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao solicitar blusa', 'danger');
+            return;
+        }
+
+        mostrarAlerta('alertaCoordenador', 'Blusa solicitada com sucesso!', 'success');
+        e.currentTarget.reset();
+        carregarPagamentoProprio();
+    } catch (err) {
+        console.error(err);
+        mostrarAlerta('alertaCoordenador', 'Erro ao solicitar blusa', 'danger');
+    }
+});
+
 // Carregar perfil do coordenador
 async function carregarPerfilCoordenador() {
     try {
@@ -174,6 +244,8 @@ async function carregarPerfilCoordenador() {
         carregarExperienciaPerfil('coordenador', usuario);
         configurarAbaCarografoEscrita(usuario.equipe);
         configurarAbaRestricaoAlimentar(usuario.equipe);
+        configurarAbaRestricoesMedicas(usuario.equipe);
+        configurarAbaRestricoesMedicasGerais(usuario.equipe);
         
         if (usuario.foto_perfil) {
             document.getElementById('fotoPreviewCoordenador').src = usuario.foto_perfil;
@@ -308,12 +380,140 @@ async function carregarRestricoesAlimentares() {
             return;
         }
 
-        restricoesAlimentaresCache = Array.isArray(usuarios) ? usuarios : [];
+        restricoesAlimentaresCache = Array.isArray(usuarios)
+            ? usuarios.filter(usuario => possuiRestricaoAlimentar(usuario.restricao_alimentar))
+            : [];
         renderizarRestricoesAlimentares();
     } catch (err) {
         container.innerHTML = '<div class="alert alert-danger">Erro ao carregar restrições alimentares.</div>';
         console.error(err);
     }
+}
+
+function configurarAbaRestricoesMedicas(equipe) {
+    const equipeNormalizada = normalizarTextoFiltroCoordenador(equipe);
+    const possuiEquipe = Boolean(equipeNormalizada) && equipeNormalizada !== 'SEM EQUIPE';
+    document.getElementById('abaRestricoesMedicas')?.classList.toggle('d-none', !possuiEquipe);
+    document.getElementById('restricoesMedicas')?.classList.toggle('d-none', !possuiEquipe);
+
+    if (possuiEquipe) {
+        carregarRestricoesMedicas();
+    } else if (localStorage.getItem(ABA_ATUAL_COORDENADOR_KEY) === 'restricoesMedicas') {
+        localStorage.setItem(ABA_ATUAL_COORDENADOR_KEY, 'meuPerfil');
+        const abaPerfil = document.querySelector('a[href="#meuPerfil"]');
+        if (abaPerfil && window.bootstrap?.Tab) bootstrap.Tab.getOrCreateInstance(abaPerfil).show();
+    }
+}
+
+function configurarAbaRestricoesMedicasGerais(equipe) {
+    const boaAcao = normalizarTextoFiltroCoordenador(equipe) === 'BOA ACAO';
+    document.getElementById('abaRestricoesMedicasGerais')?.classList.toggle('d-none', !boaAcao);
+    document.getElementById('restricoesMedicasGerais')?.classList.toggle('d-none', !boaAcao);
+    if (boaAcao) carregarRestricoesMedicasGerais();
+}
+
+async function carregarRestricoesMedicasGerais() {
+    const container = document.getElementById('tabelaRestricoesMedicasGerais');
+    if (!container) return;
+    try {
+        const response = await fetch(`${API_URL}/coordenador/restricoes-medicas-gerais`, { headers: getHeaders() });
+        const usuarios = await response.json();
+        if (!response.ok) {
+            container.innerHTML = `<div class="alert alert-danger">${escapeHtml(usuarios.erro || 'Erro ao carregar restrições gerais.')}</div>`;
+            return;
+        }
+        restricoesMedicasGeraisCache = Array.isArray(usuarios)
+            ? usuarios.filter(usuario => possuiRestricaoAlimentar(usuario.restricao_medica) || possuiRestricaoAlimentar(usuario.restricao_medicacao))
+            : [];
+        renderizarRestricoesMedicasGerais();
+    } catch (err) {
+        container.innerHTML = '<div class="alert alert-danger">Erro ao carregar restrições gerais.</div>';
+        console.error(err);
+    }
+}
+
+function renderizarRestricoesMedicasGerais() {
+    const container = document.getElementById('tabelaRestricoesMedicasGerais');
+    if (!container) return;
+    if (!restricoesMedicasGeraisCache.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhum usuário confirmado possui restrição médica ou a medicamento.</div>';
+        return;
+    }
+    const linhas = restricoesMedicasGeraisCache.map(usuario => {
+        const foto = usuario.foto_perfil
+            ? `<button type="button" class="btn p-0 border-0 rounded-circle" style="cursor:zoom-in" onclick="abrirFotoRestricaoMedicaGeral(${Number(usuario.id)})" aria-label="Ampliar foto de ${escapeAttr(usuario.nome_cracha || usuario.nome_completo || '')}">${renderizarFotoLazyCoordenador(usuario, 46)}</button>`
+            : renderizarFotoLazyCoordenador(usuario, 46);
+        const medica = possuiRestricaoAlimentar(usuario.restricao_medica) ? usuario.restricao_medica : '-';
+        const medicacao = possuiRestricaoAlimentar(usuario.restricao_medicacao) ? usuario.restricao_medicacao : '-';
+        return `<tr><td>${foto}</td><td>${escapeHtml(usuario.nome_cracha || usuario.nome_completo || '-')}</td><td>${escapeHtml(medica)}</td><td>${escapeHtml(medicacao)}</td></tr>`;
+    }).join('');
+    container.innerHTML = `<table class="table table-hover align-middle"><thead><tr><th>Foto</th><th>Nome</th><th>Restrição médica</th><th>Restrição a medicamento</th></tr></thead><tbody>${linhas}</tbody></table>`;
+    observarFotosLazyCoordenador(container);
+}
+
+function abrirFotoRestricaoMedicaGeral(usuarioId) {
+    abrirModalFotoRestricaoUsuario(restricoesMedicasGeraisCache.find(item => Number(item.id) === Number(usuarioId)));
+}
+
+async function carregarRestricoesMedicas() {
+    const container = document.getElementById('tabelaRestricoesMedicas');
+    if (!container) return;
+
+    try {
+        const response = await fetch(`${API_URL}/coordenador/restricoes-medicas`, { headers: getHeaders() });
+        const usuarios = await response.json();
+        if (!response.ok) {
+            container.innerHTML = `<div class="alert alert-danger">${escapeHtml(usuarios.erro || 'Erro ao carregar restrições.')}</div>`;
+            return;
+        }
+
+        restricoesMedicasCache = Array.isArray(usuarios)
+            ? usuarios.filter(usuario => possuiRestricaoAlimentar(usuario.restricao_medica)
+                || possuiRestricaoAlimentar(usuario.restricao_medicacao)
+                || possuiRestricaoAlimentar(usuario.restricao_alimentar))
+            : [];
+        renderizarRestricoesMedicas();
+    } catch (err) {
+        container.innerHTML = '<div class="alert alert-danger">Erro ao carregar restrições.</div>';
+        console.error(err);
+    }
+}
+
+function renderizarRestricoesMedicas() {
+    const container = document.getElementById('tabelaRestricoesMedicas');
+    if (!container) return;
+    if (!restricoesMedicasCache.length) {
+        container.innerHTML = '<div class="alert alert-info">Nenhum usuário confirmado da equipe possui restrições.</div>';
+        return;
+    }
+
+    const linhas = restricoesMedicasCache.map(usuario => {
+        const foto = usuario.foto_perfil
+            ? `<button type="button" class="btn p-0 border-0 rounded-circle" style="cursor:zoom-in" onclick="abrirFotoRestricaoMedica(${Number(usuario.id)})" aria-label="Ampliar foto de ${escapeAttr(usuario.nome_cracha || usuario.nome_completo || '')}">${renderizarFotoLazyCoordenador(usuario, 46)}</button>`
+            : renderizarFotoLazyCoordenador(usuario, 46);
+        const medica = possuiRestricaoAlimentar(usuario.restricao_medica) ? usuario.restricao_medica : '-';
+        const medicacao = possuiRestricaoAlimentar(usuario.restricao_medicacao) ? usuario.restricao_medicacao : '-';
+        const alimentar = possuiRestricaoAlimentar(usuario.restricao_alimentar) ? usuario.restricao_alimentar : '-';
+        return `<tr><td>${foto}</td><td>${escapeHtml(usuario.nome_cracha || usuario.nome_completo || '-')}</td><td>${escapeHtml(medica)}</td><td>${escapeHtml(medicacao)}</td><td>${escapeHtml(alimentar)}</td></tr>`;
+    }).join('');
+
+    container.innerHTML = `<table class="table table-hover align-middle"><thead><tr><th>Foto</th><th>Nome</th><th>Restrição médica</th><th>Restrição a medicamento</th><th>Restrição alimentar</th></tr></thead><tbody>${linhas}</tbody></table>`;
+    observarFotosLazyCoordenador(container);
+}
+
+function abrirFotoRestricaoMedica(usuarioId) {
+    const usuario = restricoesMedicasCache.find(item => Number(item.id) === Number(usuarioId));
+    abrirModalFotoRestricaoUsuario(usuario);
+}
+
+function possuiRestricaoAlimentar(restricao) {
+    const valor = String(restricao || '')
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    return valor !== '' && !['nao', 'n', 'nenhum', 'nenhuma', 'sem restricao'].includes(valor);
 }
 
 function renderizarRestricoesAlimentares() {
@@ -327,8 +527,8 @@ function renderizarRestricoesAlimentares() {
 
     const linhas = restricoesAlimentaresCache.map((usuario) => {
         const fotoHtml = usuario.foto_perfil
-            ? `<img src="${usuario.foto_perfil}" alt="Foto de ${escapeHtml(usuario.nome_cracha || usuario.nome_completo || '')}" style="width:46px; height:46px; border-radius:50%; object-fit:cover;">`
-            : '<div style="width:46px; height:46px; border-radius:50%; background:#ddd; display:flex; align-items:center; justify-content:center;">-</div>';
+            ? `<button type="button" class="btn p-0 border-0 rounded-circle" style="cursor:zoom-in" onclick="abrirFotoRestricao(${Number(usuario.id)})" aria-label="Ampliar foto de ${escapeAttr(usuario.nome_cracha || usuario.nome_completo || '')}">${renderizarFotoLazyCoordenador(usuario, 46)}</button>`
+            : renderizarFotoLazyCoordenador(usuario, 46);
 
         return `
             <tr>
@@ -351,6 +551,25 @@ function renderizarRestricoesAlimentares() {
             <tbody>${linhas}</tbody>
         </table>
     `;
+    observarFotosLazyCoordenador(container);
+}
+
+function abrirFotoRestricao(usuarioId) {
+    const usuario = restricoesAlimentaresCache.find(item => Number(item.id) === Number(usuarioId));
+    abrirModalFotoRestricaoUsuario(usuario);
+}
+
+function abrirModalFotoRestricaoUsuario(usuario) {
+    const modalEl = document.getElementById('modalFotoRestricao');
+    const imagemEl = document.getElementById('imagemFotoRestricao');
+    const nomeEl = document.getElementById('nomeFotoRestricao');
+    if (!usuario?.foto_perfil || !modalEl || !imagemEl || !nomeEl || !window.bootstrap?.Modal) return;
+
+    const nome = usuario.nome_cracha || usuario.nome_completo || 'Usuário';
+    imagemEl.src = usuario.foto_perfil;
+    imagemEl.alt = `Foto ampliada de ${nome}`;
+    nomeEl.textContent = nome;
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
 // Atualizar restrições (dispara o formulário de perfil)
 document.getElementById('formRestricoesCoord')?.addEventListener('submit', (e) => {
@@ -376,14 +595,12 @@ async function carregarPagamentos() {
         let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         pagamentos.forEach(p => {
-            const fotoHtml = p.foto_perfil 
-                ? `<img src="${p.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
-                : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+            const fotoHtml = `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
             const confirmado = p.status === 'confirmado';
             const pendente = p.status === 'pendente';
             const statusHtml = obterStatusBadge(p.status);
             const baixaHtml = confirmado
-                ? `${formatarFormaPagamento(p.forma_pagamento)}<br><small>${formatarDataHora(p.data_confirmacao)}</small>`
+                ? formatarBaixaPagamentoCoordenador(p)
                 : '-';
             const acaoHtml = pendente
                 ? `<button class="btn btn-sm btn-success" onclick="abrirModalConfirmarPagamento(${Number(p.id)})">Confirmar</button>`
@@ -430,9 +647,7 @@ async function carregarBlusas() {
         let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         blusasEquipeCache.forEach(b => {
-            const fotoHtml = b.foto_perfil 
-                ? `<img src="${b.foto_perfil}" alt="Foto" style="width:40px; height:40px; border-radius:50%; object-fit:cover;">`
-                : `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+            const fotoHtml = `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
             const temSolicitacao = Boolean(b.id);
             const pago = b.status === 'confirmado';
             const badge = !temSolicitacao
@@ -816,9 +1031,7 @@ function renderizarCarografoEscrita(usuarios) {
                 : ''
         ].join('');
         const destaqueMusical = usuario.toca_instrumento === 'sim' || usuario.canta === 'sim';
-        const fotoHtml = usuario.foto_perfil
-            ? `<img src="${escapeHtml(usuario.foto_perfil)}" alt="Foto de ${nome}" class="carografo-foto" onclick="abrirModalPerfilParticipante(${Number(usuario.id)}, 'usuario')">`
-            : `<div class="carografo-foto carografo-foto-placeholder" onclick="abrirModalPerfilParticipante(${Number(usuario.id)}, 'usuario')">-</div>`;
+        const fotoHtml = renderizarFotoLazyCoordenador(usuario, 72, 'carografo-foto');
         const logoParoquia = obterLogoParoquiaCoordenador(usuario.paroquia);
         const logoParoquiaHtml = logoParoquia
             ? `<img src="${logoParoquia.src}" alt="${logoParoquia.alt}" class="carografo-paroquia-logo">`
@@ -843,6 +1056,29 @@ function renderizarCarografoEscrita(usuarios) {
             </div>
         `;
     }).join('');
+    observarFotosLazyCoordenador(painel);
+}
+
+function renderizarFotoLazyCoordenador(usuario, tamanho = 40, classe = '') {
+    const foto = String(usuario?.foto_perfil || '');
+    if (!foto) return `<div class="${classe}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;background:#ccc;display:flex;align-items:center;justify-content:center;">-</div>`;
+    return `<img data-src="${escapeAttr(foto)}" alt="Foto de ${escapeAttr(usuario?.nome_completo || '')}" class="${classe}" width="${tamanho}" height="${tamanho}" style="width:${tamanho}px;height:${tamanho}px;border-radius:50%;object-fit:cover;background:#ccc;" loading="lazy" decoding="async" fetchpriority="low">`;
+}
+
+function observarFotosLazyCoordenador(container = document) {
+    const fotos = container.querySelectorAll('img[data-src]');
+    if (!('IntersectionObserver' in window)) {
+        fotos.forEach(foto => { foto.src = foto.dataset.src; foto.removeAttribute('data-src'); });
+        return;
+    }
+    const observer = new IntersectionObserver(entradas => entradas.forEach(entrada => {
+        if (!entrada.isIntersecting) return;
+        const foto = entrada.target;
+        foto.src = foto.dataset.src;
+        foto.removeAttribute('data-src');
+        observer.unobserve(foto);
+    }), { rootMargin: '100px 0px' });
+    fotos.forEach(foto => observer.observe(foto));
 }
 
 function baixarRelatorioCarografoEscritaExcel() {
@@ -1208,9 +1444,6 @@ async function carregarConfirmacoes() {
         }
 
         const linhas = participantes.map(usuario => {
-            const fotoHtml = usuario.foto_perfil
-                ? `<img src="${usuario.foto_perfil}" alt="Foto" style="width:42px; height:42px; border-radius:50%; object-fit:cover;">`
-                : '<div style="width:42px; height:42px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>';
             const tipoCadastro = usuario.tipo_cadastro === 'externo'
                 ? '<span class="badge bg-secondary">Sem cadastro</span>'
                 : '<span class="badge bg-primary">Cadastrado</span>';
@@ -1220,11 +1453,7 @@ async function carregarConfirmacoes() {
 
             return `
                 <tr>
-                    <td>
-                        <button type="button" class="btn btn-link p-0 btn-perfil-participante" data-usuario-id="${usuario.id}" data-tipo-cadastro="${usuario.tipo_cadastro || 'usuario'}" title="Ver perfil">
-                            ${fotoHtml}
-                        </button>
-                    </td>
+                    <td>${renderizarFotoLazyCoordenador(usuario, 40)}</td>
                     <td class="confirmacoes-usuario">
                         <div class="confirmacoes-usuario-conteudo">
                             <strong class="confirmacoes-usuario-nome">${escapeHtml(usuario.nome_completo || '')}</strong>
@@ -1270,6 +1499,7 @@ async function carregarConfirmacoes() {
                 <tbody>${linhas}</tbody>
             </table>
         `;
+        observarFotosLazyCoordenador(container);
     } catch (err) {
         container.innerHTML = '<div class="alert alert-danger">Erro ao carregar participantes.</div>';
         console.error(err);
@@ -1446,7 +1676,7 @@ function abrirModalPerfilParticipante(usuarioId, tipoCadastro = 'usuario') {
     new bootstrap.Modal(modalEl).show();
 }
 
-async function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
+function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
     const usuario = participantesEquipeCache.find(item => Number(item.id) === Number(usuarioId) && (item.tipo_cadastro || 'usuario') === tipoCadastro);
     if (!usuario) return;
 
@@ -1456,44 +1686,20 @@ async function enviarConfirmacaoWhatsApp(usuarioId, tipoCadastro = 'usuario') {
         return;
     }
 
-    const janelaWhatsApp = abrirJanelaWhatsAppPendente();
     const origem = window.location.origin === 'file://' ? 'http://localhost:5000' : window.location.origin;
-    let tokenConfirmacao = '';
-    let linkConfirmacao = '';
-
-    try {
-        const response = await fetch(`${API_URL}/coordenador/participantes-equipe/${tipoCadastro}/${Number(usuarioId)}/token-confirmacao`, {
-            method: 'POST',
-            headers: getHeaders()
-        });
-        const data = await response.json();
-
-        if (!response.ok || !data.token_confirmacao) {
-            fecharJanelaWhatsAppPendente(janelaWhatsApp);
-            mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao gerar link de confirmação.', 'danger');
-            return;
-        }
-
-        tokenConfirmacao = data.token_confirmacao;
-        linkConfirmacao = data.link_confirmacao || '';
-        usuario.token_confirmacao = tokenConfirmacao;
-    } catch (err) {
-        fecharJanelaWhatsAppPendente(janelaWhatsApp);
-        mostrarAlerta('alertaCoordenador', 'Erro ao gerar link de confirmação.', 'danger');
-        console.error(err);
+    const tokenConfirmacao = usuario.token_confirmacao || '';
+    if (!tokenConfirmacao) {
+        mostrarAlerta('alertaCoordenador', 'O link ainda não está disponível. Atualize a página e tente novamente.', 'warning');
         return;
     }
-
-    if (!linkConfirmacao) {
-        linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(tokenConfirmacao)}`;
-    }
+    const linkConfirmacao = `${origem}/frontend/confirmacao.html?token=${encodeURIComponent(tokenConfirmacao)}`;
     const mensagem = `Olá ${usuario.nome_completo},
 Ficamos muito felizes pelo seu sim!
 Precisamos que você atualize seus dados em nosso sistema.
 Por favor, confirme seus dados no seguinte link:
 
 ${linkConfirmacao}`;
-    abrirWhatsAppComJanela(janelaWhatsApp, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
+    abrirWhatsAppComJanela(null, `https://wa.me/55${telefone}?text=${encodeURIComponent(mensagem)}`);
 }
 
 async function gerarUrlAtualizacaoDesistenciaWhatsApp(usuarioId, tipoCadastro = 'usuario', status = 'desistiu', janelaWhatsApp = null) {
@@ -1700,21 +1906,49 @@ function abrirJanelaWhatsAppPendente() {
 }
 
 function abrirWhatsAppComJanela(janela, url) {
+    const urlAbertura = montarUrlAberturaWhatsApp(url);
     if (janela && !janela.closed) {
         janela.document.open();
         janela.document.write(`
             <div style="font-family:Arial,sans-serif;padding:16px;line-height:1.4;">
                 <p>Abrindo WhatsApp...</p>
                 <p>Se não abrir automaticamente, toque no botão abaixo.</p>
-                <p><a href="${escapeAttr(url)}" style="display:inline-block;padding:10px 14px;background:#198754;color:#fff;text-decoration:none;border-radius:6px;font-weight:700;">Abrir WhatsApp</a></p>
+                <p><a href="${escapeAttr(urlAbertura)}" style="display:inline-block;padding:10px 14px;background:#198754;color:#fff;text-decoration:none;border-radius:6px;font-weight:700;">Abrir WhatsApp</a></p>
             </div>
         `);
         janela.document.close();
-        janela.location.href = url;
+        janela.location.href = urlAbertura;
         return;
     }
 
-    window.location.href = url;
+    window.location.href = urlAbertura;
+}
+
+function montarUrlAberturaWhatsApp(url) {
+    if (!/Android/i.test(navigator.userAgent || '')) return url;
+
+    try {
+        const endereco = new URL(url, window.location.href);
+        const telefone = endereco.hostname === 'wa.me'
+            ? endereco.pathname.replace(/\D/g, '')
+            : (endereco.searchParams.get('phone') || '').replace(/\D/g, '');
+        const mensagem = endereco.searchParams.get('text') || '';
+
+        if (!['wa.me', 'api.whatsapp.com'].includes(endereco.hostname) || (!telefone && !mensagem)) return url;
+
+        if (telefone) {
+            return `whatsapp://send?phone=${encodeURIComponent(telefone)}${mensagem ? `&text=${encodeURIComponent(mensagem)}` : ''}`;
+        }
+
+        const parametros = new URLSearchParams();
+        if (telefone) parametros.set('phone', telefone);
+        if (mensagem) parametros.set('text', mensagem);
+        const fallback = `https://wa.me/${telefone}${mensagem ? `?text=${encodeURIComponent(mensagem)}` : ''}`;
+
+        return `intent://send?${parametros.toString()}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${encodeURIComponent(fallback)};end`;
+    } catch (err) {
+        return url;
+    }
 }
 
 function fecharJanelaWhatsAppPendente(janela) {
@@ -2231,6 +2465,31 @@ function formatarFormaPagamentoBaixaBlusa(forma, origemMercadoPago = false) {
     return mapa[forma] || formatarFormaPagamento(forma);
 }
 
+function formatarBaixaPagamentoCoordenador(pagamento) {
+    const nomeConfirmador = pagamento.confirmado_por_nome || pagamento.confirmado_por_cracha || '';
+    const origem = pagamento.origem_confirmacao || (pagamento.confirmado_por ? 'manual' : 'mercado_pago');
+    const manual = origem === 'manual';
+    const badge = manual
+        ? '<span class="badge bg-primary">Baixa manual</span>'
+        : '<span class="badge bg-info text-dark">Mercado Pago</span>';
+    const detalhes = [badge];
+
+    if (manual) {
+        detalhes.push(`<strong>${escapeHtml(nomeConfirmador || 'Usuário não identificado')}</strong>`);
+        detalhes.push(`<small>${escapeHtml(formatarFormaPagamento(pagamento.forma_pagamento))}</small>`);
+    } else {
+        detalhes.push('<strong>Baixa automática</strong>');
+        const forma = formatarFormaPagamento(pagamento.forma_pagamento);
+        if (forma !== '-') detalhes.push(`<small>${escapeHtml(forma)}</small>`);
+    }
+
+    if (pagamento.data_confirmacao) {
+        detalhes.push(`<small>${formatarDataHora(pagamento.data_confirmacao)}</small>`);
+    }
+
+    return `<div class="d-flex flex-column align-items-start gap-1">${detalhes.join('')}</div>`;
+}
+
 function formatarBaixaBlusaCoordenador(blusa) {
     const nomeConfirmador = blusa.confirmado_por_nome || blusa.confirmado_por_cracha || '';
     const origemMercadoPago = !nomeConfirmador && ['pix', 'cartao_credito'].includes(blusa.forma_pagamento);
@@ -2359,29 +2618,43 @@ function montarMensagemReunioesWhatsApp(reunioes) {
     }).filter(Boolean).join('\n\n');
 }
 
-function abrirCompartilhamentoWhatsApp(mensagem, janelaWhatsApp) {
-    const url = `https://wa.me/?text=${encodeURIComponent(mensagem || '')}`;
-    if (janelaWhatsApp && !janelaWhatsApp.closed) {
-        janelaWhatsApp.location.href = url;
-        return;
-    }
-    window.location.href = url;
+function abrirCompartilhamentoWhatsApp(mensagem) {
+    document.getElementById('modalCompartilharReuniaoWhatsApp')?.remove();
+    const modalEl = document.createElement('div');
+    modalEl.id = 'modalCompartilharReuniaoWhatsApp';
+    modalEl.className = 'modal fade';
+    modalEl.tabIndex = -1;
+    modalEl.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Reunião agendada</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p>Escolha a pessoa ou o grupo que receberá a mensagem:</p><textarea class="form-control" rows="8" readonly>${escapeHtml(mensagem || '')}</textarea></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Agora não</button><button type="button" class="btn btn-success btn-escolher-whatsapp">Escolher contato no WhatsApp</button></div></div></div>`;
+    document.body.appendChild(modalEl);
+    modalEl.querySelector('.btn-escolher-whatsapp').addEventListener('click', async () => {
+        bootstrap.Modal.getInstance(modalEl)?.hide();
+        if (navigator.share) {
+            try {
+                await navigator.share({ text: mensagem || '' });
+                return;
+            } catch (err) {
+                if (err?.name === 'AbortError') return;
+            }
+        }
+        abrirWhatsAppComJanela(null, `https://wa.me/?text=${encodeURIComponent(mensagem || '')}`);
+    });
+    modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove(), { once: true });
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
 
 document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const janelaWhatsApp = window.open('about:blank', '_blank');
-    
     const data_reuniao = document.getElementById('dataReuniao').value;
     const horario_inicio = document.getElementById('horarioInicio').value;
     const local = document.getElementById('localReuniao').value;
+    const descricao = document.getElementById('descricaoReuniao').value.trim();
     
     try {
         const response = await fetch(`${API_URL}/coordenador/reunioes`, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({
-                data_reuniao, horario_inicio, local
+                data_reuniao, horario_inicio, local, descricao
             })
         });
         
@@ -2390,17 +2663,29 @@ document.getElementById('formNovaReuniao')?.addEventListener('submit', async (e)
             mostrarAlerta('alertaCoordenador', 'Reunião agendada com sucesso!', 'success');
             document.getElementById('formNovaReuniao').reset();
             carregarReunioes();
-            abrirCompartilhamentoWhatsApp(montarMensagemReunioesWhatsApp(data.reunioes_whatsapp) || data.mensagem_whatsapp, janelaWhatsApp);
+            const mensagemWhatsApp = montarMensagemReunioesWhatsApp(data.reunioes_whatsapp)
+                || data.mensagem_whatsapp
+                || montarMensagemReuniaoIndividualWhatsApp(data_reuniao, horario_inicio, local);
+            abrirCompartilhamentoWhatsApp(mensagemWhatsApp);
         } else {
-            janelaWhatsApp?.close();
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao agendar reuniao', 'danger');
         }
     } catch (err) {
-        janelaWhatsApp?.close();
         mostrarAlerta('alertaCoordenador', 'Erro ao agendar reunião', 'danger');
         console.error(err);
     }
 });
+
+function montarMensagemReuniaoIndividualWhatsApp(data, horario, local) {
+    const usuario = obterUsuarioLogadoCoordenador();
+    const equipe = String(usuario?.equipe || 'Equipe').trim();
+    const chaveEquipe = equipe.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const cabecalho = obterCabecalhosReuniaoWhatsApp().find(item =>
+        item.equipe.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() === chaveEquipe
+    )?.titulo || `📅 ${equipe}`;
+    const [ano, mes, dia] = String(data || '').split('-');
+    return `${cabecalho}\nDia: ${dia && mes && ano ? `${dia}/${mes}/${ano}` : data}\nHora: ${horario || ''}\nLocal: ${local || ''}`;
+}
 
 async function carregarReunioes() {
     try {
@@ -2429,7 +2714,7 @@ async function carregarReunioes() {
                         <div class="btn-group" role="group">
                             <button class="btn btn-sm btn-primary" onclick="abrirModalEditar(${r.id}, '${r.titulo}', '${r.descricao}', '${String(r.data_reuniao || '').slice(0, 10)}', '${r.horario_inicio}', '${r.local}')">Editar</button>
                             <button type="button" class="btn btn-sm btn-success btn-abrir-chamada" data-reuniao-id="${r.id}">Chamada</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletarReuniao(${r.id})">Cancelar</button>
+                            <button type="button" class="btn btn-sm btn-danger btn-cancelar-reuniao" data-reuniao-id="${r.id}">Cancelar</button>
                         </div>
                     `;
             
@@ -2500,7 +2785,7 @@ async function abrirChamada(reuniaoId) {
             const nomeChamada = p.nome_cracha || p.nome_completo || '';
             return `
             <tr>
-                <td class="chamada-col-foto">${p.foto_perfil ? `<img src="${p.foto_perfil}" alt="Foto" class="chamada-foto">` : '-'}</td>
+                <td class="chamada-col-foto">-</td>
                 <td class="chamada-col-nome">${escapeHtml(nomeChamada)}</td>
                 <td>${escapeHtml(p.perfil || '-')}</td>
                 <td>${escapeHtml(p.equipe || '-')}</td>
@@ -2585,7 +2870,13 @@ async function salvarChamada(reuniaoId) {
 
         if (response.ok) {
             mostrarAlerta('alertaCoordenador', 'Chamada salva com sucesso!', 'success');
-            prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFaltaJustificada, data.mensagens_pendentes || {});
+            prepararEnvioWhatsAppChamada(
+                reuniaoId,
+                usuariosComFalta,
+                usuariosComFaltaJustificada,
+                data.mensagens_pendentes || {},
+                data.faltas_por_usuario || {}
+            );
         } else {
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao salvar chamada', 'danger');
         }
@@ -2603,7 +2894,7 @@ function fecharJanelasWhatsAppFaltasPendentes(janelas) {
     janelas.forEach(janela => fecharJanelaWhatsAppPendente(janela));
 }
 
-function prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFaltaJustificada, pendentes) {
+function prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFaltaJustificada, pendentes, faltasPorUsuario = {}) {
     const reuniao = reunioesCoordenadorCache.find(item => Number(item.id) === Number(reuniaoId)) || {};
     const data = formatarDataReuniaoWhatsApp(reuniao.data_reuniao);
     const local = reuniao.local || 'local informado';
@@ -2616,13 +2907,17 @@ function prepararEnvioWhatsAppChamada(reuniaoId, usuariosComFalta, usuariosComFa
         .map(usuario => {
             const telefone = limparTelefoneWhatsApp(usuario.telefone || '');
             const nome = usuario.nome || 'participante';
+            const numeroFaltas = Number(faltasPorUsuario[usuario.id] || 0);
             const mensagem = `Olá, ${nome}.
 Sentimos sua falta na reunião que aconteceu em ${data}, no local ${local}. Hoje tratamos: ${descricao}. Que pena que você não compareceu.
-
 Esperamos te encontrar na próxima reunião.
-
 Att
-Seus coordenadores.`;
+Seus coordenadores.
+
+Mas atenção!
+Você possui:
+
+${numeroFaltas} faltas`;
 
             return {
                 id: Number(usuario.id),
@@ -2717,7 +3012,7 @@ function enviarWhatsAppChamada(reuniaoId, usuarioId, tipoMensagem, url) {
         keepalive: true
     }).catch(err => console.error('Erro ao registrar envio da mensagem', err));
 
-    window.open(url, '_blank', 'noopener');
+    abrirWhatsAppComJanela(null, url);
 }
 
 function prepararEnvioWhatsAppFaltas(reuniaoId, usuariosComFalta, janelas = []) {
@@ -2814,7 +3109,7 @@ function abrirModalEnvioWhatsAppFaltas(mensagens) {
                         ${item.telefone ? `<div class="text-muted small">${escapeHtml(item.telefone)}</div>` : '<div class="text-danger small">Telefone WhatsApp invalido</div>'}
                     </div>
                     ${item.url
-                        ? `<a class="btn btn-success btn-sm" href="${escapeAttr(item.url)}" target="_blank" rel="noopener">Enviar WhatsApp</a>`
+                        ? `<button type="button" class="btn btn-success btn-sm" onclick="abrirWhatsAppComJanela(null, '${escapeAttr(item.url)}')">Enviar WhatsApp</button>`
                         : '<button type="button" class="btn btn-secondary btn-sm" disabled>Sem telefone</button>'}
                 </div>
             `).join('')}
@@ -2911,27 +3206,63 @@ document.getElementById('formEditarReuniao')?.addEventListener('submit', async (
     }
 });
 
-async function deletarReuniao(id) {
+function abrirConfirmacaoCancelarReuniao(id) {
+    if (reuniaoComPrazoEncerradoPorId(id)) {
+        mostrarAlerta('alertaCoordenador', 'Prazo encerrado: esta reuniao nao pode mais ser cancelada.', 'warning');
+        return;
+    }
+
+    document.getElementById('modalCancelarReuniao')?.remove();
+    const modalEl = document.createElement('div');
+    modalEl.id = 'modalCancelarReuniao';
+    modalEl.className = 'modal fade';
+    modalEl.tabIndex = -1;
+    modalEl.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Cancelar reuniao</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">Tem certeza que deseja cancelar esta reuniao?</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Voltar</button><button type="button" class="btn btn-danger btn-confirmar-cancelamento-reuniao">Cancelar reuniao</button></div></div></div>`;
+    document.body.appendChild(modalEl);
+    modalEl.querySelector('.btn-confirmar-cancelamento-reuniao').addEventListener('click', () => deletarReuniao(id, modalEl));
+    modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove(), { once: true });
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+async function deletarReuniao(id, modalEl = null) {
     if (reuniaoComPrazoEncerradoPorId(id)) {
         mostrarAlerta('alertaCoordenador', 'Prazo encerrado: a reunião só pode ser cancelada até 24 horas após acontecer.', 'warning');
         return;
     }
 
-    if (!confirm('Tem certeza que deseja cancelar essa reunião?')) return;
-    
+    if (!modalEl && !confirm('Tem certeza que deseja cancelar essa reunião?')) return;
+
+    const botaoConfirmar = modalEl?.querySelector('.btn-confirmar-cancelamento-reuniao');
+    if (botaoConfirmar) {
+        botaoConfirmar.disabled = true;
+        botaoConfirmar.textContent = 'Cancelando...';
+    }
+
     try {
         const response = await fetch(`${API_URL}/coordenador/reunioes/${id}`, {
             method: 'DELETE',
             headers: getHeaders()
         });
-        
+        const data = await response.json().catch(() => ({}));
         if (response.ok) {
             mostrarAlerta('alertaCoordenador', 'Reunião cancelada com sucesso!', 'success');
-            carregarReunioes();
+            bootstrap.Modal.getInstance(modalEl)?.hide();
+            await carregarReunioes();
+            return;
+        }
+
+        mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao cancelar reunião', 'danger');
+        if (botaoConfirmar) {
+            botaoConfirmar.disabled = false;
+            botaoConfirmar.textContent = 'Cancelar reuniao';
         }
     } catch (err) {
         mostrarAlerta('alertaCoordenador', 'Erro ao cancelar reunião', 'danger');
         console.error(err);
+        if (botaoConfirmar) {
+            botaoConfirmar.disabled = false;
+            botaoConfirmar.textContent = 'Cancelar reuniao';
+        }
     }
 }
 

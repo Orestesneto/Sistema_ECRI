@@ -6,7 +6,7 @@
     <title>Dashboard - Coordenador</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=20260628-chamada-mobile">
+    <link rel="stylesheet" href="css/style.css?v=20260907-chamada-android">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -33,14 +33,23 @@
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#pagamentoProprio">Pagar minha taxa e blusa</a>
             </li>
+            <li class="nav-item d-none" id="abaSolicitarMinhaBlusa">
+                <a class="nav-link" data-bs-toggle="tab" href="#solicitarMinhaBlusa">Solicitar minha blusa</a>
+            </li>
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#confirmacoes">Confirmações</a>
             </li>
             <li class="nav-item d-none" id="abaCarografoEscrita">
                 <a class="nav-link" data-bs-toggle="tab" href="#carografoEscrita">Carógrafo</a>
             </li>
+            <li class="nav-item d-none" id="abaRestricoesMedicas">
+                <a class="nav-link" data-bs-toggle="tab" href="#restricoesMedicas">Restrições alimentar e médica</a>
+            </li>
             <li class="nav-item d-none" id="abaRestricaoAlimentar">
-                <a class="nav-link" data-bs-toggle="tab" href="#restricaoAlimentar">Restrição Alimentar</a>
+                <a class="nav-link" data-bs-toggle="tab" href="#restricaoAlimentar">Restrições alimentares — todas as equipes</a>
+            </li>
+            <li class="nav-item d-none" id="abaRestricoesMedicasGerais">
+                <a class="nav-link" data-bs-toggle="tab" href="#restricoesMedicasGerais">Restrições médicas — todas as equipes</a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" data-bs-toggle="tab" href="#reunioes">Reuniões</a>
@@ -231,6 +240,27 @@
                 </div>
             </div>
 
+            <div id="solicitarMinhaBlusa" class="tab-pane fade d-none">
+                <h3>Solicitar minha blusa</h3>
+                <form id="formSolicitarMinhaBlusa" class="mt-3" style="max-width:520px;">
+                    <div class="mb-3">
+                        <label class="form-label" for="tamanhoMinhaBlusaCoordenador">Tamanho</label>
+                        <select class="form-select" id="tamanhoMinhaBlusaCoordenador" required>
+                            <option value="">Selecione...</option>
+                            <option value="8 Anos">8 Anos</option><option value="10 Anos">10 Anos</option>
+                            <option value="12 Anos">12 Anos</option><option value="14 Anos (PP Babylook)">14 Anos (PP Babylook)</option>
+                            <option value="P Babylook">P Babylook</option><option value="M Babylook">M Babylook</option>
+                            <option value="G Babylook">G Babylook</option><option value="GG Babylook">GG Babylook</option>
+                            <option value="EXGG Babylook">EXGG Babylook</option><option value="PP Unisex">PP Unisex</option>
+                            <option value="P Unisex">P Unisex</option><option value="M Unisex">M Unisex</option>
+                            <option value="G Unisex">G Unisex</option><option value="GG Unisex">GG Unisex</option>
+                            <option value="EXGG Unisex">EXGG Unisex</option><option value="XL Unisex">XL Unisex</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-success">Solicitar</button>
+                </form>
+            </div>
+
             <!-- Aba Confirmações -->
             <div id="confirmacoes" class="tab-pane fade">
                 <h3>Confirmar Participação</h3>
@@ -294,10 +324,20 @@
                 <div id="painelCarografoEscrita" class="carografo-grid mt-3"></div>
             </div>
 
-            <!-- Aba Restrição Alimentar para Ranguinho -->
+            <!-- Aba de restrições da própria equipe -->
+            <div id="restricoesMedicas" class="tab-pane fade d-none">
+                <h3>Restrições alimentar e médica</h3>
+                <div id="tabelaRestricoesMedicas" class="table-responsive mt-3"></div>
+            </div>
+
             <div id="restricaoAlimentar" class="tab-pane fade d-none">
-                <h3>Restrição Alimentar</h3>
+                <h3>Restrições alimentares — todas as equipes</h3>
                 <div id="tabelaRestricaoAlimentar" class="table-responsive mt-3"></div>
+            </div>
+
+            <div id="restricoesMedicasGerais" class="tab-pane fade d-none">
+                <h3>Restrições médicas — todas as equipes</h3>
+                <div id="tabelaRestricoesMedicasGerais" class="table-responsive mt-3"></div>
             </div>
 
             <!-- Aba Solicitação Almoxarifado -->
@@ -341,6 +381,10 @@
                                 <label class="form-label">Local</label>
                                 <input type="text" class="form-control" id="localReuniao" placeholder="Ex: Sala de Reuniões" required>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="descricaoReuniao">Assuntos da reunião</label>
+                                <textarea class="form-control" id="descricaoReuniao" rows="4" maxlength="1000" placeholder="Informe os assuntos que serão tratados na reunião"></textarea>
+                            </div>
                             <button type="submit" class="btn btn-primary w-100">Agendar Reunião</button>
                         </form>
                     </div>
@@ -371,7 +415,7 @@
                             <input type="text" class="form-control" id="tituloReuniao2" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Descrição</label>
+                            <label class="form-label">Assuntos da reunião</label>
                             <textarea class="form-control" id="descricaoReuniao2" rows="3"></textarea>
                         </div>
                         <div class="mb-3">
@@ -634,6 +678,20 @@
         </div>
     </div>
 
+    <div class="modal fade" id="modalFotoRestricao" tabindex="-1" aria-labelledby="nomeFotoRestricao" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="nomeFotoRestricao">Foto do usuário</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <img id="imagemFotoRestricao" src="" alt="" class="img-fluid rounded" style="max-height:70vh; object-fit:contain;">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="app-footer">
         <div>Desenvolvido por Orestes Neto</div>
         <a href="https://wa.me/5583996552101" target="_blank" rel="noopener">Contato WhatsApp (83) 99655-2101</a>
@@ -646,11 +704,11 @@
     <script src="js/abas-persistentes.js"></script>
     <script src="js/perfil-experiencia.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
-    <script src="js/foto-perfil.js?v=20260626-300kb-proporcional"></script>
+    <script src="js/foto-perfil.js?v=20260813-40960-bytes-supabase"></script>
     <script src="js/restricoes-sim-nao.js?v=20260626"></script>
     <script src="js/notificacoes.js?v=20260702-notificacoes"></script>
     <script src="js/almoxarifado-solicitacao.js?v=20260807"></script>
-    <script src="js/coordenador.js?v=20260628-chamada-mobile"></script>
-    <script src="js/tabelas-responsivas.js?v=20260702-cards-mobile"></script>
+    <script src="js/coordenador.js?v=20260907-whatsapp-scheme-direto"></script>
+    <script src="js/tabelas-responsivas.js?v=20260907-chamada-android"></script>
 </body>
 </html>

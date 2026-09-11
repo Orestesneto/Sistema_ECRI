@@ -225,9 +225,12 @@ async function obterIdsMensagensChamadaPendentes(reuniaoId, candidatos, tipoMens
   const pendentes = [];
 
   for (const usuarioId of candidatos) {
+    const externo = Number(usuarioId) < 0;
+    const tabela = externo ? 'mensagens_chamada_externos_enviadas' : 'mensagens_chamada_enviadas';
+    const coluna = externo ? 'pessoa_externa_id' : 'usuario_id';
     const enviada = await database.get(
-      'SELECT id FROM mensagens_chamada_enviadas WHERE reuniao_id = ? AND usuario_id = ? AND tipo_mensagem = ?',
-      [reuniaoId, usuarioId, tipoMensagem]
+      `SELECT id FROM ${tabela} WHERE reuniao_id = ? AND ${coluna} = ? AND tipo_mensagem = ?`,
+      [reuniaoId, Math.abs(usuarioId), tipoMensagem]
     );
 
     if (!enviada) pendentes.push(usuarioId);
@@ -237,17 +240,20 @@ async function obterIdsMensagensChamadaPendentes(reuniaoId, candidatos, tipoMens
 }
 
 async function registrarMensagemChamadaEnviada(reuniaoId, usuarioId, tipoMensagem, enviadaPor) {
+  const externo = Number(usuarioId) < 0;
+  const tabela = externo ? 'mensagens_chamada_externos_enviadas' : 'mensagens_chamada_enviadas';
+  const coluna = externo ? 'pessoa_externa_id' : 'usuario_id';
   const existente = await database.get(
-    'SELECT id FROM mensagens_chamada_enviadas WHERE reuniao_id = ? AND usuario_id = ? AND tipo_mensagem = ?',
-    [reuniaoId, usuarioId, tipoMensagem]
+    `SELECT id FROM ${tabela} WHERE reuniao_id = ? AND ${coluna} = ? AND tipo_mensagem = ?`,
+    [reuniaoId, Math.abs(usuarioId), tipoMensagem]
   );
 
   if (existente) return;
 
   await database.run(
-    `INSERT INTO mensagens_chamada_enviadas (reuniao_id, usuario_id, tipo_mensagem, enviada_por)
+    `INSERT INTO ${tabela} (reuniao_id, ${coluna}, tipo_mensagem, enviada_por)
      VALUES (?, ?, ?, ?)`,
-    [reuniaoId, usuarioId, tipoMensagem, enviadaPor]
+    [reuniaoId, Math.abs(usuarioId), tipoMensagem, enviadaPor]
   );
 }
 
@@ -394,6 +400,11 @@ router.get('/restricoes-alimentares', verificarToken, verificarPerfil(['coordena
       WHERE status = 'confirmado'
         AND equipe IS NOT NULL
         AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+        AND restricao_alimentar IS NOT NULL
+        AND TRIM(restricao_alimentar) <> ''
+        AND LOWER(TRIM(restricao_alimentar)) NOT IN (
+          'não', 'nao', 'n', 'nenhum', 'nenhuma', 'sem restrição', 'sem restricao'
+        )
       ORDER BY nome_cracha COLLATE NOCASE ASC, nome_completo COLLATE NOCASE ASC
     `);
 
@@ -401,6 +412,75 @@ router.get('/restricoes-alimentares', verificarToken, verificarPerfil(['coordena
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao carregar restrições alimentares' });
+  }
+});
+
+router.get('/restricoes-medicas', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+
+    const equipeCoordenador = normalizarEquipe(coordenador?.equipe || '');
+    if (!equipeCoordenador || equipeSemEquipe(equipeCoordenador)) {
+      return res.status(403).json({ erro: 'Coordenador sem equipe válida' });
+    }
+
+    const semRestricao = "'não', 'nao', 'n', 'nenhum', 'nenhuma', 'sem restrição', 'sem restricao'";
+    const usuarios = await database.all(`
+      SELECT id, nome_completo, nome_cracha,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             restricao_medica, restricao_medicacao, restricao_alimentar
+      FROM usuarios
+      WHERE status = 'confirmado'
+        AND UPPER(TRIM(equipe)) = UPPER(TRIM(?))
+        AND (
+          (restricao_medica IS NOT NULL AND TRIM(restricao_medica) <> ''
+            AND LOWER(TRIM(restricao_medica)) NOT IN (${semRestricao}))
+          OR
+          (restricao_medicacao IS NOT NULL AND TRIM(restricao_medicacao) <> ''
+            AND LOWER(TRIM(restricao_medicacao)) NOT IN (${semRestricao}))
+          OR
+          (restricao_alimentar IS NOT NULL AND TRIM(restricao_alimentar) <> ''
+            AND LOWER(TRIM(restricao_alimentar)) NOT IN (${semRestricao}))
+        )
+      ORDER BY nome_cracha COLLATE NOCASE ASC, nome_completo COLLATE NOCASE ASC
+    `, [equipeCoordenador]);
+
+    res.json(usuarios.map(trocarFotoPorUrl(req, 'usuario')));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar restrições médicas' });
+  }
+});
+
+router.get('/restricoes-medicas-gerais', verificarToken, verificarPerfil(['coordenador']), async (req, res) => {
+  try {
+    const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [req.usuario.id]);
+    if (normalizarEquipe(coordenador?.equipe || '') !== 'Boa Acao') {
+      return res.status(403).json({ erro: 'Acesso permitido apenas ao coordenador da Boa Ação' });
+    }
+
+    const semRestricao = "'não', 'nao', 'n', 'nenhum', 'nenhuma', 'sem restrição', 'sem restricao'";
+    const usuarios = await database.all(`
+      SELECT id, nome_completo, nome_cracha,
+             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             restricao_medica, restricao_medicacao
+      FROM usuarios
+      WHERE status = 'confirmado'
+        AND equipe IS NOT NULL
+        AND UPPER(TRIM(equipe)) <> 'SEM EQUIPE'
+        AND (
+          (restricao_medica IS NOT NULL AND TRIM(restricao_medica) <> ''
+            AND LOWER(TRIM(restricao_medica)) NOT IN (${semRestricao}))
+          OR
+          (restricao_medicacao IS NOT NULL AND TRIM(restricao_medicacao) <> ''
+            AND LOWER(TRIM(restricao_medicacao)) NOT IN (${semRestricao}))
+        )
+      ORDER BY nome_cracha COLLATE NOCASE ASC, nome_completo COLLATE NOCASE ASC
+    `);
+    res.json(usuarios.map(trocarFotoPorUrl(req, 'usuario')));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar restrições médicas gerais' });
   }
 });
 
@@ -902,9 +982,12 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
       SELECT u.id AS usuario_id, u.nome_completo, u.email,
              CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
              u.movimento_origem, u.equipe, u.perfil,
-             p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento, p.confirmado_por
+             p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento, p.confirmado_por,
+             confirmador.nome_completo AS confirmado_por_nome,
+             confirmador.nome_cracha AS confirmado_por_cracha
       FROM usuarios u
       LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo IN ('taxa', 'taxa_blusa')
+      LEFT JOIN usuarios confirmador ON confirmador.id = p.confirmado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
         AND u.status = 'confirmado'
@@ -946,6 +1029,9 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
       pagamentos.push({
         ...pagamento,
         tipo: pagamento.tipo || 'taxa',
+        origem_confirmacao: pagamento.status === 'confirmado'
+          ? (pagamento.confirmado_por ? 'manual' : 'mercado_pago')
+          : null,
         valor_com_taxa: valorComTaxa,
         valor: valorConfirmacaoManual,
         valor_confirmacao_manual: valorConfirmacaoManual,
@@ -975,9 +1061,9 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
 // Criar nova reunião
 router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
   try {
-    const { data_reuniao, horario_inicio, local } = req.body;
+    const { data_reuniao, horario_inicio, local, descricao } = req.body;
     const titulo = 'Reunião';
-    const descricao = '';
+    const assuntosReuniao = String(descricao || '').trim().slice(0, 1000);
     const criada_por = req.usuario.id;
 
     if (!data_reuniao || !horario_inicio || !local) {
@@ -987,7 +1073,7 @@ router.post('/reunioes', verificarToken, verificarPerfil(['coordenador', 'equipe
     const resultado = await database.run(
       `INSERT INTO reunioes (criada_por, titulo, descricao, data_reuniao, horario_inicio, horario_fim, local) 
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [criada_por, titulo, descricao || '', data_reuniao, horario_inicio, null, local]
+      [criada_por, titulo, assuntosReuniao, data_reuniao, horario_inicio, null, local]
     );
 
     const criador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [criada_por]);
@@ -1069,10 +1155,30 @@ router.get('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       FROM usuarios u
       LEFT JOIN presencas_reuniao pr ON pr.usuario_id = u.id AND pr.reuniao_id = ?
       WHERE u.equipe = ?
+        AND u.status = 'confirmado'
       ORDER BY u.nome_completo ASC
     `, [reuniao_id, coordenador.equipe]);
 
-    res.json(escalados.map(trocarFotoPorUrl(req, 'usuario')).map(escalado => ({
+    const externos = await database.all(`
+      SELECT pe.id, pe.nome_completo, pe.nome_cracha, '' AS email, pe.telefone,
+             COALESCE(pe.perfil, 'sem_cadastro') AS perfil, pe.equipe,
+             CASE WHEN pe.foto_perfil IS NOT NULL AND pe.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             pr.status, pr.observacao
+      FROM pessoas_externas pe
+      LEFT JOIN presencas_reuniao_externos pr
+        ON pr.pessoa_externa_id = pe.id AND pr.reuniao_id = ?
+      WHERE pe.equipe = ?
+        AND pe.status = 'confirmado'
+        AND COALESCE(pe.lista_espera, 0) = 0
+      ORDER BY pe.nome_completo ASC
+    `, [reuniao_id, coordenador.equipe]);
+
+    const participantes = [
+      ...escalados.map(trocarFotoPorUrl(req, 'usuario')),
+      ...externos.map(trocarFotoPorUrl(req, 'externo')).map(externo => ({ ...externo, id: -Number(externo.id) }))
+    ].sort((a, b) => String(a.nome_completo || '').localeCompare(String(b.nome_completo || '')));
+
+    res.json(participantes.map(escalado => ({
       ...escalado,
       status: escalado.status || 'presente',
       observacao: escalado.observacao || ''
@@ -1115,11 +1221,19 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       'SELECT usuario_id, status FROM presencas_reuniao WHERE reuniao_id = ?',
       [reuniao_id]
     );
+    const presencasExternasAnteriores = await database.all(
+      'SELECT pessoa_externa_id, status FROM presencas_reuniao_externos WHERE reuniao_id = ?',
+      [reuniao_id]
+    );
     const statusAnteriorPorUsuario = new Map(
-      presencasAnteriores.map(item => [Number(item.usuario_id), item.status || 'presente'])
+      [
+        ...presencasAnteriores.map(item => [Number(item.usuario_id), item.status || 'presente']),
+        ...presencasExternasAnteriores.map(item => [-Number(item.pessoa_externa_id), item.status || 'presente'])
+      ]
     );
 
     await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id = ?', [reuniao_id]);
+    await database.run('DELETE FROM presencas_reuniao_externos WHERE reuniao_id = ?', [reuniao_id]);
 
     const idsComFalta = [];
     const idsComFaltaJustificada = [];
@@ -1129,24 +1243,29 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       const equipista_id = Number(presenca.usuario_id);
       const status = presenca.status;
       const observacao = presenca.observacao || '';
+      const externo = equipista_id < 0;
 
       if (!equipista_id || !['presente', 'falta_justificada', 'falta'].includes(status)) {
         return res.status(400).json({ erro: 'Presenca invalida' });
       }
 
-      const usuarioEscalado = await database.get(
-        'SELECT id FROM usuarios WHERE id = ? AND equipe = ?',
-        [equipista_id, coordenador.equipe]
+      const tabelaParticipante = externo ? 'pessoas_externas' : 'usuarios';
+      const participanteEscalado = await database.get(
+        `SELECT id FROM ${tabelaParticipante}
+         WHERE id = ? AND equipe = ? AND status = 'confirmado' AND COALESCE(lista_espera, 0) = 0`,
+        [Math.abs(equipista_id), coordenador.equipe]
       );
 
-      if (!usuarioEscalado) {
+      if (!participanteEscalado) {
         return res.status(400).json({ erro: 'Usuário não pertence à equipe escalada desta chamada' });
       }
 
+      const tabelaPresenca = externo ? 'presencas_reuniao_externos' : 'presencas_reuniao';
+      const colunaParticipante = externo ? 'pessoa_externa_id' : 'usuario_id';
       await database.run(
-        `INSERT INTO presencas_reuniao (reuniao_id, usuario_id, status, observacao, registrada_por)
+        `INSERT INTO ${tabelaPresenca} (reuniao_id, ${colunaParticipante}, status, observacao, registrada_por)
          VALUES (?, ?, ?, ?, ?)`,
-        [reuniao_id, equipista_id, status, observacao, usuario_id]
+        [reuniao_id, Math.abs(equipista_id), status, observacao, usuario_id]
       );
 
       const statusAnterior = statusAnteriorPorUsuario.get(equipista_id) || 'presente';
@@ -1159,6 +1278,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
 
     const detalhesReuniao = `${reuniao.titulo || 'Reunião'} de ${formatarDataReuniaoNotificacao(reuniao.data_reuniao)} às ${formatarHoraReuniaoNotificacao(reuniao.horario_inicio)}`;
     for (const usuarioIdPresente of idsComPresenca) {
+      if (usuarioIdPresente < 0) continue;
       await criarNotificacao(usuarioIdPresente, {
         titulo: 'Presença registrada',
         mensagem: `Sua presença foi registrada na chamada: ${detalhesReuniao}.`,
@@ -1168,6 +1288,7 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       });
     }
     for (const usuarioIdFaltaJustificada of idsComFaltaJustificada) {
+      if (usuarioIdFaltaJustificada < 0) continue;
       await criarNotificacao(usuarioIdFaltaJustificada, {
         titulo: 'Falta justificada',
         mensagem: `Sua falta foi justificada na chamada: ${detalhesReuniao}.`,
@@ -1191,8 +1312,23 @@ router.put('/reunioes/:id/presencas', verificarToken, verificarPerfil(['coordena
       falta_justificada: await obterIdsMensagensChamadaPendentes(reuniao_id, idsComFaltaJustificada, 'falta_justificada')
     };
 
+    const faltasPorUsuario = {};
+    for (const usuarioIdFalta of idsComFalta) {
+      if (usuarioIdFalta < 0) continue;
+      const total = await database.get(
+        `SELECT COUNT(*) AS total FROM presencas_reuniao
+         WHERE usuario_id = ? AND status = 'falta'`,
+        [usuarioIdFalta]
+      );
+      faltasPorUsuario[usuarioIdFalta] = Number(total?.total || 0);
+    }
+
     await registrarHistorico(usuario_id, 'chamada_salva', { reuniao_id, total_registros: presencas.length });
-    res.json({ mensagem: 'Chamada salva com sucesso', mensagens_pendentes: mensagensPendentes });
+    res.json({
+      mensagem: 'Chamada salva com sucesso',
+      mensagens_pendentes: mensagensPendentes,
+      faltas_por_usuario: faltasPorUsuario
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: 'Erro ao salvar chamada' });
@@ -1225,9 +1361,11 @@ router.post('/reunioes/:id/mensagens-chamada/:usuarioId', verificarToken, verifi
     }
 
     const coordenador = await database.get('SELECT equipe FROM usuarios WHERE id = ?', [reuniao.criada_por]);
+    const externo = participante_id < 0;
     const participante = await database.get(
-      'SELECT id FROM usuarios WHERE id = ? AND equipe = ?',
-      [participante_id, coordenador?.equipe || '']
+      `SELECT id FROM ${externo ? 'pessoas_externas' : 'usuarios'}
+       WHERE id = ? AND equipe = ? AND status = 'confirmado'`,
+      [Math.abs(participante_id), coordenador?.equipe || '']
     );
 
     if (!participante) {
@@ -1286,8 +1424,16 @@ router.delete('/reunioes/:id', verificarToken, verificarPerfil(['coordenador', '
       return respostaPrazoReuniaoEncerrado(res);
     }
 
+    await database.run('DELETE FROM mensagens_chamada_enviadas WHERE reuniao_id = ?', [reunion_id]);
+    await database.run('DELETE FROM mensagens_chamada_externos_enviadas WHERE reuniao_id = ?', [reunion_id]);
     await database.run('DELETE FROM presencas_reuniao WHERE reuniao_id = ?', [reunion_id]);
+    await database.run('DELETE FROM presencas_reuniao_externos WHERE reuniao_id = ?', [reunion_id]);
+    await database.run(
+      `DELETE FROM notificacoes WHERE referencia_tipo = 'reuniao' AND referencia_id = ?`,
+      [reunion_id]
+    );
     await database.run('DELETE FROM reunioes WHERE id = ?', [reunion_id]);
+    await registrarHistorico(usuario_id, 'reuniao_cancelada', { reuniao_id: Number(reunion_id) });
     res.json({ mensagem: 'Reunião cancelada com sucesso' });
   } catch (err) {
     console.error(err);
