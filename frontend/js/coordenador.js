@@ -1453,10 +1453,13 @@ async function carregarConfirmacoes() {
             const opcoesStatus = renderizarOpcoesStatusConfirmacao(usuario.status);
             const linkConfirmacao = renderizarAcaoLinkConfirmacao(usuario);
             const botaoCopiarLink = renderizarBotaoCopiarLinkConfirmacao(usuario);
+            const fotoHtml = usuario.foto_perfil
+                ? `<button type="button" class="btn p-0 border-0 rounded-circle" style="cursor:zoom-in" onclick="abrirFotoConfirmacao(${Number(usuario.id)}, '${usuario.tipo_cadastro || 'usuario'}')" aria-label="Ampliar foto de ${escapeAttr(usuario.nome_cracha || usuario.nome_completo || '')}">${renderizarFotoLazyCoordenador(usuario, 40)}</button>`
+                : renderizarFotoLazyCoordenador(usuario, 40);
 
             return `
                 <tr>
-                    <td>${renderizarFotoLazyCoordenador(usuario, 40)}</td>
+                    <td>${fotoHtml}</td>
                     <td class="confirmacoes-usuario">
                         <div class="confirmacoes-usuario-conteudo">
                             <strong class="confirmacoes-usuario-nome">${escapeHtml(usuario.nome_completo || '')}</strong>
@@ -1507,6 +1510,14 @@ async function carregarConfirmacoes() {
         container.innerHTML = '<div class="alert alert-danger">Erro ao carregar participantes.</div>';
         console.error(err);
     }
+}
+
+function abrirFotoConfirmacao(usuarioId, tipoCadastro = 'usuario') {
+    const usuario = participantesEquipeCache.find(item =>
+        Number(item.id) === Number(usuarioId)
+        && (item.tipo_cadastro || 'usuario') === tipoCadastro
+    );
+    abrirModalFotoRestricaoUsuario(usuario);
 }
 
 function renderizarOpcoesStatusConfirmacao(statusAtual) {
