@@ -16,6 +16,7 @@ let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
 let restricoesMedicasCache = [];
 let restricoesMedicasGeraisCache = [];
+const participantesChamadaCache = new Map();
 let reuniaoRevelacaoEquipesAconteceu = false;
 let linkCheckoutCartaoProprioAtual = '';
 let pagamentoProprioMonitoradoId = null;
@@ -2794,12 +2795,17 @@ async function abrirChamada(reuniaoId) {
             container.style.display = 'block';
             return;
         }
+        participantesChamadaCache.set(Number(reuniaoId), presencas);
+
 
         const linhas = presencas.map(p => {
             const nomeChamada = p.nome_cracha || p.nome_completo || '';
+            const fotoHtml = p.foto_perfil
+                ? `<button type="button" class="btn p-0 border-0 rounded-circle" style="cursor:zoom-in" onclick="abrirFotoChamada(${Number(reuniaoId)}, ${Number(p.id)})" aria-label="Ampliar foto de ${escapeAttr(nomeChamada)}">${renderizarFotoLazyCoordenador(p, 40)}</button>`
+                : renderizarFotoLazyCoordenador(p, 40);
             return `
             <tr>
-                <td class="chamada-col-foto">-</td>
+                <td class="chamada-col-foto">${fotoHtml}</td>
                 <td class="chamada-col-nome">${escapeHtml(nomeChamada)}</td>
                 <td>${escapeHtml(p.perfil || '-')}</td>
                 <td>${escapeHtml(p.equipe || '-')}</td>
@@ -2828,11 +2834,18 @@ async function abrirChamada(reuniaoId) {
             <button class="btn btn-sm btn-primary" onclick="salvarChamada(${reuniaoId})">Salvar chamada</button>
         `;
         container.style.display = 'block';
+        observarFotosLazyCoordenador(container);
     } catch (err) {
         container.innerHTML = '<div class="alert alert-danger">Erro ao carregar chamada. Verifique se o backend esta ligado e atualizado.</div>';
         mostrarAlerta('alertaCoordenador', 'Erro ao carregar chamada', 'danger');
         console.error(err);
     }
+}
+
+function abrirFotoChamada(reuniaoId, usuarioId) {
+    const participantes = participantesChamadaCache.get(Number(reuniaoId)) || [];
+    const usuario = participantes.find(item => Number(item.id) === Number(usuarioId));
+    abrirModalFotoRestricaoUsuario(usuario);
 }
 
 async function salvarChamada(reuniaoId) {
