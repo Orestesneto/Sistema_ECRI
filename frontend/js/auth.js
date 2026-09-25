@@ -4,6 +4,22 @@ const TAMANHO_MAXIMO_FOTO_BYTES = TAMANHO_MAXIMO_FOTO_MB * 1024 * 1024;
 const CHAVE_LOGIN_EM = 'loginEm';
 
 redirecionarSeJaEstiverLogado();
+carregarDisponibilidadeRegistro();
+
+async function carregarDisponibilidadeRegistro() {
+    try {
+        const response = await fetch(`${API_URL}/auth/configuracoes-publicas`);
+        if (!response.ok) return;
+
+        const configuracoes = await response.json();
+        if (!configuracoes.parar_novos_cadastros) return;
+
+        document.querySelector('a[href="#registro"]')?.closest('.nav-item')?.classList.add('d-none');
+        document.getElementById('registro')?.classList.add('d-none');
+    } catch (err) {
+        console.error('Erro ao verificar disponibilidade de novos cadastros', err);
+    }
+}
 
 // Login
 document.getElementById('formLogin')?.addEventListener('submit', async (e) => {

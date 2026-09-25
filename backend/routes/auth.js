@@ -9,13 +9,30 @@ const { registrarHistorico } = require('../utils/historico');
 const { validarTelefoneUnico, normalizarCampoTelefoneContato } = require('../utils/telefone');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { processarFotoPerfil } = require('../utils/foto');
+const { obterConfiguracao } = require('../utils/configuracoes');
 const { verificarToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.get('/configuracoes-publicas', async (req, res) => {
+  try {
+    res.json({
+      parar_novos_cadastros: (await obterConfiguracao(database, 'parar_novos_cadastros', 'false')) === 'true'
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ erro: 'Erro ao carregar configurações públicas' });
+  }
+});
+
 // Registro de novo usuario (Equipista)
 router.post('/registro', async (req, res) => {
   try {
+    const novosCadastrosBloqueados = (await obterConfiguracao(database, 'parar_novos_cadastros', 'false')) === 'true';
+    if (novosCadastrosBloqueados) {
+      return res.status(403).json({ erro: 'Novos cadastros estão temporariamente encerrados' });
+    }
+
     const {
       cpf,
       data_nascimento,

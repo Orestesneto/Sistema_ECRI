@@ -557,6 +557,37 @@
                             Parar de receber pedidos de Blusas
                         </label>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="pararNovosCadastrosDirigente">
+                        <label class="form-check-label" for="pararNovosCadastrosDirigente">
+                            Parar de receber novos cadastros
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="pararPagamentosMercadoPagoDirigente">
+                        <label class="form-check-label" for="pararPagamentosMercadoPagoDirigente">
+                            Parar de receber pagamentos
+                        </label>
+                    </div>
+                    <h5 class="mt-4 mb-3">Valores das cobranças</h5>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label" for="valorCamisaDirigente">Preço da camisa</label>
+                            <input class="form-control" type="number" id="valorCamisaDirigente" min="0.01" step="0.01" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="valorTaxaCriancaDirigente">Taxa criança (ECRI)</label>
+                            <input class="form-control" type="number" id="valorTaxaCriancaDirigente" min="0.01" step="0.01" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="valorTaxaJovemDirigente">Taxa jovem (EC / EJC)</label>
+                            <input class="form-control" type="number" id="valorTaxaJovemDirigente" min="0.01" step="0.01" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="valorTaxaCasalDirigente">Taxa casal (ECC / Jovens Casados)</label>
+                            <input class="form-control" type="number" id="valorTaxaCasalDirigente" min="0.01" step="0.01" required>
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-primary">Salvar configurações</button>
                 </form>
             </div>
@@ -919,12 +950,12 @@
     <script src="js/paroquia.js"></script>
     <script src="js/telefone-contato.js?v=20260628-modal-fallback"></script>
     <script src="js/abas-persistentes.js"></script>
-    <script src="js/perfil-experiencia.js"></script>
+    <script src="js/perfil-experiencia.js?v=20260914-pombo-correio"></script>
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
     <script src="js/foto-perfil.js?v=20260813-40960-bytes-supabase"></script>
     <script src="js/restricoes-sim-nao.js?v=20260626"></script>
     <script src="js/notificacoes.js?v=20260702-notificacoes"></script>
-    <script src="js/dirigentes.js?v=20260907-whatsapp-sem-aba-vazia"></script>
+    <script src="js/dirigentes.js?v=20260916-configuracao-precos"></script>
     <script src="js/tabelas-responsivas.js?v=20260702-cards-mobile"></script>
 </body>
 </html>

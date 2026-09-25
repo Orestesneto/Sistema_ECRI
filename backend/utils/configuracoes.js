@@ -16,8 +16,13 @@ async function pedidosBlusaBloqueados(database) {
   return (await obterConfiguracao(database, 'parar_pedidos_blusa', 'false')) === 'true';
 }
 
+async function pagamentosMercadoPagoBloqueados(database) {
+  return (await obterConfiguracao(database, 'parar_pagamentos_mercado_pago', 'false')) === 'true';
+}
+
 module.exports = {
   obterConfiguracao,
   salvarConfiguracao,
-  pedidosBlusaBloqueados
+  pedidosBlusaBloqueados,
+  pagamentosMercadoPagoBloqueados
 };

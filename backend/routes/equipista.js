@@ -8,18 +8,12 @@ const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncont
 const { registrarHistorico } = require('../utils/historico');
 const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { equipeSemEquipe } = require('../utils/equipes');
-const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
+const { obterConfiguracao, pedidosBlusaBloqueados, pagamentosMercadoPagoBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
+const { obterTaxasPorMovimento } = require('../utils/precoTaxa');
 const { processarFotoPerfil } = require('../utils/foto');
 
 const router = express.Router();
-const TAXAS_POR_MOVIMENTO = {
-  EC: 25,
-  EJC: 25,
-  ECC: 35,
-  'JOVENS EJC CASADOS': 35,
-  ECRI: 15
-};
 const PERCENTUAL_TAXA_CARTAO = 0.08;
 const PERCENTUAL_TAXA_PIX = 0.01;
 const TAMANHOS_BLUSA = [
@@ -400,12 +394,16 @@ router.post('/mercado-pago/webhook', async (req, res) => {
     }
 
     const pagamentoLocal = await database.get(
-      'SELECT id, usuario_id, tipo FROM pagamentos WHERE referencia_externa = ?',
+      'SELECT id, usuario_id, tipo, status FROM pagamentos WHERE referencia_externa = ?',
       [referenciaExterna]
     );
 
     if (!pagamentoLocal) {
       return res.sendStatus(200);
+    }
+
+    if (pagamentoLocal.tipo === 'taxa_blusa' && pagamentoLocal.status === 'cancelado') {
+      return res.status(200).json({ recebido: true, ignorado: true });
     }
 
     const formaPagamento = formaPagamentoMercadoPago(pagamentoMercadoPago);
@@ -537,8 +535,11 @@ router.get('/perfil', verificarToken, verificarPerfil(['equipista']), async (req
 
 router.get('/configuracoes-dashboard', verificarToken, verificarPerfil(['equipista']), async (req, res) => {
   try {
+    const taxasPorMovimento = await obterTaxasPorMovimento(database);
     res.json({
-      reuniao_revelacao_equipes: (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true'
+      reuniao_revelacao_equipes: (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true',
+      parar_pagamentos_mercado_pago: await pagamentosMercadoPagoBloqueados(database),
+      taxas_por_movimento: taxasPorMovimento
     });
   } catch (err) {
     console.error(err);
@@ -694,7 +695,15 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     const usuario_id = req.usuario.id;
     const formasPermitidas = ['pix', 'cartao_credito'];
 
-    if (!tipo || !['taxa', 'blusa', 'taxa_blusa'].includes(tipo)) {
+    if (await pagamentosMercadoPagoBloqueados(database)) {
+      return res.status(403).json({ erro: 'Os pagamentos pelo Mercado Pago estao temporariamente desabilitados' });
+    }
+
+    if (tipo === 'taxa_blusa') {
+      return res.status(400).json({ erro: 'Taxa e blusa devem ser pagas separadamente' });
+    }
+
+    if (!tipo || !['taxa', 'blusa'].includes(tipo)) {
       return res.status(400).json({ erro: 'Tipo inválido' });
     }
 
@@ -725,11 +734,12 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     }
 
     const movimentoOrigem = normalizarMovimentoOrigem(usuario?.movimento_origem);
+    const taxasPorMovimento = await obterTaxasPorMovimento(database);
     let valorPagamento = tipo === 'taxa'
-      ? TAXAS_POR_MOVIMENTO[movimentoOrigem]
+      ? taxasPorMovimento[movimentoOrigem]
       : Number(valor);
 
-    if (['blusa', 'taxa_blusa'].includes(tipo)) {
+    if (tipo === 'blusa') {
       await sincronizarBlusasComPagamentosOnline(usuario_id);
       const resumoBlusas = await database.get(
         `SELECT COALESCE(SUM(valor), 0) AS total
@@ -738,12 +748,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
         [usuario_id]
       );
       const valorBlusas = Number(resumoBlusas?.total || 0);
-      if (tipo === 'taxa_blusa' && valorBlusas <= 0) {
-        return res.status(400).json({ erro: 'Não há blusa pendente para pagamento' });
-      }
-      valorPagamento = tipo === 'taxa_blusa'
-        ? Number(TAXAS_POR_MOVIMENTO[movimentoOrigem] || 0) + valorBlusas
-        : valorBlusas;
+      valorPagamento = valorBlusas;
     }
 
     if (!valorPagamento || valorPagamento <= 0) {
@@ -753,24 +758,30 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
     const valoresPagamento = aplicarTaxasPagamento(valorPagamento, forma_pagamento);
     valorPagamento = valoresPagamento.valorFinal;
 
-    if (['taxa', 'blusa', 'taxa_blusa'].includes(tipo)) {
+    if (['taxa', 'blusa'].includes(tipo)) {
       const pagamentoExistente = await database.get(
-        `SELECT id, valor, status, forma_pagamento, mercado_pago_preference_id, mercado_pago_payment_id,
+        `SELECT id, tipo, valor, status, forma_pagamento, mercado_pago_preference_id, mercado_pago_payment_id,
                 mercado_pago_init_point, mercado_pago_sandbox_init_point, pix_qr_code, pix_qr_code_base64
          FROM pagamentos
          WHERE usuario_id = ?
-           AND tipo = ?
-           AND ((? IN ('taxa', 'taxa_blusa') AND status IN ('pendente', 'confirmado')) OR (? IN ('blusa', 'taxa_blusa') AND status = 'pendente'))
+           AND (
+             (? IN ('taxa', 'taxa_blusa') AND tipo IN ('taxa', 'taxa_blusa') AND status IN ('pendente', 'confirmado'))
+             OR
+             (? = 'blusa' AND tipo IN ('blusa', 'taxa_blusa') AND status = 'pendente')
+           )
          ORDER BY CASE WHEN status = 'confirmado' THEN 0 ELSE 1 END, id ASC
          LIMIT 1`,
-        [usuario_id, tipo, tipo, tipo]
+        [usuario_id, tipo, tipo]
       );
 
       if (pagamentoExistente) {
         const valorExistente = Number(pagamentoExistente.valor || 0);
         const valorMudou = Math.abs(valorExistente - valorPagamento) >= 0.01;
+        const cobrancaExistenteAbrangePedido = pagamentoExistente.tipo === 'taxa_blusa'
+          && ['taxa', 'blusa'].includes(tipo);
         if (
           pagamentoExistente.status === 'pendente'
+          && !cobrancaExistenteAbrangePedido
           && (pagamentoExistente.forma_pagamento !== forma_pagamento || valorMudou)
         ) {
           await database.run('DELETE FROM pagamentos WHERE id = ?', [pagamentoExistente.id]);
@@ -789,6 +800,7 @@ router.post('/solicitar-pagamento', verificarToken, verificarPerfil(['equipista'
           pix_qr_code: pagamentoExistente.pix_qr_code,
           pix_qr_code_base64: pagamentoExistente.pix_qr_code_base64,
           forma_pagamento: pagamentoExistente.forma_pagamento,
+          tipo: pagamentoExistente.tipo,
           ja_existia: true
         });
         }
@@ -956,7 +968,8 @@ router.get('/status', verificarToken, verificarPerfil(['equipista', 'coordenador
       },
       configuracoes_blusa: {
         pedidos_bloqueados: await pedidosBlusaBloqueados(database)
-      }
+      },
+      parar_pagamentos_mercado_pago: await pagamentosMercadoPagoBloqueados(database)
     });
   } catch (err) {
     console.error(err);

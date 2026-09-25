@@ -12,6 +12,7 @@ let blusasEquipeCache = [];
 let blusaAdicionarPendente = null;
 let blusaConfirmacaoPendente = null;
 let pedidosBlusaBloqueadosCoordenador = false;
+let pagamentosMercadoPagoBloqueados = false;
 let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
 let restricoesMedicasCache = [];
@@ -515,6 +516,7 @@ async function carregarPagamentos() {
         });
         
         const data = await response.json();
+
         const pagamentos = Array.isArray(data) ? data : (data.pagamentos || []);
         const resumo = Array.isArray(data) ? { valorRecebido: 0, valorFaltaReceber: pagamentos.reduce((total, p) => total + Number(p.valor || 0), 0) } : (data.resumo || {});
         pagamentosEquipeCache = pagamentos;
@@ -1954,6 +1956,7 @@ async function carregarPagamentoProprio() {
             headers: getHeaders()
         });
         const data = await response.json();
+        pagamentosMercadoPagoBloqueados = Boolean(data.parar_pagamentos_mercado_pago);
 
         if (!response.ok) {
             const erro = escapeHtml(data.erro || 'Erro ao carregar seus pagamentos.');
@@ -1985,7 +1988,7 @@ async function carregarPagamentoProprio() {
             const linkPagamento = pagamento.mercado_pago_init_point || pagamento.mercado_pago_sandbox_init_point || '';
             let acao = '-';
 
-            if (pagamento.status === 'pendente') {
+            if (pagamento.status === 'pendente' && !pagamentosMercadoPagoBloqueados) {
                 const botaoPix = pagamento.forma_pagamento === 'pix' && pagamento.pix_qr_code
                     ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}', '${encodeURIComponent(pagamento.valor || '')}', '${encodeURIComponent(pagamento.valor_base || '')}', '${encodeURIComponent(pagamento.acrescimo_pix || '')}')">PIX</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemProprioPendente('${escapeAttr(pagamento.tipo)}', 'pix', ${Number(pagamento.valor || 0)})">PIX</button>`;
@@ -2030,6 +2033,10 @@ async function carregarPagamentoProprio() {
 }
 
 async function pagarItemProprioPendente(tipo, formaPagamento, valorAtual) {
+    if (pagamentosMercadoPagoBloqueados) {
+        mostrarAlerta('alertaCoordenador', 'Os pagamentos pelo Mercado Pago estao temporariamente desabilitados', 'warning');
+        return;
+    }
     try {
         const response = await fetch(`${API_URL}/equipista/solicitar-pagamento`, {
             method: 'POST',

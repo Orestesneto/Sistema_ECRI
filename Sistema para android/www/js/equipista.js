@@ -10,11 +10,12 @@ let pagamentoMonitoradoId = null;
 let intervaloMonitoramentoPagamento = null;
 let tentativasMonitoramentoPagamento = 0;
 let valorBlusasPendentesPagamento = 0;
+let pagamentosMercadoPagoBloqueados = false;
 const TAXAS_POR_MOVIMENTO = {
     EC: 25,
     EJC: 25,
-    ECC: 35,
-    'JOVENS EJC CASADOS': 35,
+    ECC: 30,
+    'JOVENS EJC CASADOS': 30,
     ECRI: 15
 };
 let movimentoOrigemUsuário = '';
@@ -49,8 +50,13 @@ async function carregarPerfil() {
         
         const usuario = await response.json();
         const configuracoes = await responseConfig.json();
+        if (responseConfig.ok && configuracoes.taxas_por_movimento) {
+            Object.assign(TAXAS_POR_MOVIMENTO, configuracoes.taxas_por_movimento);
+        }
         const equipeUsuario = usuario.equipe || usuarioLocal.equipe || '';
         const revelacaoEquipesAconteceu = responseConfig.ok ? Boolean(configuracoes.reuniao_revelacao_equipes) : true;
+        pagamentosMercadoPagoBloqueados = responseConfig.ok && Boolean(configuracoes.parar_pagamentos_mercado_pago);
+        atualizarBloqueioPagamentosMercadoPago();
 
         configurarAbasPorEquipe(equipeUsuario, revelacaoEquipesAconteceu, Number(usuario.lista_espera || 0) === 1);
         localStorage.setItem('usuario', JSON.stringify({
@@ -248,13 +254,6 @@ function atualizarValorPagamento() {
         return;
     }
 
-    if (tipo === 'taxa_blusa') {
-        const valorTaxa = Number(TAXAS_POR_MOVIMENTO[movimentoOrigemUsuário] || 0);
-        valorInput.value = valorTaxa + Number(valorBlusasPendentesPagamento || 0);
-        valorInput.readOnly = true;
-        return;
-    }
-
     valorInput.readOnly = true;
     valorInput.value = '';
 }
@@ -294,22 +293,35 @@ function obterTipoPagamentoSelecionado() {
     return document.querySelector('input[name="tipoPagamento"]:checked')?.value || 'taxa';
 }
 
+function atualizarBloqueioPagamentosMercadoPago() {
+    const formulario = document.getElementById('formPagamento');
+    if (!formulario) return;
+    formulario.querySelectorAll('input, button').forEach(campo => {
+        campo.disabled = pagamentosMercadoPagoBloqueados;
+    });
+    const resultado = document.getElementById('resultadoPagamentoMercadoPago');
+    if (resultado && pagamentosMercadoPagoBloqueados) {
+        resultado.innerHTML = '<div class="alert alert-warning">Os pagamentos pelo Mercado Pago estao temporariamente desabilitados.</div>';
+    }
+}
+
 function atualizarDisponibilidadePagamentoBlusa() {
     const possuiBlusaPendente = Number(valorBlusasPendentesPagamento || 0) > 0;
     const radioTaxa = document.getElementById('tipoPagamentoTaxa');
     const radioBlusa = document.getElementById('tipoPagamentoBlusa');
-    const radioTaxaBlusa = document.getElementById('tipoPagamentoTaxaBlusa');
 
     if (radioBlusa) radioBlusa.disabled = !possuiBlusaPendente;
-    if (radioTaxaBlusa) radioTaxaBlusa.disabled = !possuiBlusaPendente;
-
-    if (!possuiBlusaPendente && ['blusa', 'taxa_blusa'].includes(obterTipoPagamentoSelecionado())) {
+    if (!possuiBlusaPendente && obterTipoPagamentoSelecionado() === 'blusa') {
         if (radioTaxa) radioTaxa.checked = true;
     }
     atualizarValorPagamento();
 }
 
 async function solicitarPagamentoEquipista(tipo, valor, formaPagamento) {
+    if (pagamentosMercadoPagoBloqueados) {
+        mostrarAlerta('alertaEquipista', 'Os pagamentos pelo Mercado Pago estao temporariamente desabilitados', 'warning');
+        return;
+    }
     if (formaPagamento === 'pix') {
         const continuar = confirm('O pagamento via PIX tera acrescimo de 1% referente a taxa da maquineta. Deseja continuar?');
         if (!continuar) return;
@@ -612,13 +624,15 @@ async function carregarStatus() {
         });
         
         const data = await response.json();
+        pagamentosMercadoPagoBloqueados = Boolean(data.parar_pagamentos_mercado_pago);
+        atualizarBloqueioPagamentosMercadoPago();
         
         let htmlPagamentos = '<table class="table table-sm"><thead><tr><th>Tipo</th><th>Valor</th><th>Forma</th><th>Status</th><th>Ação</th></tr></thead><tbody>';
         data.pagamentos.forEach(p => {
             const badge = obterBadgeStatusPagamentoEquipista(p.status);
             const linkPagamento = p.mercado_pago_init_point || p.mercado_pago_sandbox_init_point || '';
             let acao = '-';
-            if (p.status === 'pendente') {
+            if (p.status === 'pendente' && !pagamentosMercadoPagoBloqueados) {
                 const botaoPix = p.forma_pagamento === 'pix' && p.pix_qr_code
                     ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixCodificado('${encodeURIComponent(p.pix_qr_code || '')}', '${encodeURIComponent(p.pix_qr_code_base64 || '')}', '${encodeURIComponent(p.valor || '')}')">PIX</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemPendente('${escapeAttr(p.tipo)}', 'pix', ${Number(p.valor || 0)})">PIX</button>`;

@@ -14,6 +14,8 @@ const { processarFotoPerfil } = require('../utils/foto');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { obterConfiguracao, salvarConfiguracao } = require('../utils/configuracoes');
 const { criarNotificacoesParaUsuarios } = require('../utils/notificacoes');
+const { VALOR_BLUSA_UNICA, normalizarValorBlusa, obterValoresBlusa, recalcularValoresBlusasTodosUsuarios } = require('../utils/precoBlusa');
+const { TAXAS_PADRAO, normalizarPreco, obterPrecosTaxa, obterTaxasPorMovimento } = require('../utils/precoTaxa');
 
 const router = express.Router();
 
@@ -32,13 +34,6 @@ async function gerarCodigoAceiteAlmoxarifado() {
   }
   return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 }
-const TAXAS_POR_MOVIMENTO = {
-  EC: 25,
-  EJC: 25,
-  ECC: 35,
-  'JOVENS EJC CASADOS': 35,
-  ECRI: 15
-};
 const MOTIVOS_IMPEDIMENTO_SERVIR = [
   'Separação do casal',
   'Não faz parte dos movimentos',
@@ -449,10 +444,18 @@ router.put('/meu-perfil', verificarToken, verificarPerfil(['equipe_dirigente']),
 
 router.get('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
+    const valoresBlusa = await obterValoresBlusa(database);
+    const precosTaxa = await obterPrecosTaxa(database);
     res.json({
       reuniao_entrega_pastas: (await obterConfiguracao(database, 'reuniao_entrega_pastas', 'false')) === 'true',
       reuniao_revelacao_equipes: (await obterConfiguracao(database, 'reuniao_revelacao_equipes', 'false')) === 'true',
-      parar_pedidos_blusa: (await obterConfiguracao(database, 'parar_pedidos_blusa', 'false')) === 'true'
+      parar_pedidos_blusa: (await obterConfiguracao(database, 'parar_pedidos_blusa', 'false')) === 'true',
+      parar_novos_cadastros: (await obterConfiguracao(database, 'parar_novos_cadastros', 'false')) === 'true',
+      parar_pagamentos_mercado_pago: (await obterConfiguracao(database, 'parar_pagamentos_mercado_pago', 'false')) === 'true',
+      valor_camisa: valoresBlusa.unica,
+      valor_taxa_crianca: precosTaxa.crianca,
+      valor_taxa_jovem: precosTaxa.jovem,
+      valor_taxa_casal: precosTaxa.casal
     });
   } catch (err) {
     console.error(err);
@@ -465,22 +468,63 @@ router.put('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_d
     const reuniaoEntregaPastas = Boolean(req.body.reuniao_entrega_pastas);
     const reuniaoRevelacaoEquipes = Boolean(req.body.reuniao_revelacao_equipes);
     const pararPedidosBlusa = Boolean(req.body.parar_pedidos_blusa);
+    const pararNovosCadastros = Boolean(req.body.parar_novos_cadastros);
+    const pararPagamentosMercadoPago = Boolean(req.body.parar_pagamentos_mercado_pago);
+    const valorCamisa = normalizarValorBlusa(req.body.valor_camisa, VALOR_BLUSA_UNICA);
+    const valorTaxaCrianca = normalizarPreco(req.body.valor_taxa_crianca, TAXAS_PADRAO.crianca);
+    const valorTaxaJovem = normalizarPreco(req.body.valor_taxa_jovem, TAXAS_PADRAO.jovem);
+    const valorTaxaCasal = normalizarPreco(req.body.valor_taxa_casal, TAXAS_PADRAO.casal);
 
     await salvarConfiguracao(database, 'reuniao_entrega_pastas', reuniaoEntregaPastas ? 'true' : 'false');
     await salvarConfiguracao(database, 'reuniao_revelacao_equipes', reuniaoRevelacaoEquipes ? 'true' : 'false');
     await salvarConfiguracao(database, 'parar_pedidos_blusa', pararPedidosBlusa ? 'true' : 'false');
+    await salvarConfiguracao(database, 'parar_novos_cadastros', pararNovosCadastros ? 'true' : 'false');
+    await salvarConfiguracao(database, 'parar_pagamentos_mercado_pago', pararPagamentosMercadoPago ? 'true' : 'false');
+    await salvarConfiguracao(database, 'valor_blusa_unica', String(valorCamisa));
+    await salvarConfiguracao(database, 'valor_blusa_multipla', String(valorCamisa));
+    await salvarConfiguracao(database, 'valor_taxa_crianca', String(valorTaxaCrianca));
+    await salvarConfiguracao(database, 'valor_taxa_jovem', String(valorTaxaJovem));
+    await salvarConfiguracao(database, 'valor_taxa_casal', String(valorTaxaCasal));
+    await recalcularValoresBlusasTodosUsuarios(database);
+    await database.run(
+      `UPDATE pagamentos
+       SET valor = CASE UPPER(TRIM((SELECT movimento_origem FROM usuarios WHERE usuarios.id = pagamentos.usuario_id)))
+         WHEN 'ECRI' THEN ?
+         WHEN 'EC' THEN ?
+         WHEN 'EJC' THEN ?
+         WHEN 'ECC' THEN ?
+         WHEN 'JOVENS EJC CASADOS' THEN ?
+         ELSE valor
+       END
+       WHERE tipo = 'taxa' AND status = 'pendente'
+         AND mercado_pago_payment_id IS NULL
+         AND mercado_pago_preference_id IS NULL`,
+      [valorTaxaCrianca, valorTaxaJovem, valorTaxaJovem, valorTaxaCasal, valorTaxaCasal]
+    );
 
     await registrarHistorico(req.usuario.id, 'configuracoes_encontro_atualizadas', {
       reuniao_entrega_pastas: reuniaoEntregaPastas,
       reuniao_revelacao_equipes: reuniaoRevelacaoEquipes,
-      parar_pedidos_blusa: pararPedidosBlusa
+      parar_pedidos_blusa: pararPedidosBlusa,
+      parar_novos_cadastros: pararNovosCadastros,
+      parar_pagamentos_mercado_pago: pararPagamentosMercadoPago,
+      valor_camisa: valorCamisa,
+      valor_taxa_crianca: valorTaxaCrianca,
+      valor_taxa_jovem: valorTaxaJovem,
+      valor_taxa_casal: valorTaxaCasal
     });
 
     res.json({
       mensagem: 'Configurações salvas com sucesso',
       reuniao_entrega_pastas: reuniaoEntregaPastas,
       reuniao_revelacao_equipes: reuniaoRevelacaoEquipes,
-      parar_pedidos_blusa: pararPedidosBlusa
+      parar_pedidos_blusa: pararPedidosBlusa,
+      parar_novos_cadastros: pararNovosCadastros,
+      parar_pagamentos_mercado_pago: pararPagamentosMercadoPago,
+      valor_camisa: valorCamisa,
+      valor_taxa_crianca: valorTaxaCrianca,
+      valor_taxa_jovem: valorTaxaJovem,
+      valor_taxa_casal: valorTaxaCasal
     });
   } catch (err) {
     console.error(err);
@@ -1798,7 +1842,9 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       LEFT JOIN pagamentos p ON p.id = (
         SELECT p2.id
         FROM pagamentos p2
-        WHERE p2.usuario_id = u.id AND p2.tipo IN ('taxa', 'taxa_blusa')
+        WHERE p2.usuario_id = u.id
+          AND p2.tipo IN ('taxa', 'taxa_blusa')
+          AND p2.status IN ('pendente', 'confirmado')
         ORDER BY CASE WHEN p2.status = 'confirmado' THEN 0 WHEN p2.status = 'pendente' THEN 1 ELSE 2 END,
                  p2.data_solicitacao DESC,
                  p2.id DESC
@@ -1835,11 +1881,12 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       ORDER BY u.equipe ASC, u.nome_completo ASC, sb.data_solicitacao DESC
     `);
 
+    const taxasPorMovimento = await obterTaxasPorMovimento(database);
     const pagamentosComFotoUrl = pagamentos.map((pagamento) => ({
       ...pagamento,
       id: pagamento.pagamento_id,
       tipo: pagamento.tipo || 'taxa',
-      valor: Number(pagamento.valor || TAXAS_POR_MOVIMENTO[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
+      valor: Number(pagamento.valor || taxasPorMovimento[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
       status: pagamento.status || 'pendente',
       origem_confirmacao: pagamento.status === 'confirmado'
         ? (pagamento.confirmado_por ? 'manual' : 'mercado_pago')
@@ -1852,7 +1899,7 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
       id: null,
       pagamento_id: null,
       tipo: 'taxa',
-      valor: Number(TAXAS_POR_MOVIMENTO[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
+      valor: Number(taxasPorMovimento[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
       status: 'pendente',
       origem_confirmacao: null,
       tipo_cadastro: 'externo',

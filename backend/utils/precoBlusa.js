@@ -34,14 +34,14 @@ async function obterValoresBlusa(database) {
 
 async function recalcularValoresBlusasUsuario(database, usuarioId) {
   const blusas = await database.all(
-    'SELECT id FROM solicitacoes_blusa WHERE usuario_id = ? ORDER BY id ASC',
+    "SELECT id FROM solicitacoes_blusa WHERE usuario_id = ? AND status = 'pendente' ORDER BY id ASC",
     [usuarioId]
   );
 
   const valores = await obterValoresBlusa(database);
   const valor = blusas.length > 1 ? valores.multipla : valores.unica;
   await database.run(
-    'UPDATE solicitacoes_blusa SET valor = ? WHERE usuario_id = ?',
+    "UPDATE solicitacoes_blusa SET valor = ? WHERE usuario_id = ? AND status = 'pendente'",
     [valor, usuarioId]
   );
 
@@ -55,6 +55,7 @@ async function recalcularValoresBlusasTodosUsuarios(database) {
   const usuarios = await database.all(`
     SELECT usuario_id
     FROM solicitacoes_blusa
+    WHERE status = 'pendente'
     GROUP BY usuario_id
   `);
 

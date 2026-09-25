@@ -25,7 +25,8 @@ const EQUIPES_SERVIDAS_DEV = [
     'Som e Iluminação',
     'Compras',
     'Recepção aos palestrantes',
-    'Visitação e Externa/ Comunicação e Informação'
+    'Visitação e Externa/ Comunicação e Informação',
+    'Pombo Correio / Correios'
 ];
 
 document.addEventListener('DOMContentLoaded', () => {

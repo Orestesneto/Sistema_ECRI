@@ -12,6 +12,7 @@ let blusasEquipeCache = [];
 let blusaAdicionarPendente = null;
 let blusaConfirmacaoPendente = null;
 let pedidosBlusaBloqueadosCoordenador = false;
+let pagamentosMercadoPagoBloqueados = false;
 let carografoEscritaCache = [];
 let restricoesAlimentaresCache = [];
 let restricoesMedicasCache = [];
@@ -211,6 +212,7 @@ document.getElementById('formSolicitarMinhaBlusa')?.addEventListener('submit', a
             body: JSON.stringify({ tamanho })
         });
         const data = await response.json();
+
         if (!response.ok) {
             mostrarAlerta('alertaCoordenador', data.erro || 'Erro ao solicitar blusa', 'danger');
             return;
@@ -599,7 +601,7 @@ async function carregarPagamentos() {
         let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tipo</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         pagamentos.forEach(p => {
-            const fotoHtml = `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+            const fotoHtml = renderizarFotoLazyCoordenador(p, 40);
             const confirmado = p.status === 'confirmado';
             const pendente = p.status === 'pendente';
             const statusHtml = obterStatusBadge(p.status);
@@ -622,7 +624,9 @@ async function carregarPagamentos() {
         });
         
         html += '</tbody></table>';
-        document.getElementById('tabelaPagamentos').innerHTML = html;
+        const containerPagamentos = document.getElementById('tabelaPagamentos');
+        containerPagamentos.innerHTML = html;
+        observarFotosLazyCoordenador(containerPagamentos);
     } catch (err) {
         console.error(err);
     }
@@ -651,7 +655,7 @@ async function carregarBlusas() {
         let html = '<table class="table table-hover"><thead><tr><th>Foto</th><th>Usuário</th><th>Tamanho</th><th>Valor</th><th>Status</th><th>Baixa</th><th>Ação</th></tr></thead><tbody>';
         
         blusasEquipeCache.forEach(b => {
-            const fotoHtml = `<div style="width:40px; height:40px; border-radius:50%; background:#ccc; display:flex; align-items:center; justify-content:center;">-</div>`;
+            const fotoHtml = renderizarFotoLazyCoordenador(b, 40);
             const temSolicitacao = Boolean(b.id);
             const pago = b.status === 'confirmado';
             const badge = !temSolicitacao
@@ -677,7 +681,9 @@ async function carregarBlusas() {
         });
         
         html += '</tbody></table>';
-        document.getElementById('tabelaBlusas').innerHTML = html;
+        const containerBlusas = document.getElementById('tabelaBlusas');
+        containerBlusas.innerHTML = html;
+        observarFotosLazyCoordenador(containerBlusas);
     } catch (err) {
         console.error(err);
     }
@@ -2059,6 +2065,7 @@ async function carregarPagamentoProprio() {
             headers: getHeaders()
         });
         const data = await response.json();
+        pagamentosMercadoPagoBloqueados = Boolean(data.parar_pagamentos_mercado_pago);
 
         if (!response.ok) {
             const erro = escapeHtml(data.erro || 'Erro ao carregar seus pagamentos.');
@@ -2090,7 +2097,7 @@ async function carregarPagamentoProprio() {
             const linkPagamento = pagamento.mercado_pago_init_point || pagamento.mercado_pago_sandbox_init_point || '';
             let acao = '-';
 
-            if (pagamento.status === 'pendente') {
+            if (pagamento.status === 'pendente' && !pagamentosMercadoPagoBloqueados) {
                 const botaoPix = pagamento.forma_pagamento === 'pix' && pagamento.pix_qr_code
                     ? `<button type="button" class="btn btn-sm btn-success" onclick="abrirModalPixProprioCodificado('${encodeURIComponent(pagamento.pix_qr_code || '')}', '${encodeURIComponent(pagamento.pix_qr_code_base64 || '')}', '${encodeURIComponent(pagamento.valor || '')}', '${encodeURIComponent(pagamento.valor_base || '')}', '${encodeURIComponent(pagamento.acrescimo_pix || '')}')">PIX</button>`
                     : `<button type="button" class="btn btn-sm btn-outline-success" onclick="pagarItemProprioPendente('${escapeAttr(pagamento.tipo)}', 'pix', ${Number(pagamento.valor || 0)})">PIX</button>`;
@@ -2135,6 +2142,10 @@ async function carregarPagamentoProprio() {
 }
 
 async function pagarItemProprioPendente(tipo, formaPagamento, valorAtual) {
+    if (pagamentosMercadoPagoBloqueados) {
+        mostrarAlerta('alertaCoordenador', 'Os pagamentos pelo Mercado Pago estao temporariamente desabilitados', 'warning');
+        return;
+    }
     try {
         const response = await fetch(`${API_URL}/equipista/solicitar-pagamento`, {
             method: 'POST',
@@ -2795,8 +2806,8 @@ async function abrirChamada(reuniaoId) {
             container.style.display = 'block';
             return;
         }
-        participantesChamadaCache.set(Number(reuniaoId), presencas);
 
+        participantesChamadaCache.set(Number(reuniaoId), presencas);
 
         const linhas = presencas.map(p => {
             const nomeChamada = p.nome_cracha || p.nome_completo || '';

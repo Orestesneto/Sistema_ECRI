@@ -324,10 +324,22 @@ async function carregarConfiguracoesEncontroDirigente() {
         const entregaPastas = document.getElementById('reuniaoEntregaPastasDirigente');
         const revelacaoEquipes = document.getElementById('reuniaoRevelacaoEquipesDirigente');
         const pararPedidosBlusa = document.getElementById('pararPedidosBlusaDirigente');
+        const pararNovosCadastros = document.getElementById('pararNovosCadastrosDirigente');
+        const pararPagamentosMercadoPago = document.getElementById('pararPagamentosMercadoPagoDirigente');
+        const valorCamisa = document.getElementById('valorCamisaDirigente');
+        const valorTaxaCrianca = document.getElementById('valorTaxaCriancaDirigente');
+        const valorTaxaJovem = document.getElementById('valorTaxaJovemDirigente');
+        const valorTaxaCasal = document.getElementById('valorTaxaCasalDirigente');
 
         if (entregaPastas) entregaPastas.checked = Boolean(configuracoes.reuniao_entrega_pastas);
         if (revelacaoEquipes) revelacaoEquipes.checked = Boolean(configuracoes.reuniao_revelacao_equipes);
         if (pararPedidosBlusa) pararPedidosBlusa.checked = Boolean(configuracoes.parar_pedidos_blusa);
+        if (pararNovosCadastros) pararNovosCadastros.checked = Boolean(configuracoes.parar_novos_cadastros);
+        if (pararPagamentosMercadoPago) pararPagamentosMercadoPago.checked = Boolean(configuracoes.parar_pagamentos_mercado_pago);
+        if (valorCamisa) valorCamisa.value = configuracoes.valor_camisa;
+        if (valorTaxaCrianca) valorTaxaCrianca.value = configuracoes.valor_taxa_crianca;
+        if (valorTaxaJovem) valorTaxaJovem.value = configuracoes.valor_taxa_jovem;
+        if (valorTaxaCasal) valorTaxaCasal.value = configuracoes.valor_taxa_casal;
     } catch (err) {
         mostrarAlerta('alertaDirigentes', 'Erro ao carregar configurações do encontro', 'danger');
         console.error(err);
@@ -338,7 +350,13 @@ async function salvarConfiguracoesEncontroDirigente() {
     const body = {
         reuniao_entrega_pastas: document.getElementById('reuniaoEntregaPastasDirigente')?.checked || false,
         reuniao_revelacao_equipes: document.getElementById('reuniaoRevelacaoEquipesDirigente')?.checked || false,
-        parar_pedidos_blusa: document.getElementById('pararPedidosBlusaDirigente')?.checked || false
+        parar_pedidos_blusa: document.getElementById('pararPedidosBlusaDirigente')?.checked || false,
+        parar_novos_cadastros: document.getElementById('pararNovosCadastrosDirigente')?.checked || false,
+        parar_pagamentos_mercado_pago: document.getElementById('pararPagamentosMercadoPagoDirigente')?.checked || false,
+        valor_camisa: document.getElementById('valorCamisaDirigente')?.value,
+        valor_taxa_crianca: document.getElementById('valorTaxaCriancaDirigente')?.value,
+        valor_taxa_jovem: document.getElementById('valorTaxaJovemDirigente')?.value,
+        valor_taxa_casal: document.getElementById('valorTaxaCasalDirigente')?.value
     };
 
     try {

@@ -11,17 +11,11 @@ const { normalizarParoquia, paroquiaValida } = require('../utils/paroquia');
 const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('../utils/equipes');
 const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
+const { obterTaxasPorMovimento } = require('../utils/precoTaxa');
 const { processarFotoPerfil } = require('../utils/foto');
 const { criarNotificacao, criarNotificacoesParaEquipe } = require('../utils/notificacoes');
 
 const router = express.Router();
-const TAXAS_POR_MOVIMENTO = {
-  EC: 25,
-  EJC: 25,
-  ECC: 35,
-  'JOVENS EJC CASADOS': 35,
-  ECRI: 15
-};
 
 const EQUIPES_MENSAGEM_WHATSAPP = [
   { equipe: 'Arco Iris', titulo: '🌈🌈 Arco-Íris 🌈🌈' },
@@ -991,7 +985,21 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
              confirmador.nome_completo AS confirmado_por_nome,
              confirmador.nome_cracha AS confirmado_por_cracha
       FROM usuarios u
-      LEFT JOIN pagamentos p ON p.usuario_id = u.id AND p.tipo IN ('taxa', 'taxa_blusa')
+      LEFT JOIN pagamentos p ON p.id = (
+        SELECT p2.id
+        FROM pagamentos p2
+          WHERE p2.usuario_id = u.id
+          AND p2.tipo IN ('taxa', 'taxa_blusa')
+          AND p2.status IN ('pendente', 'confirmado')
+        ORDER BY CASE
+                   WHEN p2.status = 'pendente' THEN 0
+                   WHEN p2.status = 'confirmado' THEN 1
+                   ELSE 2
+                 END,
+                 CASE WHEN p2.tipo = 'taxa_blusa' THEN 0 ELSE 1 END,
+                 p2.id DESC
+        LIMIT 1
+      )
       LEFT JOIN usuarios confirmador ON confirmador.id = p.confirmado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
@@ -1005,7 +1013,8 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
     for (const usuarioBase of usuarios.map(trocarFotoPorUrl(req, 'usuario'))) {
       const usuario = usuarioBase;
       const movimento = normalizarMovimentoOrigem(usuario.movimento_origem);
-      const valorTaxa = TAXAS_POR_MOVIMENTO[movimento] || 0;
+      const taxasPorMovimento = await obterTaxasPorMovimento(database);
+      const valorTaxa = taxasPorMovimento[movimento] || 0;
       let pagamento = usuario;
 
       if (!usuario.id && valorTaxa > 0) {
