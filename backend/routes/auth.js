@@ -2,6 +2,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const database = require('../config/database');
+const { transferirFinanceiroExterno } = require('../utils/financeiroExternos');
 const { normalizarMovimentoOrigem, movimentoOrigemValido, movimentoOrigemCasal } = require('../utils/movimentoOrigem');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
@@ -173,6 +174,7 @@ router.post('/registro', async (req, res) => {
       ]
     );
     if (pessoaExterna) {
+      await transferirFinanceiroExterno(database, pessoaExterna.id, resultado.lastID);
       await database.run('DELETE FROM pessoas_externas WHERE id = ?', [pessoaExterna.id]);
     }
     await registrarHistorico(resultado.lastID, 'usuario_registrado', {

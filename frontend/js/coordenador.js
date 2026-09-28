@@ -722,8 +722,7 @@ async function carregarBlusas() {
 }
 
 function renderizarAcoesBlusa(blusa, temSolicitacao, pago) {
-    if (blusa.tipo_cadastro === 'externo') return '<span class="text-muted">Aguardando cadastro</span>';
-    if (blusa.status_participacao && blusa.status_participacao !== 'confirmado' && !temSolicitacao) {
+    if (blusa.tipo_cadastro !== 'externo' && blusa.status_participacao && blusa.status_participacao !== 'confirmado' && !temSolicitacao) {
         return '<span class="text-muted">Aguardando confirmação de participação</span>';
     }
     if (pedidosBlusaBloqueadosCoordenador) {
@@ -1441,7 +1440,6 @@ function ordenarPorPerfilRelatorioCoordenador(a, b) {
 
 function formatarPerfilAcessoCoordenador(perfil) {
     const mapa = {
-        sem_pagamento: '<span class="badge bg-secondary">Sem cobrança</span>',
         coordenador: 'Coordenador',
         equipista: 'Equipista',
         equipe_dirigente: 'Dirigente',
@@ -2580,6 +2578,7 @@ function formatarDataHora(valor) {
 
 function obterStatusBadge(status) {
     const mapa = {
+        sem_pagamento: '<span class="badge bg-secondary">Sem cobrança</span>',
         confirmado: '<span class="badge bg-success">Confirmado</span>',
         pendente: '<span class="badge bg-warning text-dark">Pendente</span>',
         ressarcido: '<span class="badge bg-secondary">Ressarcido</span>',

@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const database = require('./config/database');
+const { transferirFinanceiroExterno } = require('./utils/financeiroExternos');
 
 async function migrarExternosConfirmados() {
   await database.initDb();
@@ -28,6 +29,7 @@ async function migrarExternosConfirmados() {
 
     const existente = await database.get('SELECT id FROM usuarios WHERE cpf = ?', [cpf]);
     if (existente) {
+      await transferirFinanceiroExterno(database, externo.id, existente.id);
       await database.run('DELETE FROM pessoas_externas WHERE id = ?', [externo.id]);
       ignorados += 1;
       continue;
@@ -36,7 +38,7 @@ async function migrarExternosConfirmados() {
     const senhaHash = await bcrypt.hash(dataNascimento, 10);
     const emailTemporario = `${cpf}@sem-cadastro.ecri.local`;
 
-    await database.run(
+    const resultado = await database.run(
       `INSERT INTO usuarios (
         email, senha, nome_completo, nome_cracha, telefone, cpf, data_nascimento,
         movimento_origem, foto_perfil, restricao_medica, restricao_alimentar,
@@ -61,6 +63,7 @@ async function migrarExternosConfirmados() {
       ]
     );
 
+    await transferirFinanceiroExterno(database, externo.id, resultado.lastID);
     await database.run('DELETE FROM pessoas_externas WHERE id = ?', [externo.id]);
     migrados += 1;
   }

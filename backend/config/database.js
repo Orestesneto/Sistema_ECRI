@@ -803,6 +803,7 @@ const initDb = () => {
   if (!initPromise) {
     initializing = true;
     initPromise = (usingPostgres ? initPostgres() : initSqlite())
+      .then(() => require('../utils/financeiroExternos').criarTabelasFinanceiroExternos(executar, usingPostgres))
       .finally(() => {
         initializing = false;
       });
@@ -820,6 +821,27 @@ module.exports = {
   db: sqlite || pgPool,
   usingPostgres,
   initDb,
+  transaction: async callback => {
+    await ensureReady();
+    const client = usingPostgres ? await pgPool.connect() : null;
+    const run = async (sql, params = []) => {
+      if (!client) return runSqlite(sql, params);
+      const preparado = prepararSqlPostgres(sql, params);
+      const result = await client.query(preparado.texto, preparado.params);
+      return { lastID: result.rows?.[0]?.id, changes: result.rowCount };
+    };
+    try {
+      await run('BEGIN');
+      const result = await callback({ run });
+      await run('COMMIT');
+      return result;
+    } catch (err) {
+      await run('ROLLBACK');
+      throw err;
+    } finally {
+      if (client) client.release();
+    }
+  },
   run: async (sql, params = []) => {
     await ensureReady();
     return executar(sql, params);

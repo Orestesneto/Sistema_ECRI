@@ -40,8 +40,9 @@ test('blusas preservam vários pedidos da mesma pessoa e incluem participantes s
     assert.deepEqual(alinhar([], linhas, 'sem_solicitacao'), []);
 });
 
-test('participantes sem cadastro ou confirmação não recebem ação inválida de adicionar blusa', () => {
+test('coordenador pode adicionar blusa para externos, mantendo restrição de confirmação dos cadastrados', () => {
+    contexto.pedidosBlusaBloqueadosCoordenador = false;
     vm.runInContext(script.slice(script.indexOf('function renderizarAcoesBlusa('), script.indexOf('function renderizarResumoBlusas(')), contexto);
-    assert.match(contexto.renderizarAcoesBlusa({ tipo_cadastro: 'externo' }, false, false), /Aguardando cadastro/);
+    assert.match(contexto.renderizarAcoesBlusa({ tipo_cadastro: 'externo', usuario_id: -1, status_participacao: 'pendente' }, false, false), /abrirModalAdicionarBlusa\(-1\)/);
     assert.match(contexto.renderizarAcoesBlusa({ tipo_cadastro: 'usuario', status_participacao: 'pendente' }, false, false), /Aguardando confirmação/);
 });

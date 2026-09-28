@@ -2,6 +2,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const database = require('../config/database');
+const { transferirFinanceiroExterno } = require('../utils/financeiroExternos');
 const { normalizarMovimentoOrigem, movimentoOrigemValido, movimentoOrigemCasal } = require('../utils/movimentoOrigem');
 const { apenasNumeros, cpfValido } = require('../utils/cpf');
 const { normalizarAnoEncontro, anoEncontroValido } = require('../utils/anoEncontro');
@@ -239,6 +240,7 @@ router.put('/:token', async (req, res) => {
         equipe_preservada: participanteAtual.equipe || null
       });
 
+      await transferirFinanceiroExterno(database, dadosToken.id, resultadoUsuario.lastID);
       await database.run('DELETE FROM pessoas_externas WHERE id = ?', [dadosToken.id]);
     } else {
       await database.run(

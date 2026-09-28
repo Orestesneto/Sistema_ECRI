@@ -12,6 +12,7 @@ const { aplicarRegraSemEquipe, equipeSemEquipe, normalizarEquipe } = require('..
 const { obterConfiguracao, pedidosBlusaBloqueados } = require('../utils/configuracoes');
 const { VALOR_BLUSA_UNICA, recalcularValoresBlusasUsuario } = require('../utils/precoBlusa');
 const { obterTaxasPorMovimento } = require('../utils/precoTaxa');
+const { criarRouterFinanceiroExternos, listarFinanceiroExternos } = require('./coordenadorExternos');
 const { processarFotoPerfil } = require('../utils/foto');
 const { criarNotificacao, criarNotificacoesParaEquipe } = require('../utils/notificacoes');
 
@@ -304,6 +305,8 @@ const TAMANHOS_BLUSA = [
   'EXGG Unisex',
   'XL Unisex'
 ];
+
+router.use(criarRouterFinanceiroExternos(database, TAMANHOS_BLUSA, registrarHistorico));
 
 // Obter dados do próprio perfil
 router.get('/meu-perfil', verificarToken, verificarPerfil(['coordenador', 'equipe_dirigente']), async (req, res) => {
@@ -771,7 +774,8 @@ router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador'
       ORDER BY u.nome_completo ASC, sb.data_solicitacao DESC
     `, filtroEquipeParams);
 
-    res.json(solicitacoes.map(trocarFotoPorUrl(req, 'usuario')).map(item => ({
+    const externos = await listarFinanceiroExternos(database, filtrarPorEquipe ? coordenador.equipe : null, 'blusa');
+    res.json([...solicitacoes.map(trocarFotoPorUrl(req, 'usuario')), ...externos.map(trocarFotoPorUrl(req, 'externo'))].map(item => ({
       ...item,
       status: item.id ? item.status : 'sem_solicitacao'
     })));
@@ -1051,6 +1055,9 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
         status: pagamento.status || 'sem_pagamento'
       });
     }
+
+    const externos = await listarFinanceiroExternos(database, filtrarPorEquipe ? coordenador.equipe : null, 'taxa');
+    pagamentos.push(...externos.map(trocarFotoPorUrl(req, 'externo')));
 
     const valorRecebido = pagamentos
       .filter(p => p.status === 'confirmado')

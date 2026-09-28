@@ -486,6 +486,13 @@ router.put('/configuracoes-encontro', verificarToken, verificarPerfil(['equipe_d
     await salvarConfiguracao(database, 'valor_taxa_jovem', String(valorTaxaJovem));
     await salvarConfiguracao(database, 'valor_taxa_casal', String(valorTaxaCasal));
     await recalcularValoresBlusasTodosUsuarios(database);
+    const { recalcularBlusasExternas } = require('../utils/financeiroExternos');
+    const pessoasComBlusa = await database.all("SELECT DISTINCT pessoa_externa_id FROM solicitacoes_blusa_externos WHERE status = 'pendente'");
+    for (const pessoa of pessoasComBlusa) await recalcularBlusasExternas(database, pessoa.pessoa_externa_id);
+    await database.run(`UPDATE pagamentos_externos SET valor = CASE
+      UPPER(TRIM((SELECT movimento_origem FROM pessoas_externas WHERE pessoas_externas.id = pagamentos_externos.pessoa_externa_id)))
+      WHEN 'ECRI' THEN ? WHEN 'EC' THEN ? WHEN 'EJC' THEN ? WHEN 'ECC' THEN ? WHEN 'JOVENS EJC CASADOS' THEN ?
+      ELSE valor END WHERE status = 'pendente'`, [valorTaxaCrianca, valorTaxaJovem, valorTaxaJovem, valorTaxaCasal, valorTaxaCasal]);
     await database.run(
       `UPDATE pagamentos
        SET valor = CASE UPPER(TRIM((SELECT movimento_origem FROM usuarios WHERE usuarios.id = pagamentos.usuario_id)))
@@ -1763,10 +1770,11 @@ router.get('/relatorio/geral', verificarToken, verificarPerfil(['equipe_dirigent
 router.put('/pagamentos/:pagamento_id/desfazer-baixa', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const pagamentoId = Number(req.params.pagamento_id);
+    const tabelaPagamento = pagamentoId < 0 ? 'pagamentos_externos' : 'pagamentos';
     const pagamento = await database.get(
-      `SELECT id, usuario_id, status, confirmado_por, forma_pagamento
-       FROM pagamentos WHERE id = ?`,
-      [pagamentoId]
+      `SELECT id, ${pagamentoId < 0 ? 'pessoa_externa_id' : 'usuario_id'}, status, confirmado_por, forma_pagamento
+       FROM ${tabelaPagamento} WHERE id = ?`,
+      [Math.abs(pagamentoId)]
     );
 
     if (!pagamento) return res.status(404).json({ erro: 'Pagamento nao encontrado' });
@@ -1775,12 +1783,13 @@ router.put('/pagamentos/:pagamento_id/desfazer-baixa', verificarToken, verificar
     }
 
     await database.run(
-      `UPDATE pagamentos
+      `UPDATE ${tabelaPagamento}
        SET status = 'pendente', data_confirmacao = NULL, forma_pagamento = NULL, confirmado_por = NULL
        WHERE id = ? AND status = 'confirmado' AND confirmado_por IS NOT NULL`,
-      [pagamentoId]
+      [Math.abs(pagamentoId)]
     );
-    await registrarHistorico(pagamento.usuario_id, 'baixa_manual_pagamento_desfeita', {
+    await registrarHistorico(pagamento.usuario_id || req.usuario.id, 'baixa_manual_pagamento_desfeita', {
+      pessoa_externa_id: pagamento.pessoa_externa_id || null,
       pagamento_id: pagamentoId,
       confirmado_por: pagamento.confirmado_por,
       desfeito_por: req.usuario.id,
@@ -1796,10 +1805,11 @@ router.put('/pagamentos/:pagamento_id/desfazer-baixa', verificarToken, verificar
 router.put('/camisas/:solicitacao_id/desfazer-baixa', verificarToken, verificarPerfil(['equipe_dirigente']), async (req, res) => {
   try {
     const solicitacaoId = Number(req.params.solicitacao_id);
+    const tabelaCamisa = solicitacaoId < 0 ? 'solicitacoes_blusa_externos' : 'solicitacoes_blusa';
     const solicitacao = await database.get(
-      `SELECT id, usuario_id, status, confirmado_por, forma_pagamento
-       FROM solicitacoes_blusa WHERE id = ?`,
-      [solicitacaoId]
+      `SELECT id, ${solicitacaoId < 0 ? 'pessoa_externa_id' : 'usuario_id'}, status, confirmado_por, forma_pagamento
+       FROM ${tabelaCamisa} WHERE id = ?`,
+      [Math.abs(solicitacaoId)]
     );
 
     if (!solicitacao) return res.status(404).json({ erro: 'Solicitacao de camisa nao encontrada' });
@@ -1808,12 +1818,13 @@ router.put('/camisas/:solicitacao_id/desfazer-baixa', verificarToken, verificarP
     }
 
     await database.run(
-      `UPDATE solicitacoes_blusa
+      `UPDATE ${tabelaCamisa}
        SET status = 'pendente', data_confirmacao = NULL, forma_pagamento = NULL, confirmado_por = NULL
        WHERE id = ? AND status = 'confirmado' AND confirmado_por IS NOT NULL`,
-      [solicitacaoId]
+      [Math.abs(solicitacaoId)]
     );
-    await registrarHistorico(solicitacao.usuario_id, 'baixa_manual_camisa_desfeita', {
+    await registrarHistorico(solicitacao.usuario_id || req.usuario.id, 'baixa_manual_camisa_desfeita', {
+      pessoa_externa_id: solicitacao.pessoa_externa_id || null,
       solicitacao_id: solicitacaoId,
       confirmado_por: solicitacao.confirmado_por,
       desfeito_por: req.usuario.id,
@@ -1858,13 +1869,17 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
     `);
 
     const pagamentosExternos = await database.all(`
-      SELECT id AS pessoa_externa_id, nome_completo, '' AS email, equipe, movimento_origem,
-             CASE WHEN foto_perfil IS NOT NULL AND foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil
-      FROM pessoas_externas
-      WHERE equipe IS NOT NULL AND UPPER(equipe) <> 'SEM EQUIPE'
-        AND status = 'confirmado'
-        AND COALESCE(lista_espera, 0) = 0
-      ORDER BY equipe ASC, nome_completo ASC
+      SELECT pe.id AS pessoa_externa_id, pe.nome_completo, '' AS email, pe.equipe, pe.movimento_origem,
+             CASE WHEN pe.foto_perfil IS NOT NULL AND pe.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
+             -p.id AS pagamento_id, p.valor, p.status, p.data_confirmacao, p.forma_pagamento, p.confirmado_por,
+             confirmador.nome_completo AS confirmado_por_nome, confirmador.nome_cracha AS confirmado_por_cracha
+      FROM pessoas_externas pe
+      LEFT JOIN pagamentos_externos p ON p.pessoa_externa_id = pe.id
+      LEFT JOIN usuarios confirmador ON confirmador.id = p.confirmado_por
+      WHERE pe.equipe IS NOT NULL AND UPPER(pe.equipe) <> 'SEM EQUIPE'
+        AND (pe.status = 'confirmado' OR p.id IS NOT NULL)
+        AND COALESCE(pe.lista_espera, 0) = 0
+      ORDER BY pe.equipe ASC, pe.nome_completo ASC
     `);
 
     const blusas = await database.all(`
@@ -1896,12 +1911,12 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
     pagamentosComFotoUrl.push(...pagamentosExternos.map((pagamento) => ({
       ...pagamento,
       usuario_id: -Number(pagamento.pessoa_externa_id),
-      id: null,
-      pagamento_id: null,
+      id: pagamento.pagamento_id,
+      pagamento_id: pagamento.pagamento_id,
       tipo: 'taxa',
-      valor: Number(taxasPorMovimento[normalizarMovimentoOrigem(pagamento.movimento_origem)] || 0),
-      status: 'pendente',
-      origem_confirmacao: null,
+      valor: Number(pagamento.valor ?? taxasPorMovimento[normalizarMovimentoOrigem(pagamento.movimento_origem)] ?? 0),
+      status: pagamento.status || 'pendente',
+      origem_confirmacao: pagamento.status === 'confirmado' ? 'manual' : null,
       tipo_cadastro: 'externo',
       foto_perfil: montarUrlFotoPerfil(req, 'externo', pagamento.pessoa_externa_id, pagamento.tem_foto_perfil)
     })));
@@ -1914,6 +1929,14 @@ router.get('/situacao', verificarToken, verificarPerfil(['equipe_dirigente']), a
         : null,
       foto_perfil: montarUrlFotoPerfil(req, 'usuario', blusa.usuario_id, blusa.tem_foto_perfil)
     }));
+
+    const blusasExternas = await require('./coordenadorExternos').listarFinanceiroExternos(database, null, 'blusa');
+    blusasComFotoUrl.push(...blusasExternas.filter(blusa => blusa.id).map(blusa => ({
+      ...blusa,
+      usuario_id: -Number(blusa.usuario_id),
+      solicitacao_id: blusa.id,
+      foto_perfil: montarUrlFotoPerfil(req, 'externo', blusa.pessoa_externa_id, blusa.tem_foto_perfil)
+    })));
 
     const equipesMap = new Map();
     function obterEquipeSituacao(equipe) {
