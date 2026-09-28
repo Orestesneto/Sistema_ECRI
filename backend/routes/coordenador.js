@@ -766,7 +766,7 @@ router.get('/solicitacoes-blusa', verificarToken, verificarPerfil(['coordenador'
       LEFT JOIN usuarios editor ON editor.id = sb.tamanho_atualizado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
-        AND u.status = 'confirmado'
+        AND COALESCE(u.lista_espera, 0) = 0
         ${filtroEquipeSql}
       ORDER BY u.nome_completo ASC, sb.data_solicitacao DESC
     `, filtroEquipeParams);
@@ -980,7 +980,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
     const usuarios = await database.all(`
       SELECT u.id AS usuario_id, u.nome_completo, u.email,
              CASE WHEN u.foto_perfil IS NOT NULL AND u.foto_perfil <> '' THEN 1 ELSE 0 END AS tem_foto_perfil,
-             u.movimento_origem, u.equipe, u.perfil,
+             u.movimento_origem, u.equipe, u.perfil, u.status AS status_participacao,
              p.id, p.tipo, p.valor, p.status, p.data_solicitacao, p.data_confirmacao, p.forma_pagamento, p.confirmado_por,
              confirmador.nome_completo AS confirmado_por_nome,
              confirmador.nome_cracha AS confirmado_por_cracha
@@ -1003,8 +1003,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
       LEFT JOIN usuarios confirmador ON confirmador.id = p.confirmado_por
       WHERE u.equipe IS NOT NULL
         AND UPPER(u.equipe) <> 'SEM EQUIPE'
-        AND u.status = 'confirmado'
-        AND u.perfil <> 'equipe_dirigente'
+        AND COALESCE(u.lista_espera, 0) = 0
         ${filtroEquipeSql}
       ORDER BY u.nome_completo ASC
     `, filtroEquipeParams);
@@ -1017,7 +1016,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
       const valorTaxa = taxasPorMovimento[movimento] || 0;
       let pagamento = usuario;
 
-      if (!usuario.id && valorTaxa > 0) {
+      if (!usuario.id && valorTaxa > 0 && usuario.status_participacao === 'confirmado' && usuario.perfil !== 'equipe_dirigente') {
         const resultado = await database.run(
           `INSERT INTO pagamentos (usuario_id, tipo, valor) VALUES (?, 'taxa', ?)`,
           [usuario.usuario_id, valorTaxa]
@@ -1034,7 +1033,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
         };
       }
 
-      const valorComTaxa = Number(pagamento.valor || valorTaxa || 0);
+      const valorComTaxa = pagamento.id ? Number(pagamento.valor || valorTaxa || 0) : 0;
       const deveMostrarValorSemTaxa = pagamento.status !== 'confirmado' && ['pix', 'cartao_credito'].includes(pagamento.forma_pagamento);
       const valorConfirmacaoManual = deveMostrarValorSemTaxa
         ? calcularValorSemTaxaManual(valorComTaxa, pagamento.forma_pagamento)
@@ -1049,7 +1048,7 @@ router.get('/pagamentos-pendentes', verificarToken, verificarPerfil(['coordenado
         valor_com_taxa: valorComTaxa,
         valor: valorConfirmacaoManual,
         valor_confirmacao_manual: valorConfirmacaoManual,
-        status: pagamento.status || 'pendente'
+        status: pagamento.status || 'sem_pagamento'
       });
     }
 

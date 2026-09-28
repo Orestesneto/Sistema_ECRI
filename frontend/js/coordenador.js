@@ -584,15 +584,43 @@ document.getElementById('formRestricoesCoord')?.addEventListener('submit', (e) =
 });
 
 // Carregar pagamentos da equipe
+function alinharRegistrosComParticipantes(participantes, registros, statusPadrao) {
+    const porUsuario = new Map();
+    registros.forEach(registro => {
+        const chave = `${registro.tipo_cadastro || 'usuario'}:${Number(registro.usuario_id)}`;
+        if (!porUsuario.has(chave)) porUsuario.set(chave, []);
+        porUsuario.get(chave).push(registro);
+    });
+    return participantes.flatMap(participante => {
+        const tipo = participante.tipo_cadastro || 'usuario';
+        const itens = porUsuario.get(`${tipo}:${Number(participante.id)}`) || [{ id: null, status: statusPadrao }];
+        return itens.map(item => ({
+            ...item,
+            usuario_id: tipo === 'externo' ? -Number(participante.id) : Number(participante.id),
+            tipo_cadastro: tipo,
+            status_participacao: participante.status,
+            nome_completo: participante.nome_completo,
+            foto_perfil: participante.foto_perfil,
+            nome_cracha: participante.nome_cracha
+        }));
+    });
+}
+
 async function carregarPagamentos() {
     try {
-        const response = await fetch(`${API_URL}/coordenador/pagamentos-pendentes`, {
-            headers: getHeaders()
-        });
+        const [response, responseParticipantes] = await Promise.all([
+            fetch(`${API_URL}/coordenador/pagamentos-pendentes`, { headers: getHeaders() }),
+            fetch(`${API_URL}/coordenador/participantes-equipe`, { headers: getHeaders() })
+        ]);
+        if (!response.ok || !responseParticipantes.ok) throw new Error('Erro ao carregar pagamentos da equipe');
         
         const data = await response.json();
-        const pagamentos = Array.isArray(data) ? data : (data.pagamentos || []);
-        const resumo = Array.isArray(data) ? { valorRecebido: 0, valorFaltaReceber: pagamentos.reduce((total, p) => total + Number(p.valor || 0), 0) } : (data.resumo || {});
+        const participantes = await responseParticipantes.json();
+        const pagamentos = alinharRegistrosComParticipantes(participantes, Array.isArray(data) ? data : (data.pagamentos || []), 'sem_pagamento');
+        const resumo = {
+            valorRecebido: pagamentos.filter(p => p.id && p.status === 'confirmado').reduce((total, p) => total + Number(p.valor || 0), 0),
+            valorFaltaReceber: pagamentos.filter(p => p.id && p.status !== 'confirmado').reduce((total, p) => total + Number(p.valor || 0), 0)
+        };
         pagamentosEquipeCache = pagamentos;
 
         document.getElementById('valorRecebidoPagamentos').textContent = formatarMoeda(resumo.valorRecebido || 0);
@@ -608,15 +636,15 @@ async function carregarPagamentos() {
             const baixaHtml = confirmado
                 ? formatarBaixaPagamentoCoordenador(p)
                 : '-';
-            const acaoHtml = pendente
+            const acaoHtml = pendente && p.id
                 ? `<button class="btn btn-sm btn-success" onclick="abrirModalConfirmarPagamento(${Number(p.id)})">Confirmar</button>`
                 : '-';
             
             html += `<tr>
                 <td>${fotoHtml}</td>
-                <td>${escapeHtml(p.nome_completo || '')}</td>
+                <td>${escapeHtml(p.nome_completo || '')}${p.tipo_cadastro === 'externo' ? '<br><span class="badge bg-secondary">Sem cadastro</span>' : ''}</td>
                 <td>${escapeHtml(p.tipo || 'taxa')}</td>
-                <td>${formatarMoeda(p.valor || 0)}</td>
+                <td>${p.id ? formatarMoeda(p.valor || 0) : '-'}</td>
                 <td>${statusHtml}</td>
                 <td>${baixaHtml}</td>
                 <td>${acaoHtml}</td>
@@ -634,14 +662,17 @@ async function carregarPagamentos() {
 
 async function carregarBlusas() {
     try {
-        const [response, responseConfig] = await Promise.all([
+        const [response, responseConfig, responseParticipantes] = await Promise.all([
             fetch(`${API_URL}/coordenador/solicitacoes-blusa`, { headers: getHeaders() }),
-            fetch(`${API_URL}/coordenador/configuracoes-blusa`, { headers: getHeaders() })
+            fetch(`${API_URL}/coordenador/configuracoes-blusa`, { headers: getHeaders() }),
+            fetch(`${API_URL}/coordenador/participantes-equipe`, { headers: getHeaders() })
         ]);
+        if (!response.ok || !responseConfig.ok || !responseParticipantes.ok) throw new Error('Erro ao carregar blusas da equipe');
         
         const blusas = await response.json();
         const config = await responseConfig.json();
-        blusasEquipeCache = Array.isArray(blusas) ? blusas : [];
+        const participantes = await responseParticipantes.json();
+        blusasEquipeCache = alinharRegistrosComParticipantes(participantes, Array.isArray(blusas) ? blusas : [], 'sem_solicitacao');
         pedidosBlusaBloqueadosCoordenador = Boolean(config.pedidos_bloqueados);
         renderizarResumoBlusas(blusasEquipeCache);
         
@@ -666,6 +697,7 @@ async function carregarBlusas() {
             const valorPendenteUsuario = valorPendentePorUsuario[Number(b.usuario_id)] || 0;
             const usuarioHtml = `
                 ${escapeHtml(b.nome_completo || '')}
+                ${b.tipo_cadastro === 'externo' ? '<br><span class="badge bg-secondary">Sem cadastro</span>' : ''}
                 ${valorPendenteUsuario > 0 ? `<br><small class="text-muted">A receber: ${formatarMoeda(valorPendenteUsuario)}</small>` : ''}
             `;
 
@@ -690,6 +722,10 @@ async function carregarBlusas() {
 }
 
 function renderizarAcoesBlusa(blusa, temSolicitacao, pago) {
+    if (blusa.tipo_cadastro === 'externo') return '<span class="text-muted">Aguardando cadastro</span>';
+    if (blusa.status_participacao && blusa.status_participacao !== 'confirmado' && !temSolicitacao) {
+        return '<span class="text-muted">Aguardando confirmação de participação</span>';
+    }
     if (pedidosBlusaBloqueadosCoordenador) {
         return temSolicitacao && !pago
             ? `<button class="btn btn-sm btn-success" onclick="abrirModalConfirmarPagamentoBlusa(${Number(blusa.id)})">Confirmar</button>`
@@ -1405,6 +1441,7 @@ function ordenarPorPerfilRelatorioCoordenador(a, b) {
 
 function formatarPerfilAcessoCoordenador(perfil) {
     const mapa = {
+        sem_pagamento: '<span class="badge bg-secondary">Sem cobrança</span>',
         coordenador: 'Coordenador',
         equipista: 'Equipista',
         equipe_dirigente: 'Dirigente',
